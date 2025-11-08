@@ -6,6 +6,7 @@ import Login from './pages/Login'
 import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import ChatbotDemo from './pages/demos/ChatbotDemo'
+import CustomChatbotDemo from './pages/demos/CustomChatbotDemo'
 import VisionDemo from './pages/demos/VisionDemo'
 import AgentGeneratorDemo from './pages/demos/AgentGeneratorDemo'
 import MarketplaceDemo from './pages/demos/MarketplaceDemo'
@@ -30,6 +31,7 @@ function App() {
         <Route path="/dashboard" element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="demo/chatbot" element={<ChatbotDemo />} />
+          <Route path="demo/custom-chatbot" element={<CustomChatbotDemo />} />
           <Route path="demo/vision" element={<VisionDemo />} />
           <Route path="demo/agent-generator" element={<AgentGeneratorDemo />} />
           <Route path="demo/marketplace" element={<MarketplaceDemo />} />

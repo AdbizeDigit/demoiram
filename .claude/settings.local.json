@@ -22,7 +22,14 @@
       "Bash(git push:*)",
       "Bash(gh:*)",
       "Bash(git remote set-url:*)",
-      "Bash(vercel:*)"
+      "Bash(vercel:*)",
+      "Bash(move \"imgi_57_eyJrZXkiOiJndXMvdXBsb2Fkcy9sb2dvcy9ob3N0aW5nZXIuanBnIiwib3V0cHV0Rm9ybWF0IjoiIiwiZWRpdHMiOnt9fQ.jpg\" \"imgi_57_hostinger.jpg\")",
+      "Bash(npm run build:*)",
+      "Bash(cmd /c \"if not exist .env copy .env.example .env\")",
+      "Bash(test:*)",
+      "Bash(node -e:*)",
+      "Bash(echo:*)",
+      "Bash(.vercelignore)"
     ],
     "deny": [],
     "ask": []

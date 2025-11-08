@@ -3,10 +3,12 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth.js'
 import chatbotRoutes from './routes/chatbot.js'
+import customChatbotRoutes from './routes/customChatbot.js'
 import agentRoutes from './routes/agent.js'
 import marketplaceRoutes from './routes/marketplace.js'
 import pythonApiRoutes from './routes/python-api.js'
 import { connectDB } from './config/database.js'
+import CustomChatbot from './models/CustomChatbot.js'
 
 dotenv.config()
 
@@ -21,9 +23,13 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }))
 // Connect to database
 connectDB()
 
+// Initialize custom chatbots table
+CustomChatbot.initTable().catch(err => console.error('Error initializing custom_chatbots table:', err))
+
 // Routes
 app.use('/api/auth', authRoutes)
 app.use('/api/chatbot', chatbotRoutes)
+app.use('/api/custom-chatbot', customChatbotRoutes)
 app.use('/api/agent', agentRoutes)
 app.use('/api/marketplace', marketplaceRoutes)
 app.use('/python-api', pythonApiRoutes)

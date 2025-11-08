@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
 import AnimatedNav from '../components/AnimatedNav'
 import HeroSection from '../components/HeroSection'
+import WhatsAppButton from '../components/WhatsAppButton'
 
 // Lazy load sections that are below the fold
 const AboutSection = lazy(() => import('../components/AboutSection'))
@@ -77,6 +78,9 @@ function LandingPage() {
       <Suspense fallback={<SectionLoader />}>
         <Footer />
       </Suspense>
+
+      {/* WhatsApp Floating Button */}
+      <WhatsAppButton />
     </div>
   )
 }

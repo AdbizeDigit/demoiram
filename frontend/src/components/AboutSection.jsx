@@ -53,15 +53,43 @@ function AboutSection() {
         <div className="mb-20">
           {/* Certifications */}
           <div className="mb-32 py-12">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center mb-16">
-              {/* Left Column - Title and Description */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+              {/* Left Column - Title, Description, and Certifications */}
               <div>
                 <h3 className="text-3xl md:text-5xl font-black text-left mb-8 shader-text">
                   Nuestras Certificaciones
                 </h3>
-                <p className="text-lg text-gray-600 text-left leading-relaxed">
+
+                <p className="text-lg text-gray-600 text-left leading-relaxed mb-12">
                   En Adbize, contamos con certificaciones reconocidas en marketing digital, desarrollo web e inteligencia artificial. Estas acreditaciones respaldan nuestro compromiso con la excelencia y aseguran que empleamos las mejores prácticas y tecnologías para ofrecer resultados de alto impacto a nuestros clientes.
                 </p>
+
+                {/* Certification Cards - 2x2 Grid */}
+                <div className="grid grid-cols-2 gap-4">
+                  {/* Certification logos */}
+                  {[
+                    'imgi_48_c30122710aaaf27ba163584f6194.png',
+                    'imgi_49_open_graph_everest_b37b4f5d2f.png',
+                    'imgi_50_analytics_master_achievement.png',
+                    'imgi_51_YU9RgEJE0n464PYVRmVU0VKeQlGF3jln-removebg-preview-removebg-preview.png'
+                  ].map((img, index) => (
+                    <AnimatedCard key={index} direction="left" delay={index * 150}>
+                      <div className="relative group w-full transition-all duration-300 hover:scale-105 hover:-translate-y-2 cursor-pointer">
+                        <div className="relative bg-white rounded-lg p-6 h-[200px] shadow-lg group-hover:shadow-2xl overflow-hidden transition-shadow duration-300">
+                          <div className="w-full h-full flex items-center justify-center p-2">
+                            <div className="relative w-full h-full flex items-center justify-center">
+                              <LazyImage
+                                src={`/certificaciones/${img}`}
+                                alt={`Certificación ${index + 1}`}
+                                className="max-w-full max-h-full w-auto h-auto object-contain"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </AnimatedCard>
+                  ))}
+                </div>
               </div>
 
               {/* Right Column - Character Image */}
@@ -73,41 +101,11 @@ function AboutSection() {
                 />
               </div>
             </div>
-
-            {/* Certification Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 items-center justify-items-center max-w-6xl mx-auto">
-              {/* Certification logos */}
-              {[
-                'imgi_48_c30122710aaaf27ba163584f6194.png',
-                'imgi_49_open_graph_everest_b37b4f5d2f.png',
-                'imgi_50_analytics_master_achievement.png',
-                'imgi_51_YU9RgEJE0n464PYVRmVU0VKeQlGF3jln-removebg-preview-removebg-preview.png'
-              ].map((img, index) => (
-                <AnimatedCard key={index} direction="left" delay={index * 150}>
-                  <div className="relative group w-full max-w-[220px] transition-all duration-300 hover:scale-110 hover:-translate-y-2 cursor-pointer mx-auto">
-                    <div className="absolute -inset-[2px] rounded-xl overflow-hidden opacity-75 group-hover:opacity-100 transition-opacity duration-500">
-                      <ShaderFluidBackground />
-                    </div>
-                    <div className="relative bg-white rounded-lg p-6 h-[170px] shadow-lg group-hover:shadow-2xl overflow-hidden transition-shadow duration-300">
-                      <div className="w-full h-full flex items-center justify-center p-2">
-                        <div className="relative w-full h-full flex items-center justify-center">
-                          <LazyImage
-                            src={`/certificaciones/${img}`}
-                            alt={`Certificación ${index + 1}`}
-                            className="max-w-full max-h-full w-auto h-auto object-contain"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </AnimatedCard>
-              ))}
-            </div>
           </div>
 
           {/* Partners */}
           <div className="py-12">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center mb-16">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
               {/* Left Column - Character Image */}
               <div className="flex items-center justify-center">
                 <LazyImage
@@ -117,47 +115,43 @@ function AboutSection() {
                 />
               </div>
 
-              {/* Right Column - Title and Description */}
+              {/* Right Column - Title, Description, and Partners */}
               <div>
                 <h3 className="text-3xl md:text-5xl font-black text-left mb-8 shader-text">
                   Nuestros Partners
                 </h3>
-                <p className="text-lg text-gray-600 text-left leading-relaxed">
+
+                <p className="text-lg text-gray-600 text-left leading-relaxed mb-12">
                   Nos enorgullece colaborar con partners de clase mundial que complementan nuestras capacidades. Estas alianzas nos permiten ofrecer soluciones innovadoras y personalizadas, integrando las mejores herramientas del mercado para potenciar el éxito de nuestros clientes.
                 </p>
-              </div>
-            </div>
 
-            {/* Partner Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 items-center justify-items-center">
-              {/* Partner logos */}
-              {[
-                'imgi_52_wixasda.webp',
-                'imgi_53_asasdasd-e1727288173413.png',
-                'imgi_54_Official-Partner-2asda.png',
-                'imgi_55_Shopify-Certified-Partner-Logo.png',
-                'imgi_56_Semrush-Agency-Partner-Badge-1.png',
-                'imgi_57_eyJrZXkiOiJndXMvdXBsb2Fkcy9sb2dvcy9ob3N0aW5nZXIuanBnIiwib3V0cHV0Zm9ybWF0IjoiIiwiZWRpdHMiOnt9fQ.jpg'
-              ].map((img, index) => (
-                <AnimatedCard key={index} direction="right" delay={index * 150}>
-                  <div className="relative group w-full max-w-[180px] transition-all duration-300 hover:scale-110 hover:-translate-y-2 cursor-pointer mx-auto">
-                    <div className="absolute -inset-[2px] rounded-xl overflow-hidden opacity-75 group-hover:opacity-100 transition-opacity duration-500">
-                      <ShaderFluidBackground />
-                    </div>
-                    <div className="relative bg-white rounded-lg p-5 h-[130px] shadow-lg group-hover:shadow-2xl overflow-hidden transition-shadow duration-300">
-                      <div className="w-full h-full flex items-center justify-center p-2">
-                        <div className="relative w-full h-full flex items-center justify-center">
-                          <LazyImage
-                            src={`/partners/${img}`}
-                            alt={`Partner ${index + 1}`}
-                            className="max-w-full max-h-full w-auto h-auto object-contain"
-                          />
+                {/* Partner Cards - 3 Columns Grid */}
+                <div className="grid grid-cols-3 gap-4">
+                  {/* Partner logos */}
+                  {[
+                    'imgi_52_wixasda.webp',
+                    'imgi_53_asasdasd-e1727288173413.png',
+                    'imgi_54_Official-Partner-2asda.png',
+                    'imgi_55_Shopify-Certified-Partner-Logo.png',
+                    'imgi_56_Semrush-Agency-Partner-Badge-1.png',
+                    'imgi_57_hostinger.jpg'
+                  ].map((img, index) => (
+                    <div key={index} className="relative group w-full transition-all duration-300 hover:scale-105 hover:-translate-y-2 cursor-pointer">
+                      <div className="relative bg-white rounded-lg p-6 h-[200px] shadow-lg group-hover:shadow-2xl overflow-hidden transition-shadow duration-300">
+                        <div className="w-full h-full flex items-center justify-center p-2">
+                          <div className="relative w-full h-full flex items-center justify-center">
+                            <LazyImage
+                              src={`/partners/${img}`}
+                              alt={`Partner ${index + 1}`}
+                              className="max-w-full max-h-full w-auto h-auto object-contain"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </AnimatedCard>
-              ))}
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>

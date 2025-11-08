@@ -11,7 +11,7 @@ function HeroSection() {
       <div className="relative h-full w-full flex items-center justify-center px-4 sm:px-6 lg:px-8" style={{ zIndex: 10 }}>
         <div className="max-w-[1400px] mx-auto w-full text-center relative">
           {/* Character Behind Title */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] md:w-[700px] md:h-[700px] opacity-60 pointer-events-none animate-pulse" style={{ animationDuration: '5s', zIndex: 1 }}>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] md:w-[700px] md:h-[700px] pointer-events-none" style={{ zIndex: 1 }}>
             <LazyImage
               src="/personajes/Generated Image November 04, 2025 - 11_09AM.png"
               alt="AI Character"

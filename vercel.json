@@ -1,13 +1,8 @@
 {
   "version": 2,
+  "buildCommand": "cd frontend && npm install && npm run build",
+  "outputDirectory": "frontend/dist",
   "builds": [
-    {
-      "src": "frontend/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    },
     {
       "src": "backend/server.js",
       "use": "@vercel/node"
@@ -24,22 +19,37 @@
     },
     {
       "src": "/assets/(.*)",
-      "dest": "frontend/dist/assets/$1"
+      "dest": "/assets/$1"
     },
     {
       "src": "/personajes/(.*)",
-      "dest": "frontend/dist/personajes/$1"
+      "dest": "/personajes/$1"
+    },
+    {
+      "src": "/partners/(.*)",
+      "dest": "/partners/$1"
+    },
+    {
+      "src": "/certificaciones/(.*)",
+      "dest": "/certificaciones/$1"
+    },
+    {
+      "src": "/trabajos/(.*)",
+      "dest": "/trabajos/$1"
+    },
+    {
+      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|webp|ico|json|woff|woff2|ttf|eot))",
+      "dest": "/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "frontend/dist/$1"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "frontend/dist/index.html"
+      "dest": "/index.html"
     }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  }
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "backend/server.js"
+    }
+  ]
 }

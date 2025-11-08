@@ -5,14 +5,15 @@ import { useAuthStore } from '../store/authStore'
 
 const demos = [
   {
-    id: 'chatbot',
-    serviceKey: 'chatbot',
-    title: 'Chatbot con IA',
-    description: 'Asistente virtual inteligente con procesamiento de lenguaje natural',
+    id: 'custom-chatbot',
+    serviceKey: 'customChatbot',
+    title: 'Chatbot Personalizado',
+    description: 'Crea tus propios chatbots con IA personalizada usando DeepSeek',
     icon: MessageSquare,
     gradient: 'from-cyan-400 via-blue-500 to-purple-600',
     shadow: 'rgba(79, 172, 254, 0.4)',
-    path: '/demo/chatbot'
+    path: '/demo/custom-chatbot',
+    available: true
   },
   {
     id: 'vision',
@@ -22,7 +23,8 @@ const demos = [
     icon: Eye,
     gradient: 'from-purple-500 via-pink-500 to-red-500',
     shadow: 'rgba(168, 85, 247, 0.4)',
-    path: '/demo/vision'
+    path: '#',
+    available: false
   },
   {
     id: 'agent-generator',
@@ -32,7 +34,8 @@ const demos = [
     icon: Users,
     gradient: 'from-green-400 via-emerald-500 to-teal-600',
     shadow: 'rgba(52, 211, 153, 0.4)',
-    path: '/demo/agent-generator'
+    path: '#',
+    available: false
   },
   {
     id: 'marketplace',
@@ -42,7 +45,8 @@ const demos = [
     icon: ShoppingCart,
     gradient: 'from-orange-400 via-red-500 to-pink-600',
     shadow: 'rgba(251, 146, 60, 0.4)',
-    path: '/demo/marketplace'
+    path: '#',
+    available: false
   },
   {
     id: 'sentiment',
@@ -52,7 +56,8 @@ const demos = [
     icon: Heart,
     gradient: 'from-pink-400 via-fuchsia-500 to-purple-600',
     shadow: 'rgba(244, 114, 182, 0.4)',
-    path: '/demo/sentiment'
+    path: '#',
+    available: false
   },
   {
     id: 'transcription',
@@ -62,7 +67,8 @@ const demos = [
     icon: Mic,
     gradient: 'from-indigo-400 via-blue-500 to-cyan-600',
     shadow: 'rgba(129, 140, 248, 0.4)',
-    path: '/demo/transcription'
+    path: '#',
+    available: false
   },
   {
     id: 'document',
@@ -72,7 +78,8 @@ const demos = [
     icon: FileText,
     gradient: 'from-yellow-400 via-orange-500 to-red-600',
     shadow: 'rgba(251, 191, 36, 0.4)',
-    path: '/demo/document'
+    path: '#',
+    available: false
   },
   {
     id: 'predictor',
@@ -82,7 +89,8 @@ const demos = [
     icon: TrendingUp,
     gradient: 'from-red-400 via-pink-500 to-purple-600',
     shadow: 'rgba(248, 113, 113, 0.4)',
-    path: '/demo/predictor'
+    path: '#',
+    available: false
   }
 ]
 
@@ -102,6 +110,10 @@ function Dashboard() {
     if (count === 1) return 'bg-orange-500'
     if (count === 2) return 'bg-yellow-500'
     return 'bg-green-500'
+  }
+
+  const isServiceAvailable = (demo) => {
+    return demo.available !== false
   }
 
   return (
@@ -130,9 +142,10 @@ function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {demos.map((demo, index) => {
           const Icon = demo.icon
-          const usageCount = getUsageCount(demo.serviceKey)
+          const available = isServiceAvailable(demo)
+          const usageCount = available ? getUsageCount(demo.serviceKey) : 0
           const badgeColor = getUsageBadgeColor(usageCount)
-          const isDisabled = usageCount === 0
+          const isDisabled = !available || usageCount === 0
 
           return (
             <Link
@@ -141,7 +154,10 @@ function Dashboard() {
               className={`card gooey-card group relative overflow-hidden ripple-effect ${isDisabled ? 'opacity-60 cursor-not-allowed' : ''}`}
               style={{ animationDelay: `${index * 0.1}s` }}
               onClick={(e) => {
-                if (isDisabled) {
+                if (!available) {
+                  e.preventDefault()
+                  alert('Este servicio estará disponible próximamente. Mantente atento a las actualizaciones.')
+                } else if (isDisabled) {
                   e.preventDefault()
                   alert('Has agotado tus usos gratuitos para este servicio. Contacta con soporte para obtener más.')
                 }
@@ -150,13 +166,18 @@ function Dashboard() {
               {/* Gradient background on hover */}
               <div className={`absolute inset-0 bg-gradient-to-br ${demo.gradient} opacity-0 group-hover:opacity-10 transition-opacity duration-500 rounded-2xl viscous-element`}></div>
 
-              {/* Usage badge */}
+              {/* Usage badge or Coming Soon badge */}
               <div className="absolute top-4 right-4 z-20">
-                <div className={`${badgeColor} text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center space-x-1`}>
-                  <span>{usageCount}</span>
-                  <span className="opacity-75">usos</span>
-                </div>
-              </div>
+                {!available ? (
+                  <div className="bg-gradient-to-r from-gray-500 to-gray-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                    Próximamente
+                  </div>
+                ) : (
+                  <div className={`${badgeColor} text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center space-x-1`}>
+                    <span>{usageCount}</span>
+                    <span className="opacity-75">usos</span>
+                  </div>
+                )}
 
               {/* Icon with liquid gooey effect */}
               <div className="relative">
@@ -184,8 +205,8 @@ function Dashboard() {
               </p>
 
               <div className={`mt-auto pt-4 font-bold text-sm flex items-center bg-gradient-to-r ${demo.gradient} bg-clip-text text-transparent`}>
-                {isDisabled ? 'Sin usos' : 'Ver demo'}
-                {!isDisabled && (
+                {!available ? 'Próximamente' : isDisabled ? 'Sin usos' : 'Ver demo'}
+                {available && !isDisabled && (
                   <svg className="w-4 h-4 ml-1 group-hover:translate-x-2 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 5l7 7-7 7" />
                   </svg>
