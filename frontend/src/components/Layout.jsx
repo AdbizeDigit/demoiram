@@ -1,7 +1,7 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { LogOut, Home, Sparkles } from 'lucide-react'
-import GooeyWaves from './GooeyWaves'
+import ModernBackground from './ModernBackground'
 
 function Layout() {
   const { user, logout } = useAuthStore()
@@ -14,13 +14,13 @@ function Layout() {
 
   return (
     <div className="min-h-screen">
-      <nav className="nav-glass sticky top-0 z-50">
+      <nav className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50 border-b border-gray-200/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             <div className="flex items-center space-x-8">
               <Link to="/dashboard" className="flex items-center space-x-3 group">
                 <div className="relative">
-                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 rounded-2xl blur-lg opacity-75 group-hover:opacity-100 transition-opacity"></div>
+                  <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 rounded-2xl blur-lg opacity-60 group-hover:opacity-100 transition-opacity"></div>
                   <img
                     src="/logo2023 (1).png"
                     alt="Adbize Logo"
@@ -30,11 +30,11 @@ function Layout() {
                       e.target.nextSibling.style.display = 'flex';
                     }}
                   />
-                  <div className="hidden w-12 h-12 rounded-2xl items-center justify-center liquid-gradient">
+                  <div className="hidden w-12 h-12 rounded-2xl items-center justify-center bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500">
                     <Sparkles className="text-white" size={24} />
                   </div>
                 </div>
-                <span className="text-2xl font-bold liquid-text">Adbize Demos</span>
+                <span className="text-2xl font-bold bg-gradient-to-r from-cyan-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">Adbize Demos</span>
               </Link>
 
               <Link to="/dashboard" className="flex items-center space-x-2 px-4 py-2 rounded-xl transition-all duration-300 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 group">
@@ -45,7 +45,7 @@ function Layout() {
 
             <div className="flex items-center space-x-4">
               <div className="px-4 py-2 rounded-xl bg-gradient-to-r from-purple-50 to-pink-50">
-                <span className="text-gray-700">Hola, <span className="font-bold liquid-text">{user?.name}</span></span>
+                <span className="text-gray-700">Hola, <span className="font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">{user?.name}</span></span>
               </div>
               <button
                 onClick={handleLogout}
@@ -63,8 +63,8 @@ function Layout() {
         <Outlet />
       </main>
 
-      {/* Olas líquidas gomosas 3D */}
-      <GooeyWaves />
+      {/* Modern gradient background */}
+      <ModernBackground />
     </div>
   )
 }

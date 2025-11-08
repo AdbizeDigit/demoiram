@@ -241,7 +241,7 @@
 @layer base {
   body {
     @apply text-gray-900;
-    background: #000000;
+    background: transparent;
     min-height: 100vh;
     position: relative;
     overflow-x: hidden;
