@@ -1,8 +1,13 @@
 {
   "version": 2,
-  "buildCommand": "cd frontend && npm install && npm run build",
-  "outputDirectory": "frontend/dist",
   "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
     {
       "src": "backend/server.js",
       "use": "@vercel/node"
@@ -19,31 +24,31 @@
     },
     {
       "src": "/assets/(.*)",
-      "dest": "/assets/$1"
+      "dest": "frontend/dist/assets/$1"
     },
     {
       "src": "/personajes/(.*)",
-      "dest": "/personajes/$1"
+      "dest": "frontend/dist/personajes/$1"
     },
     {
       "src": "/partners/(.*)",
-      "dest": "/partners/$1"
+      "dest": "frontend/dist/partners/$1"
     },
     {
       "src": "/certificaciones/(.*)",
-      "dest": "/certificaciones/$1"
+      "dest": "frontend/dist/certificaciones/$1"
     },
     {
       "src": "/trabajos/(.*)",
-      "dest": "/trabajos/$1"
+      "dest": "frontend/dist/trabajos/$1"
     },
     {
-      "src": "/(.*\\.(js|css|png|jpg|jpeg|gif|svg|webp|ico|json|woff|woff2|ttf|eot))",
-      "dest": "/$1"
+      "src": "/.*\\.(js|css|png|jpg|jpeg|gif|svg|webp|ico|json|woff|woff2|ttf|eot)",
+      "dest": "frontend/dist/$0"
     },
     {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "frontend/dist/index.html"
     }
   ]
 }
