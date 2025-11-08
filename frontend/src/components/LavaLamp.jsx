@@ -69,8 +69,12 @@ class Ball {
 class MetaballRenderer {
   constructor(canvas, numBalls, c0, c1, c2, speedMultiplier) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
-    this.step = 4;
+    this.ctx = canvas.getContext('2d', {
+      alpha: true,
+      desynchronized: true, // Better performance
+      willReadFrequently: false
+    });
+    this.step = 6; // Increased from 4 for better performance
     this.width = canvas.width;
     this.height = canvas.height;
     this.wh = Math.min(this.width, this.height);
@@ -235,11 +239,11 @@ class MetaballRenderer {
     this.ctx.fillStyle = this.metaFill;
     this.ctx.beginPath();
 
-    // Sombra externa más pronunciada
-    this.ctx.shadowBlur = 30;
-    this.ctx.shadowOffsetX = 5;
-    this.ctx.shadowOffsetY = 5;
-    this.ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+    // Reduced shadow for better performance
+    this.ctx.shadowBlur = 15;
+    this.ctx.shadowOffsetX = 3;
+    this.ctx.shadowOffsetY = 3;
+    this.ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
 
     i = 0;
     while ((ball = this.balls[i++])) {
@@ -258,23 +262,9 @@ class MetaballRenderer {
 
       if (this.paint) {
         this.ctx.fill();
-
-        // Sombra interna para efecto 3D
-        this.ctx.shadowBlur = 15;
-        this.ctx.shadowOffsetX = -2;
-        this.ctx.shadowOffsetY = -2;
-        this.ctx.shadowColor = "rgba(255, 255, 255, 0.3)";
-        this.ctx.fill();
-
         this.ctx.closePath();
         this.ctx.beginPath();
         this.paint = false;
-
-        // Restaurar sombra externa
-        this.ctx.shadowBlur = 30;
-        this.ctx.shadowOffsetX = 5;
-        this.ctx.shadowOffsetY = 5;
-        this.ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
       }
     }
   }
@@ -321,18 +311,12 @@ function LavaLamp() {
     const width = container.offsetWidth;
     const height = container.offsetHeight;
 
-    // Configure 10 layers with different colors and speeds
+    // Optimized: 4 layers instead of 10, fewer balls per layer
     const layers = [
-      { numBalls: 8, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
-      { numBalls: 8, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.5 },
-      { numBalls: 8, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 1.0 },
-      { numBalls: 8, colors: ["#ffff66", "#ffcc33", "#ffaa00"], speed: 0.5 },
-      { numBalls: 8, colors: ["#6666ff", "#8855ff", "#aa66ff"], speed: 1.8 },
-      { numBalls: 8, colors: ["#ff6666", "#ff5588", "#ff66aa"], speed: 0.8 },
-      { numBalls: 8, colors: ["#40e0d0", "#20d4c4", "#5fe8d8"], speed: 1.3 },
-      { numBalls: 8, colors: ["#e6b3ff", "#d699ff", "#cc80ff"], speed: 0.6 },
-      { numBalls: 8, colors: ["#ffb380", "#ff9966", "#ff8c66"], speed: 1.4 },
-      { numBalls: 8, colors: ["#98ff98", "#7fffd4", "#b0ffb0"], speed: 2.0 },
+      { numBalls: 5, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
+      { numBalls: 5, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
+      { numBalls: 5, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
+      { numBalls: 5, colors: ["#ffff66", "#ffcc33", "#ffaa00"], speed: 0.5 },
     ];
 
     // Initialize canvases and lava lamps
@@ -430,7 +414,7 @@ function LavaLamp() {
           }
         `}
       </style>
-      {[...Array(10)].map((_, index) => (
+      {[...Array(4)].map((_, index) => (
         <canvas
           key={index}
           ref={(el) => (canvasRefs.current[index] = el)}
@@ -444,6 +428,7 @@ function LavaLamp() {
             mixBlendMode: 'lighter',
             opacity: 1.0,
             zIndex: index + 1,
+            willChange: 'transform', // GPU acceleration
           }}
         />
       ))}

@@ -10,13 +10,20 @@ function HeroSection() {
       {/* Hero Content */}
       <div className="relative h-full w-full flex items-center justify-center px-4 sm:px-6 lg:px-8" style={{ zIndex: 10 }}>
         <div className="max-w-[1400px] mx-auto w-full text-center relative">
-          {/* Character Behind Title */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] md:w-[700px] md:h-[700px] pointer-events-none" style={{ zIndex: 1 }}>
-            <LazyImage
-              src="/personajes/Generated Image November 04, 2025 - 11_09AM.png"
-              alt="AI Character"
-              className="w-full h-full object-contain drop-shadow-2xl"
-            />
+          {/* Character Behind Title - Optimized with responsive images */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] md:w-[600px] md:h-[600px] pointer-events-none" style={{ zIndex: 1 }}>
+            <picture>
+              <source
+                media="(max-width: 768px)"
+                srcSet="/personajes/Generated Image November 04, 2025 - 11_09AM-mobile.png"
+              />
+              <LazyImage
+                src="/personajes/Generated Image November 04, 2025 - 11_09AM.png"
+                alt="AI Character"
+                className="w-full h-full object-contain drop-shadow-2xl"
+                priority={true}
+              />
+            </picture>
           </div>
 
           {/* Title */}
