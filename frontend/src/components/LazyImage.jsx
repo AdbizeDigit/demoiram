@@ -40,22 +40,6 @@ function LazyImage({ src, alt, className, priority = false, blurDataURL, ...prop
     }
   }, [src, priority])
 
-  // Get WebP version if available
-  const getOptimizedSrc = (originalSrc) => {
-    if (!originalSrc) return originalSrc
-
-    // Check if we should try WebP
-    const supportsWebP = document.createElement('canvas')
-      .toDataURL('image/webp')
-      .indexOf('data:image/webp') === 0
-
-    if (supportsWebP && originalSrc.match(/\.(jpg|jpeg|png)$/i)) {
-      return originalSrc.replace(/\.(jpg|jpeg|png)$/i, '.webp')
-    }
-
-    return originalSrc
-  }
-
   return (
     <div ref={imgRef} className="relative w-full h-full flex items-center justify-center">
       {/* Blur placeholder */}
@@ -77,34 +61,25 @@ function LazyImage({ src, alt, className, priority = false, blurDataURL, ...prop
         />
       )}
 
-      {/* Actual image with WebP support and fallback */}
+      {/* Actual image - images already optimized by vite-plugin-imagemin */}
       {isInView && imageSrc && (
-        <picture>
-          <source srcSet={getOptimizedSrc(imageSrc)} type="image/webp" />
-          <img
-            src={imageSrc}
-            alt={alt}
-            className={`transition-opacity duration-700 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className || ''}`}
-            onLoad={() => setIsLoaded(true)}
-            onError={(e) => {
-              // Fallback to original if WebP fails
-              if (e.target.src !== imageSrc) {
-                e.target.src = imageSrc
-              }
-            }}
-            loading={priority ? 'eager' : 'lazy'}
-            decoding="async"
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              width: 'auto',
-              height: 'auto',
-              objectFit: 'contain',
-              display: 'block'
-            }}
-            {...props}
-          />
-        </picture>
+        <img
+          src={imageSrc}
+          alt={alt}
+          className={`transition-opacity duration-700 ${isLoaded ? 'opacity-100' : 'opacity-0'} ${className || ''}`}
+          onLoad={() => setIsLoaded(true)}
+          loading={priority ? 'eager' : 'lazy'}
+          decoding="async"
+          style={{
+            maxWidth: '100%',
+            maxHeight: '100%',
+            width: 'auto',
+            height: 'auto',
+            objectFit: 'contain',
+            display: 'block'
+          }}
+          {...props}
+        />
       )}
     </div>
   )
