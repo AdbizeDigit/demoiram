@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { UserPlus } from 'lucide-react'
-import GooeyWaves from '../components/GooeyWaves'
+import { UserPlus, Mail, Lock, User, ArrowRight } from 'lucide-react'
 
 function Register() {
   const [name, setName] = useState('')
@@ -43,111 +42,200 @@ function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
-      {/* Olas líquidas gomosas 3D */}
-      <GooeyWaves />
+    <div className="min-h-screen flex">
+      {/* Left Side - Image & Branding */}
+      <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-purple-600 via-purple-700 to-indigo-900 overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0">
+          <div className="absolute top-20 left-20 w-72 h-72 bg-purple-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob"></div>
+          <div className="absolute top-40 right-20 w-72 h-72 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
+          <div className="absolute bottom-20 left-40 w-72 h-72 bg-indigo-500 rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-4000"></div>
+        </div>
 
-      <div className="max-w-md w-full relative z-10">
-        <div className="card gooey-card relative">
-          <div className="text-center mb-8">
-            <div className="relative inline-block mb-6">
-              <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 via-purple-500 to-pink-500 rounded-2xl blur-xl opacity-75 animate-pulse"></div>
-              <img
-                src="/logo2023 (1).png"
-                alt="Adbize Logo"
-                className="relative h-16 w-auto object-contain mx-auto"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.nextSibling.style.display = 'flex';
-                }}
-              />
-              <div className="hidden w-20 h-20 rounded-2xl items-center justify-center mx-auto liquid-gradient">
-                <UserPlus className="text-white" size={40} />
-              </div>
-            </div>
-            <h2 className="text-4xl font-bold liquid-text mb-2">Crear Cuenta</h2>
-            <p className="text-gray-600 font-medium">Únete a la plataforma de Demos IA</p>
+        {/* Content */}
+        <div className="relative z-10 flex flex-col justify-between p-12 w-full">
+          {/* Logo */}
+          <div>
+            <img
+              src="/logo2023.png"
+              alt="Adbize Logo"
+              className="h-10 w-auto object-contain filter drop-shadow-lg"
+            />
           </div>
 
+          {/* Center Character Image */}
+          <div className="flex-1 flex items-center justify-center">
+            <div className="relative">
+              <div className="absolute inset-0 bg-gradient-to-t from-purple-900/50 to-transparent rounded-full blur-3xl"></div>
+              <img
+                src="/personajes/imgi_6_glif-flux-pro-in-any-language-viktor-4e37a88401-g4zadzdu5kd5c2kl4ph5dewy-removebg-preview.png"
+                alt="Character"
+                className="relative w-96 h-auto object-contain drop-shadow-2xl animate-float"
+              />
+            </div>
+          </div>
+
+          {/* Bottom Text */}
+          <div className="text-white">
+            <h2 className="text-4xl font-bold mb-4">Únete a Adbize</h2>
+            <p className="text-purple-200 text-lg">
+              Crea tu cuenta y comienza a explorar demos interactivas de IA
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Form */}
+      <div className="w-full lg:w-1/2 flex items-center justify-center p-8 bg-white">
+        <div className="w-full max-w-md">
+          {/* Mobile Logo */}
+          <div className="lg:hidden mb-8 text-center">
+            <img
+              src="/logo2023.png"
+              alt="Adbize Logo"
+              className="h-10 w-auto object-contain mx-auto mb-4"
+            />
+          </div>
+
+          {/* Form Header */}
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Crear Cuenta</h1>
+            <p className="text-gray-600">Regístrate gratis y comienza ahora</p>
+          </div>
+
+          {/* Error Message */}
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-              {error}
+            <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded">
+              <p className="text-red-700 text-sm">{error}</p>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Name Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nombre completo
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
+                Nombre Completo
               </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="input-field"
-                placeholder="Juan Pérez"
-                required
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all duration-200"
+                  placeholder="Juan Pérez"
+                  required
+                />
+              </div>
             </div>
 
+            {/* Email Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                Correo Electrónico
               </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input-field"
-                placeholder="tu@email.com"
-                required
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Mail className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all duration-200"
+                  placeholder="tu@email.com"
+                  required
+                />
+              </div>
             </div>
 
+            {/* Password Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
                 Contraseña
               </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="input-field"
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all duration-200"
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                />
+              </div>
             </div>
 
+            {/* Confirm Password Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Confirmar contraseña
+              <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+                Confirmar Contraseña
               </label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="input-field"
-                placeholder="••••••••"
-                required
-              />
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Lock className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all duration-200"
+                  placeholder="Repite tu contraseña"
+                  required
+                />
+              </div>
             </div>
 
+            {/* Submit Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full btn-primary gooey-button flex items-center justify-center space-x-2 disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 px-4 rounded-lg font-semibold hover:from-purple-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center space-x-2 shadow-lg"
             >
-              <UserPlus size={20} />
-              <span>{loading ? 'Creando cuenta...' : 'Crear Cuenta'}</span>
+              {loading ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Creando cuenta...</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-5 w-5" />
+                  <span>Crear Cuenta</span>
+                  <ArrowRight className="h-5 w-5" />
+                </>
+              )}
             </button>
           </form>
 
-          <p className="text-center text-gray-600 mt-6">
-            ¿Ya tienes cuenta?{' '}
-            <Link to="/login" className="text-primary-600 hover:text-primary-700 font-semibold">
-              Inicia sesión aquí
-            </Link>
-          </p>
+          {/* Login Link */}
+          <div className="mt-8 text-center">
+            <p className="text-gray-600">
+              ¿Ya tienes una cuenta?{' '}
+              <Link
+                to="/login"
+                className="font-semibold text-purple-600 hover:text-purple-700 transition-colors"
+              >
+                Inicia sesión
+              </Link>
+            </p>
+          </div>
+
+          {/* Divider */}
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <p className="text-center text-sm text-gray-500">
+              Al registrarte, aceptas nuestros Términos de Servicio y Política de Privacidad
+            </p>
+          </div>
         </div>
       </div>
     </div>
