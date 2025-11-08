@@ -1,0 +1,30 @@
+{
+  "name": "adbize-demo-platform",
+  "version": "1.0.0",
+  "description": "Plataforma de exhibición de demos de IA con React y Node.js",
+  "scripts": {
+    "install-all": "cd frontend && npm install && cd ../backend && npm install",
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "build:vercel": "cd frontend && npm run vercel-build",
+    "start": "cd backend && npm start",
+    "vercel-build": "npm run build:vercel"
+  },
+  "keywords": [
+    "ai",
+    "demos",
+    "react",
+    "nodejs",
+    "python",
+    "computer-vision",
+    "nlp",
+    "machine-learning"
+  ],
+  "author": "Adbize",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
