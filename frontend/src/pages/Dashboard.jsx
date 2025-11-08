@@ -178,6 +178,7 @@ function Dashboard() {
                     <span className="opacity-75">usos</span>
                   </div>
                 )}
+              </div>
 
               {/* Icon with liquid gooey effect */}
               <div className="relative">
