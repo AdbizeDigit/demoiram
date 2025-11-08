@@ -1,5 +1,5 @@
 import express from 'express'
-import { protect } from '../middleware/auth.js'
+import { protect, checkServiceLimit } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -18,7 +18,7 @@ const mockSellers = [
   { name: 'Data Analytics Pro', description: 'Análisis de datos y business intelligence', location: 'Puebla', budget: '$2000 - $6000', matchScore: 78 }
 ]
 
-router.post('/search', protect, async (req, res) => {
+router.post('/search', protect, checkServiceLimit('marketplace'), async (req, res) => {
   try {
     const { type, product, budget, location } = req.body
 
@@ -47,7 +47,13 @@ router.post('/search', protect, async (req, res) => {
     // Sort by match score
     results.sort((a, b) => b.matchScore - a.matchScore)
 
-    res.json({ results, total: results.length, type, query: product })
+    res.json({
+      results,
+      total: results.length,
+      type,
+      query: product,
+      remainingUses: req.remainingUses
+    })
   } catch (error) {
     console.error('Marketplace search error:', error)
     res.status(500).json({ error: 'Error al buscar en marketplace', details: error.message })

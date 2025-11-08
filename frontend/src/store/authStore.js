@@ -44,6 +44,17 @@ export const useAuthStore = create(
         delete axios.defaults.headers.common['Authorization']
       },
 
+      fetchUserData: async () => {
+        try {
+          const response = await axios.get(`${API_URL}/me`)
+          set({ user: response.data.user })
+          return { success: true }
+        } catch (error) {
+          console.error('Error fetching user data:', error)
+          return { success: false, error: error.response?.data?.message || 'Error al obtener datos del usuario' }
+        }
+      },
+
       initializeAuth: () => {
         const state = useAuthStore.getState()
         if (state.token) {

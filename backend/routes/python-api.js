@@ -1,9 +1,10 @@
 import express from 'express'
+import { protect, checkServiceLimit } from '../middleware/auth.js'
 
 const router = express.Router()
 
 // Object detection endpoint
-router.post('/vision/detect', async (req, res) => {
+router.post('/vision/detect', protect, checkServiceLimit('vision'), async (req, res) => {
   try {
     const { image } = req.body
 
@@ -23,7 +24,8 @@ router.post('/vision/detect', async (req, res) => {
     res.json({
       detections: mockDetections,
       count: mockDetections.length,
-      status: 'success'
+      status: 'success',
+      remainingUses: req.remainingUses
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
@@ -31,7 +33,7 @@ router.post('/vision/detect', async (req, res) => {
 })
 
 // Sentiment analysis endpoint
-router.post('/sentiment/analyze', async (req, res) => {
+router.post('/sentiment/analyze', protect, checkServiceLimit('sentiment'), async (req, res) => {
   try {
     const { text } = req.body
 
@@ -72,7 +74,8 @@ router.post('/sentiment/analyze', async (req, res) => {
       confidence,
       emotions,
       keywords,
-      status: 'success'
+      status: 'success',
+      remainingUses: req.remainingUses
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
@@ -80,7 +83,7 @@ router.post('/sentiment/analyze', async (req, res) => {
 })
 
 // Audio transcription endpoint
-router.post('/transcription/process', async (req, res) => {
+router.post('/transcription/process', protect, checkServiceLimit('transcription'), async (req, res) => {
   try {
     if (!req.files || !req.files.audio) {
       return res.status(400).json({ error: 'No audio file provided' })
@@ -105,7 +108,8 @@ presentaciones, entrevistas o cualquier contenido de audio que necesite ser conv
         wordCount: 89,
         language: 'Español'
       },
-      status: 'success'
+      status: 'success',
+      remainingUses: req.remainingUses
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
@@ -113,7 +117,7 @@ presentaciones, entrevistas o cualquier contenido de audio que necesite ser conv
 })
 
 // Document analysis endpoint
-router.post('/document/analyze', async (req, res) => {
+router.post('/document/analyze', protect, checkServiceLimit('document_analysis'), async (req, res) => {
   try {
     if (!req.files || !req.files.document) {
       return res.status(400).json({ error: 'No document provided' })
@@ -148,7 +152,8 @@ router.post('/document/analyze', async (req, res) => {
         wordCount: 1250,
         language: 'Español'
       },
-      status: 'success'
+      status: 'success',
+      remainingUses: req.remainingUses
     })
   } catch (error) {
     res.status(500).json({ error: error.message })
@@ -156,7 +161,7 @@ router.post('/document/analyze', async (req, res) => {
 })
 
 // Time series forecasting endpoint
-router.post('/predictor/forecast', async (req, res) => {
+router.post('/predictor/forecast', protect, checkServiceLimit('predictor'), async (req, res) => {
   try {
     if (!req.files || !req.files.data) {
       return res.status(400).json({ error: 'No data file provided' })
@@ -201,7 +206,8 @@ router.post('/predictor/forecast', async (req, res) => {
       changePercent,
       chartData,
       insights,
-      status: 'success'
+      status: 'success',
+      remainingUses: req.remainingUses
     })
   } catch (error) {
     res.status(500).json({ error: error.message })

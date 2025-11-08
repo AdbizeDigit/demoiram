@@ -1,6 +1,6 @@
 import express from 'express'
 import OpenAI from 'openai'
-import { protect } from '../middleware/auth.js'
+import { protect, checkServiceLimit } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -9,7 +9,7 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
 
-router.post('/', protect, async (req, res) => {
+router.post('/', protect, checkServiceLimit('chatbot'), async (req, res) => {
   try {
     const { message, history } = req.body
 
@@ -32,7 +32,10 @@ router.post('/', protect, async (req, res) => {
         temperature: 0.7
       })
 
-      res.json({ response: completion.choices[0].message.content })
+      res.json({
+        response: completion.choices[0].message.content,
+        remainingUses: req.remainingUses
+      })
     } else {
       // Mock response for demo
       const responses = [
@@ -48,7 +51,10 @@ router.post('/', protect, async (req, res) => {
       // Simulate API delay
       await new Promise(resolve => setTimeout(resolve, 1000))
 
-      res.json({ response: mockResponse })
+      res.json({
+        response: mockResponse,
+        remainingUses: req.remainingUses
+      })
     }
   } catch (error) {
     console.error('Chatbot error:', error)

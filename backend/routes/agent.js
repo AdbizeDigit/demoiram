@@ -1,6 +1,6 @@
 import express from 'express'
 import OpenAI from 'openai'
-import { protect } from '../middleware/auth.js'
+import { protect, checkServiceLimit } from '../middleware/auth.js'
 
 const router = express.Router()
 
@@ -8,7 +8,7 @@ const openai = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null
 
-router.post('/generate', protect, async (req, res) => {
+router.post('/generate', protect, checkServiceLimit('agent_generator'), async (req, res) => {
   try {
     const { name, role, skills, personality } = req.body
 
@@ -66,7 +66,10 @@ Tu objetivo es ayudar a los usuarios de manera eficiente utilizando tus habilida
       createdAt: new Date().toISOString()
     }
 
-    res.json({ agent })
+    res.json({
+      agent,
+      remainingUses: req.remainingUses
+    })
   } catch (error) {
     console.error('Agent generation error:', error)
     res.status(500).json({ error: 'Error al generar agente', details: error.message })

@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { LogIn, UserPlus, User, LogOut } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
 import { AJS } from '../utils/easing';
 
 function AnimatedNav() {
   const [isOpen, setIsOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, isAuthenticated, logout } = useAuthStore();
   const animationFrameRef = useRef(null);
   const topLineRef = useRef(null);
   const middleLineRef = useRef(null);
@@ -135,6 +138,12 @@ function AnimatedNav() {
     }
   };
 
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+    setIsOpen(false);
+  };
+
   return (
     <>
       {/* Modern Glassmorphism Navigation Header */}
@@ -157,17 +166,55 @@ function AnimatedNav() {
                 </div>
 
                 {/* Desktop Navigation Links */}
-                <div className="hidden lg:flex items-center gap-8">
+                <div className="hidden lg:flex items-center gap-6">
                   {menuItems.map((item) => (
                     <button
                       key={item.name}
                       onClick={() => handleNavigation(item.path)}
-                      className="text-white font-semibold text-lg hover:text-purple-300 transition-colors duration-300 relative group"
+                      className="text-white font-semibold text-base hover:text-purple-300 transition-colors duration-300 relative group"
                     >
                       {item.name}
                       <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-purple-300 transition-all duration-300 group-hover:w-full"></span>
                     </button>
                   ))}
+
+                  {/* Auth Buttons */}
+                  <div className="flex items-center gap-3 ml-4 pl-4 border-l border-white/20">
+                    {isAuthenticated ? (
+                      <>
+                        <button
+                          onClick={() => handleNavigation('/dashboard')}
+                          className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-lg text-white font-semibold transition-all duration-300 border border-white/20"
+                        >
+                          <User size={18} />
+                          <span className="text-sm">{user?.name?.split(' ')[0] || 'Usuario'}</span>
+                        </button>
+                        <button
+                          onClick={handleLogout}
+                          className="flex items-center gap-2 px-4 py-2 bg-red-500/80 hover:bg-red-600 backdrop-blur-sm rounded-lg text-white font-semibold transition-all duration-300"
+                        >
+                          <LogOut size={18} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => handleNavigation('/login')}
+                          className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-lg text-white font-semibold transition-all duration-300 border border-white/20"
+                        >
+                          <LogIn size={18} />
+                          <span className="text-sm">Iniciar Sesión</span>
+                        </button>
+                        <button
+                          onClick={() => handleNavigation('/register')}
+                          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-lg text-white font-semibold transition-all duration-300 shadow-lg shadow-purple-500/30"
+                        >
+                          <UserPlus size={18} />
+                          <span className="text-sm">Registrarse</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 {/* Mobile Menu Button */}
@@ -267,6 +314,45 @@ function AnimatedNav() {
                   </li>
                 ))}
               </ul>
+
+              {/* Mobile Auth Section */}
+              <div className="mt-12 pt-8 border-t border-white/20">
+                {isAuthenticated ? (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => handleNavigation('/dashboard')}
+                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300 border border-white/20"
+                    >
+                      <User size={24} />
+                      <span>{user?.name || 'Mi Cuenta'}</span>
+                    </button>
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-red-500/80 hover:bg-red-600 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300"
+                    >
+                      <LogOut size={24} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() => handleNavigation('/login')}
+                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300 border border-white/20"
+                    >
+                      <LogIn size={24} />
+                      <span>Iniciar Sesión</span>
+                    </button>
+                    <button
+                      onClick={() => handleNavigation('/register')}
+                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-xl text-white font-bold text-xl transition-all duration-300 shadow-lg shadow-purple-500/30"
+                    >
+                      <UserPlus size={24} />
+                      <span>Registrarse</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

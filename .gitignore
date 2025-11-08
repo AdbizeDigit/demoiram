@@ -38,3 +38,5 @@ backend/python-service/venv/
 
 # Vercel
 .vercel
+
+.vercel
