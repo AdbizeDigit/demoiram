@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "node --watch server.js",
     "start": "node server.js",
-    "python": "cd python-service && python app.py"
+    "python": "cd python-service && python app.py",
+    "init-db": "node scripts/init-db.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
