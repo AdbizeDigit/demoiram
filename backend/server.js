@@ -5,9 +5,33 @@ import authRoutes from './routes/auth.js'
 import chatbotRoutes from './routes/chatbot.js'
 import customChatbotRoutes from './routes/customChatbot.js'
 import agentRoutes from './routes/agent.js'
+import agentGeneratorRoutes from './routes/agentGenerator.js'
 import marketplaceRoutes from './routes/marketplace.js'
 import pythonApiRoutes from './routes/python-api.js'
+import scrapingRoutes from './routes/scraping.js'
+import scrapingNewsRoutes from './routes/scraping-news.js'
+import companySearchRoutes from './routes/company-search.js'
+import multiSourceScrapingRoutes from './routes/multi-source-scraping.js'
+import advancedScrapingRoutes from './routes/advanced-scraping.js'
+import competitiveIntelligenceRoutes from './routes/competitive-intelligence.js'
+import smartServicesRoutes from './routes/smart-services.js'
+import intentTrackingRoutes from './routes/intent-tracking.js'
+import automationRoutes from './routes/automation.js'
+import dashboardMetricsRoutes from './routes/dashboard-metrics.js'
+import miniCrmRoutes from './routes/mini-crm.js'
+import campaignsRoutes from './routes/campaigns.js'
+import aiAssistantRoutes from './routes/ai-assistant.js'
+import socialScrapingRoutes from './routes/social-scraping.js'
+import orgChartScrapingRoutes from './routes/org-chart-scraping.js'
+import financialLegalScrapingRoutes from './routes/financial-legal-scraping.js'
+import jobScrapingRoutes from './routes/job-scraping.js'
+import emailSequencesRoutes from './routes/email-sequences.js'
+import multiChannelOutreachRoutes from './routes/multi-channel-outreach.js'
+import personalizationOptimizationRoutes from './routes/personalization-optimization.js'
+import pac3Routes from './routes/pac-3.0.js'
+import scrapingTerritoriesRoutes from './routes/scraping-territories.js'
 import { connectDB } from './config/database.js'
+import { initializeScheduledSearches } from './routes/automation.js'
 import CustomChatbot from './models/CustomChatbot.js'
 
 dotenv.config()
@@ -31,8 +55,31 @@ app.use('/api/auth', authRoutes)
 app.use('/api/chatbot', chatbotRoutes)
 app.use('/api/custom-chatbot', customChatbotRoutes)
 app.use('/api/agent', agentRoutes)
+app.use('/api/agent-generator', agentGeneratorRoutes)
 app.use('/api/marketplace', marketplaceRoutes)
 app.use('/python-api', pythonApiRoutes)
+app.use('/api/scraping', scrapingRoutes)
+app.use('/api/scraping', scrapingNewsRoutes)
+app.use('/api/scraping', companySearchRoutes)
+app.use('/api/multi-scraping', multiSourceScrapingRoutes)
+app.use('/api/advanced-scraping', advancedScrapingRoutes)
+app.use('/api/competitive-intelligence', competitiveIntelligenceRoutes)
+app.use('/api/smart-services', smartServicesRoutes)
+app.use('/api/intent', intentTrackingRoutes)
+app.use('/api/automation', automationRoutes)
+app.use('/api/metrics', dashboardMetricsRoutes)
+app.use('/api/crm', miniCrmRoutes)
+app.use('/api/campaigns', campaignsRoutes)
+app.use('/api/ai', aiAssistantRoutes)
+app.use('/api/social-scraping', socialScrapingRoutes)
+app.use('/api/org-chart', orgChartScrapingRoutes)
+app.use('/api/financial-legal', financialLegalScrapingRoutes)
+app.use('/api/job-scraping', jobScrapingRoutes)
+app.use('/api/email-sequences', emailSequencesRoutes)
+app.use('/api/multi-channel', multiChannelOutreachRoutes)
+app.use('/api/personalization', personalizationOptimizationRoutes)
+app.use('/api/pac-3.0', pac3Routes)
+app.use('/api/scraping', scrapingTerritoriesRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -45,7 +92,11 @@ app.use((err, req, res, next) => {
   res.status(500).json({ message: 'Something went wrong!', error: err.message })
 })
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`✅ Server running on port ${PORT}`)
   console.log(`📍 API available at http://localhost:${PORT}/api`)
+
+  // Inicializar búsquedas programadas automáticas
+  await initializeScheduledSearches()
+  console.log('🤖 Sistema de automatización inicializado')
 })

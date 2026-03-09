@@ -311,12 +311,17 @@ function LavaLamp() {
     const width = container.offsetWidth;
     const height = container.offsetHeight;
 
-    // Optimized: 4 layers instead of 10, fewer balls per layer
-    const layers = [
-      { numBalls: 5, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
-      { numBalls: 5, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
-      { numBalls: 5, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
-      { numBalls: 5, colors: ["#ffff66", "#ffcc33", "#ffaa00"], speed: 0.5 },
+    // Ultra-optimized: 3 layers on mobile, 4 on desktop, fewer balls
+    const isMobile = window.innerWidth <= 768;
+    const layers = isMobile ? [
+      { numBalls: 3, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
+      { numBalls: 3, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
+      { numBalls: 3, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
+    ] : [
+      { numBalls: 4, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
+      { numBalls: 4, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
+      { numBalls: 4, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
+      { numBalls: 4, colors: ["#ffff66", "#ffcc33", "#ffaa00"], speed: 0.5 },
     ];
 
     // Initialize canvases and lava lamps

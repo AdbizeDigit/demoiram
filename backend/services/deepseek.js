@@ -1,13 +1,21 @@
 import axios from 'axios'
+import dotenv from 'dotenv'
+
+dotenv.config()
 
 class DeepSeekService {
   constructor() {
-    this.apiKey = process.env.DEEPSEEK_API_KEY
     this.baseURL = 'https://api.deepseek.com/v1'
   }
 
+  getApiKey() {
+    return process.env.DEEPSEEK_API_KEY
+  }
+
   async chat({ messages, temperature = 0.7, maxTokens = 500, model = 'deepseek-chat' }) {
-    if (!this.apiKey) {
+    const apiKey = this.getApiKey()
+
+    if (!apiKey) {
       throw new Error('DEEPSEEK_API_KEY no está configurada en el archivo .env')
     }
 
@@ -24,7 +32,7 @@ class DeepSeekService {
         {
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${this.apiKey}`
+            'Authorization': `Bearer ${apiKey}`
           }
         }
       )

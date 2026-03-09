@@ -12,3 +12,5 @@ python-dotenv==1.0.1
 scikit-learn==1.4.0
 pytesseract==0.3.10
 ultralytics==8.1.11
+requests==2.31.0
+beautifulsoup4==4.12.3

@@ -5,8 +5,11 @@ import authRoutes from '../backend/routes/auth.js'
 import chatbotRoutes from '../backend/routes/chatbot.js'
 import customChatbotRoutes from '../backend/routes/customChatbot.js'
 import agentRoutes from '../backend/routes/agent.js'
-import marketplaceRoutes from '../backend/routes/marketplace.js'
+import agentGeneratorRoutes from '../backend/routes/agentGenerator.js'
 import pythonApiRoutes from '../backend/routes/python-api.js'
+import scrapingRoutes from '../backend/routes/scraping.js'
+import scrapingNewsRoutes from '../backend/routes/scraping-news.js'
+import companySearchRoutes from '../backend/routes/company-search.js'
 import { connectDB } from '../backend/config/database.js'
 import CustomChatbot from '../backend/models/CustomChatbot.js'
 
@@ -30,7 +33,10 @@ app.use('/api/auth', authRoutes)
 app.use('/api/chatbot', chatbotRoutes)
 app.use('/api/custom-chatbot', customChatbotRoutes)
 app.use('/api/agent', agentRoutes)
-app.use('/api/marketplace', marketplaceRoutes)
+app.use('/api/agent-generator', agentGeneratorRoutes)
+app.use('/api/scraping', scrapingRoutes)
+app.use('/api/scraping', scrapingNewsRoutes)
+app.use('/api/scraping', companySearchRoutes)
 app.use('/python-api', pythonApiRoutes)
 
 // Health check

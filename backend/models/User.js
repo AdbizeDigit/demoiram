@@ -10,7 +10,7 @@ export const User = {
     const result = await pool.query(
       `INSERT INTO users (name, email, password)
        VALUES ($1, $2, $3)
-       RETURNING id, name, email, chatbot_uses, agent_generator_uses,
+       RETURNING id, name, email, chatbot_uses, custom_chatbot_uses, agent_generator_uses,
                  document_analysis_uses, marketplace_uses, predictor_uses,
                  sentiment_uses, transcription_uses, vision_uses, created_at`,
       [name, email.toLowerCase(), hashedPassword]
@@ -31,7 +31,7 @@ export const User = {
   // Buscar usuario por ID
   async findById(id) {
     const result = await pool.query(
-      `SELECT id, name, email, chatbot_uses, agent_generator_uses,
+      `SELECT id, name, email, role, chatbot_uses, custom_chatbot_uses, agent_generator_uses,
               document_analysis_uses, marketplace_uses, predictor_uses,
               sentiment_uses, transcription_uses, vision_uses, created_at
        FROM users WHERE id = $1`,
@@ -61,7 +61,7 @@ export const User = {
   // Obtener usos restantes de todos los servicios
   async getServiceUsage(userId) {
     const result = await pool.query(
-      `SELECT chatbot_uses, agent_generator_uses, document_analysis_uses,
+      `SELECT chatbot_uses, custom_chatbot_uses, agent_generator_uses, document_analysis_uses,
               marketplace_uses, predictor_uses, sentiment_uses,
               transcription_uses, vision_uses
        FROM users WHERE id = $1`,

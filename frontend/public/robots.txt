@@ -1,0 +1,23 @@
+# Robots.txt for Adbize AI Platform
+
+User-agent: *
+Allow: /
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /python-api/
+
+# Crawl-delay to be respectful
+Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://adbize.com/sitemap.xml
+
+# Block specific bots if needed
+User-agent: AhrefsBot
+Crawl-delay: 2
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /

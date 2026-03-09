@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LogIn, UserPlus, User, LogOut } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
@@ -123,7 +123,7 @@ function AnimatedNav() {
     };
   }, [isOpen]);
 
-  const handleNavigation = (path) => {
+  const handleNavigation = useCallback((path) => {
     setIsOpen(false);
 
     // Si es un anchor link (comienza con #), hacer scroll suave
@@ -136,13 +136,13 @@ function AnimatedNav() {
       // Si es una ruta normal, usar navigate
       navigate(path);
     }
-  };
+  }, [navigate]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logout();
     navigate('/');
     setIsOpen(false);
-  };
+  }, [logout, navigate]);
 
   return (
     <>
@@ -286,10 +286,10 @@ function AnimatedNav() {
                 />
               </div>
 
-              <h2 className="text-5xl md:text-6xl font-black text-white mb-12 shader-text">
+              <h2 className="text-3xl md:text-5xl lg:text-6xl font-black text-white mb-8 md:mb-12 shader-text">
                 Navegación
               </h2>
-              <ul className="space-y-6">
+              <ul className="space-y-4 md:space-y-6">
                 {menuItems.map((item, index) => (
                   <li
                     key={item.name}
@@ -306,7 +306,7 @@ function AnimatedNav() {
                         e.preventDefault();
                         handleNavigation(item.path);
                       }}
-                      className="inline-block text-4xl md:text-5xl font-bold text-white hover:text-yellow-300 transition-all duration-300 hover:translate-x-4 relative group"
+                      className="inline-block text-2xl md:text-4xl lg:text-5xl font-bold text-white hover:text-yellow-300 transition-all duration-300 hover:translate-x-4 relative group"
                     >
                       <span className="relative z-10">{item.name}</span>
                       <span className="absolute bottom-0 left-0 w-0 h-1 bg-yellow-300 transition-all duration-300 group-hover:w-full"></span>
@@ -316,38 +316,38 @@ function AnimatedNav() {
               </ul>
 
               {/* Mobile Auth Section */}
-              <div className="mt-12 pt-8 border-t border-white/20">
+              <div className="mt-8 md:mt-12 pt-6 md:pt-8 border-t border-white/20">
                 {isAuthenticated ? (
-                  <div className="space-y-4">
+                  <div className="space-y-3 md:space-y-4">
                     <button
                       onClick={() => handleNavigation('/dashboard')}
-                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300 border border-white/20"
+                      className="w-full flex items-center justify-center gap-2 md:gap-3 px-4 md:px-6 py-3 md:py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-base md:text-xl transition-all duration-300 border border-white/20"
                     >
-                      <User size={24} />
+                      <User size={20} />
                       <span>{user?.name || 'Mi Cuenta'}</span>
                     </button>
                     <button
                       onClick={handleLogout}
-                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-red-500/80 hover:bg-red-600 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300"
+                      className="w-full flex items-center justify-center gap-2 md:gap-3 px-4 md:px-6 py-3 md:py-4 bg-red-500/80 hover:bg-red-600 backdrop-blur-sm rounded-xl text-white font-bold text-base md:text-xl transition-all duration-300"
                     >
-                      <LogOut size={24} />
+                      <LogOut size={20} />
                       <span>Cerrar Sesión</span>
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3 md:space-y-4">
                     <button
                       onClick={() => handleNavigation('/login')}
-                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-xl transition-all duration-300 border border-white/20"
+                      className="w-full flex items-center justify-center gap-2 md:gap-3 px-4 md:px-6 py-3 md:py-4 bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-xl text-white font-bold text-base md:text-xl transition-all duration-300 border border-white/20"
                     >
-                      <LogIn size={24} />
+                      <LogIn size={20} />
                       <span>Iniciar Sesión</span>
                     </button>
                     <button
                       onClick={() => handleNavigation('/register')}
-                      className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-xl text-white font-bold text-xl transition-all duration-300 shadow-lg shadow-purple-500/30"
+                      className="w-full flex items-center justify-center gap-2 md:gap-3 px-4 md:px-6 py-3 md:py-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-xl text-white font-bold text-base md:text-xl transition-all duration-300 shadow-lg shadow-purple-500/30"
                     >
-                      <UserPlus size={24} />
+                      <UserPlus size={20} />
                       <span>Registrarse</span>
                     </button>
                   </div>
@@ -357,13 +357,13 @@ function AnimatedNav() {
           </div>
 
           {/* Contact Column */}
-          <div className="flex-1 flex items-center justify-center p-12 bg-black/20">
-            <div className="text-center lg:text-left space-y-8">
-              <h2 className="text-5xl md:text-6xl font-black text-white mb-12 shader-text">
+          <div className="flex-1 flex items-center justify-center p-8 md:p-12 bg-black/20">
+            <div className="text-center lg:text-left space-y-6 md:space-y-8">
+              <h2 className="text-3xl md:text-5xl lg:text-6xl font-black text-white mb-8 md:mb-12 shader-text">
                 Contacto
               </h2>
 
-              <div className="space-y-8">
+              <div className="space-y-6 md:space-y-8">
                 {contactItems.map((item, index) => (
                   <div
                     key={item.name}
@@ -374,12 +374,12 @@ function AnimatedNav() {
                       opacity: isOpen ? 1 : 0
                     }}
                   >
-                    <p className="text-white/70 text-sm md:text-base mb-2 uppercase tracking-wider">
+                    <p className="text-white/70 text-xs md:text-sm lg:text-base mb-2 uppercase tracking-wider">
                       {item.name}
                     </p>
                     <a
                       href={item.link}
-                      className="text-2xl md:text-3xl font-bold text-white hover:text-yellow-300 transition-colors duration-300 block"
+                      className="text-lg md:text-2xl lg:text-3xl font-bold text-white hover:text-yellow-300 transition-colors duration-300 block"
                     >
                       {item.value}
                     </a>
@@ -418,4 +418,4 @@ function AnimatedNav() {
   );
 }
 
-export default AnimatedNav;
+export default memo(AnimatedNav);

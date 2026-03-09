@@ -56,8 +56,12 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          // Keep React ecosystem together
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'ui-vendor': ['lucide-react'],
+          // Heavy libraries - split separately for better caching
+          'three-vendor': ['three'],
+          'ui-vendor': ['lucide-react', 'gsap'],
+          'utils-vendor': ['axios', 'zustand', 'marked']
         },
         // Optimize asset file names
         assetFileNames: (assetInfo) => {
@@ -78,11 +82,27 @@ export default defineConfig({
     terserOptions: {
       compress: {
         drop_console: true, // Remove console.logs in production
-        drop_debugger: true
+        drop_debugger: true,
+        pure_funcs: ['console.log', 'console.info', 'console.debug', 'console.trace'],
+        passes: 2
+      },
+      mangle: {
+        safari10: true
+      },
+      format: {
+        comments: false
       }
     },
     // Optimize asset inlining threshold
     assetsInlineLimit: 4096, // 4kb - smaller images will be inlined
+    // Enable CSS code splitting
+    cssCodeSplit: true,
+    // Source maps for production debugging (can be disabled for smaller builds)
+    sourcemap: false,
+    // Optimize reporting
+    reportCompressedSize: false,
+    // Reduce build time
+    target: 'esnext',
   },
   // Optimize dependencies
   optimizeDeps: {

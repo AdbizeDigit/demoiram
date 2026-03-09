@@ -43,6 +43,7 @@ router.post('/register', async (req, res) => {
           email: user.email,
           serviceUsage: {
             chatbot: user.chatbot_uses,
+            customChatbot: user.custom_chatbot_uses || 3,
             agentGenerator: user.agent_generator_uses,
             documentAnalysis: user.document_analysis_uses,
             marketplace: user.marketplace_uses,
@@ -87,6 +88,7 @@ router.post('/login', async (req, res) => {
           email: user.email,
           serviceUsage: {
             chatbot: user.chatbot_uses,
+            customChatbot: user.custom_chatbot_uses || 3,
             agentGenerator: user.agent_generator_uses,
             documentAnalysis: user.document_analysis_uses,
             marketplace: user.marketplace_uses,
@@ -118,6 +120,7 @@ router.get('/me', protect, async (req, res) => {
         email: req.user.email,
         serviceUsage: {
           chatbot: usage.chatbot_uses,
+          customChatbot: usage.custom_chatbot_uses || 3,
           agentGenerator: usage.agent_generator_uses,
           documentAnalysis: usage.document_analysis_uses,
           marketplace: usage.marketplace_uses,

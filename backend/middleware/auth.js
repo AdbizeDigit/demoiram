@@ -34,6 +34,19 @@ export const generateToken = (id) => {
   })
 }
 
+// Middleware para verificar rol de admin
+export const adminOnly = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'No autorizado' })
+  }
+
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Acceso denegado. Solo administradores pueden acceder a esta sección.' })
+  }
+
+  next()
+}
+
 // Middleware para verificar límites de uso de servicios
 export const checkServiceLimit = (serviceName) => {
   return async (req, res, next) => {

@@ -182,6 +182,23 @@ const fragmentShader = `
 function ShaderFluidBackground() {
   const containerRef = useRef(null);
   const mountedRef = useRef(false);
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768;
+
+  // Skip rendering on mobile for better performance
+  if (isMobile) {
+    return (
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)',
+          position: 'absolute',
+          inset: 0,
+        }}
+      />
+    );
+  }
 
   useEffect(() => {
     if (!containerRef.current || mountedRef.current) return;

@@ -786,6 +786,42 @@
     #takeover-nav .nav-title {
       font-size: 2.5em;
     }
+
+    /* Reduce animations on mobile for better performance */
+    .gooey-blob {
+      filter: blur(30px);
+    }
+
+    .demo-card-icon {
+      animation: float 4s ease-in-out infinite;
+    }
+
+    .liquid-text,
+    .multicolor-text,
+    .shader-text {
+      animation: none;
+      background-position: 0% 50%;
+    }
+
+    .btn-primary {
+      animation: none;
+      background-position: 0% 50%;
+    }
+
+    .btn-secondary {
+      animation: none;
+      background-position: 0% 50%;
+    }
+
+    .card::before {
+      animation: none;
+    }
+
+    .liquid-blob-bg::before,
+    .liquid-blob-bg::after {
+      animation: none;
+      filter: blur(60px);
+    }
   }
 
   @media screen and (max-width: 575px) {
@@ -851,5 +887,21 @@
 
   .animate-float {
     animation: float 6s ease-in-out infinite;
+  }
+
+  /* Animación para el gradiente del hero */
+  .animate-gradient {
+    background-size: 300% 300%;
+    animation: gradientFlow 8s ease infinite;
+  }
+
+  /* Hero futurista */
+  @keyframes slide {
+    0% {
+      transform: translateY(0);
+    }
+    100% {
+      transform: translateY(-50px);
+    }
   }
 }

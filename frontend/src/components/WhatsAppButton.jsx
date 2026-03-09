@@ -1,6 +1,9 @@
+import { memo } from 'react'
+
 function WhatsAppButton() {
   const whatsappNumber = "5493364200507"
   const whatsappURL = `https://wa.me/${whatsappNumber}`
+  const isMobile = typeof window !== 'undefined' && window.innerWidth <= 768
 
   return (
     <a
@@ -11,8 +14,8 @@ function WhatsAppButton() {
       aria-label="Contactar por WhatsApp"
     >
       <div className="relative">
-        {/* Glow effect */}
-        <div className="absolute inset-0 bg-green-400 rounded-full blur-xl opacity-60 group-hover:opacity-80 transition-opacity duration-300 animate-pulse"></div>
+        {/* Glow effect - reduced animation on mobile */}
+        <div className={`absolute inset-0 bg-green-400 rounded-full blur-xl opacity-60 group-hover:opacity-80 transition-opacity duration-300 ${!isMobile ? 'animate-pulse' : ''}`}></div>
 
         {/* Button */}
         <div className="relative w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden shadow-2xl transform transition-transform duration-300 group-hover:scale-110 group-hover:rotate-12">
@@ -36,4 +39,4 @@ function WhatsAppButton() {
   )
 }
 
-export default WhatsAppButton
+export default memo(WhatsAppButton)

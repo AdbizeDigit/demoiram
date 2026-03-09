@@ -3,25 +3,33 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node --watch server.js",
-    "start": "node server.js",
+    "dev": "concurrently \"node --watch server.js\" \"cd python-service && python app.py\"",
+    "start": "concurrently \"node server.js\" \"cd python-service && python app.py\"",
+    "server": "node server.js",
     "python": "cd python-service && python app.py",
-    "init-db": "node scripts/init-db.js"
+    "init-db": "node scripts/init-db.js",
+    "migrate": "node scripts/add-custom-chatbot-column.js",
+    "init-agent": "node scripts/init-agent-tables.js",
+    "migrate-opportunity": "node scripts/add-opportunity-detection-column.js",
+    "init-automation": "node scripts/init-automation-tables.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
+    "cheerio": "^1.1.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.1.1",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
     "openai": "^4.28.0",
     "pg": "^8.16.3",
     "socket.io": "^4.6.1"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.0.3"
   }
 }

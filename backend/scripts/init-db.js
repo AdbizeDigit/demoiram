@@ -25,6 +25,7 @@ async function initDatabase() {
 
         -- Contadores de uso para cada servicio (límite: 3 usos cada uno)
         chatbot_uses INTEGER DEFAULT 3,
+        custom_chatbot_uses INTEGER DEFAULT 3,
         agent_generator_uses INTEGER DEFAULT 3,
         document_analysis_uses INTEGER DEFAULT 3,
         marketplace_uses INTEGER DEFAULT 3,
@@ -49,6 +50,8 @@ async function initDatabase() {
         system_prompt TEXT NOT NULL,
         temperature DECIMAL(2,1) DEFAULT 0.7,
         max_tokens INTEGER DEFAULT 500,
+        personality VARCHAR(100),
+        tone VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
