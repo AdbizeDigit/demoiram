@@ -9,7 +9,7 @@
     "dev:backend": "cd backend && npm run dev",
     "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
     "build:vercel": "cd frontend && npm run vercel-build",
-    "start": "cd backend && npm start",
+    "start": "npm start --prefix backend",
     "vercel-build": "npm run build:vercel"
   },
   "keywords": [

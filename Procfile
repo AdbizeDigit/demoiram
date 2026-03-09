@@ -1,1 +1,1 @@
-web: bash -c 'cd backend && node server.js'
+web: npm run server --prefix backend
