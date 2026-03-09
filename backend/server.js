@@ -1,6 +1,11 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 import authRoutes from './routes/auth.js'
 import chatbotRoutes from './routes/chatbot.js'
 import customChatbotRoutes from './routes/customChatbot.js'
@@ -84,6 +89,17 @@ app.use('/api/scraping', scrapingTerritoriesRoutes)
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })
+})
+
+// Serve frontend static files in production
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')
+app.use(express.static(frontendDist))
+
+// SPA fallback - serve index.html for non-API routes
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(frontendDist, 'index.html'))
+  }
 })
 
 // Error handling middleware
