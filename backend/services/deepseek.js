@@ -71,4 +71,14 @@ class DeepSeekService {
   }
 }
 
-export default new DeepSeekService()
+const deepseekService = new DeepSeekService()
+
+export async function analyzeWithDeepSeek(prompt) {
+  const result = await deepseekService.chat({
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 2000
+  })
+  return result.content
+}
+
+export default deepseekService
