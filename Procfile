@@ -1,1 +1,1 @@
-web: node backend/server.js
+web: bash -c 'cd backend && node server.js'
