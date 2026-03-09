@@ -1,40 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import viteImagemin from 'vite-plugin-imagemin'
 
 export default defineConfig({
   plugins: [
     react(),
-    viteImagemin({
-      gifsicle: {
-        optimizationLevel: 7,
-        interlaced: false,
-      },
-      optipng: {
-        optimizationLevel: 7,
-      },
-      mozjpeg: {
-        quality: 75,
-      },
-      pngquant: {
-        quality: [0.65, 0.8],
-        speed: 4,
-      },
-      svgo: {
-        plugins: [
-          {
-            name: 'removeViewBox',
-          },
-          {
-            name: 'removeEmptyAttrs',
-            active: false,
-          },
-        ],
-      },
-      webp: {
-        quality: 75,
-      }
-    }),
   ],
   server: {
     port: 3000,
@@ -55,13 +24,27 @@ export default defineConfig({
     // Optimize chunks
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Keep React ecosystem together
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          // Heavy libraries - split separately for better caching
-          'three-vendor': ['three'],
-          'ui-vendor': ['lucide-react', 'gsap'],
-          'utils-vendor': ['axios', 'zustand', 'marked']
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-dom') || id.includes('react/') || id.includes('react-router')) {
+              return 'react-vendor'
+            }
+            if (id.includes('three')) {
+              return 'three-vendor'
+            }
+            if (id.includes('@tensorflow')) {
+              return 'tf-vendor'
+            }
+            if (id.includes('leaflet')) {
+              return 'map-vendor'
+            }
+            if (id.includes('lucide-react')) {
+              return 'ui-vendor'
+            }
+            if (id.includes('axios') || id.includes('zustand') || id.includes('marked')) {
+              return 'utils-vendor'
+            }
+          }
         },
         // Optimize asset file names
         assetFileNames: (assetInfo) => {

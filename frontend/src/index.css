@@ -454,9 +454,9 @@
   }
 
   .nav-glass {
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 4px 16px 0 rgba(102, 126, 234, 0.1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
   }
@@ -475,8 +475,8 @@
 
   .gooey-blob {
     animation: gooeyMove 20s ease-in-out infinite;
-    filter: blur(40px);
-    will-change: transform, border-radius;
+    filter: blur(20px);
+    will-change: transform;
   }
 
   .viscous-element {
@@ -616,7 +616,7 @@
     width: 600px;
     height: 600px;
     border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
-    filter: blur(80px);
+    filter: blur(40px);
     animation: gooeyMove 25s ease-in-out infinite;
   }
 

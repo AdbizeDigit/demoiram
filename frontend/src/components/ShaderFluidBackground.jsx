@@ -62,8 +62,8 @@ const fragmentShader = `
     float amplitude = 0.5;
     float frequency = 1.0;
 
-    // Optimized iterations for better performance
-    for(int i = 0; i < 4; i++) {
+    // Reduced iterations for better performance
+    for(int i = 0; i < 3; i++) {
       value += amplitude * snoise(p * frequency);
       frequency *= 2.0;
       amplitude *= 0.5;
@@ -209,7 +209,7 @@ function ShaderFluidBackground() {
     // Only initialize if this is the first instance
     if (instanceCount === 1 && !globalRenderer) {
       // Limit pixel ratio for better performance
-      const PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 1.5);
+      const PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, 1.0);
 
       // Setup camera
       globalCamera = new THREE.Camera();
@@ -319,9 +319,15 @@ function ShaderFluidBackground() {
       // Try to enable gyroscope
       requestGyroPermission();
 
-      // Animation loop
-      const animate = () => {
+      // Animation loop - throttled to 30fps for performance
+      let lastTime = 0;
+      const targetInterval = 1000 / 30; // 30fps
+      const animate = (currentTime) => {
         globalAnimationId = requestAnimationFrame(animate);
+
+        const delta = currentTime - lastTime;
+        if (delta < targetInterval) return;
+        lastTime = currentTime - (delta % targetInterval);
 
         if (globalUniforms) {
           globalUniforms.u_time.value += 0.05;

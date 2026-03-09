@@ -42,7 +42,7 @@ function LandingPage() {
       </div>
 
       {/* Main Content Section - Lazy loaded */}
-      <section className="min-h-screen bg-white/95 backdrop-blur-sm py-20 px-4 sm:px-6 lg:px-8">
+      <section className="min-h-screen bg-white py-20 px-4 sm:px-6 lg:px-8">
         <div className="max-w-[1400px] mx-auto">
           {/* About Section */}
           <div id="about">

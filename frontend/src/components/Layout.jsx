@@ -1,7 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut, Home, Sparkles } from 'lucide-react'
-import ModernBackground from './ModernBackground'
+import { LogOut } from 'lucide-react'
 
 function Layout() {
   const { user, logout } = useAuthStore()

@@ -239,11 +239,10 @@ class MetaballRenderer {
     this.ctx.fillStyle = this.metaFill;
     this.ctx.beginPath();
 
-    // Reduced shadow for better performance
-    this.ctx.shadowBlur = 15;
-    this.ctx.shadowOffsetX = 3;
-    this.ctx.shadowOffsetY = 3;
-    this.ctx.shadowColor = "rgba(0, 0, 0, 0.2)";
+    // Shadows disabled for performance
+    this.ctx.shadowBlur = 0;
+    this.ctx.shadowOffsetX = 0;
+    this.ctx.shadowOffsetY = 0;
 
     i = 0;
     while ((ball = this.balls[i++])) {
@@ -311,17 +310,14 @@ function LavaLamp() {
     const width = container.offsetWidth;
     const height = container.offsetHeight;
 
-    // Ultra-optimized: 3 layers on mobile, 4 on desktop, fewer balls
+    // Optimized: 2 layers on mobile, 2 on desktop for smooth performance
     const isMobile = window.innerWidth <= 768;
     const layers = isMobile ? [
+      { numBalls: 2, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
+      { numBalls: 2, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
+    ] : [
       { numBalls: 3, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
       { numBalls: 3, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
-      { numBalls: 3, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
-    ] : [
-      { numBalls: 4, colors: ["#00ffff", "#00ccff", "#66b3ff"], speed: 0.7 },
-      { numBalls: 4, colors: ["#ff66ff", "#ff33cc", "#cc66ff"], speed: 1.2 },
-      { numBalls: 4, colors: ["#66ff99", "#33ffaa", "#00ffcc"], speed: 0.9 },
-      { numBalls: 4, colors: ["#ffff66", "#ffcc33", "#ffaa00"], speed: 0.5 },
     ];
 
     // Initialize canvases and lava lamps
@@ -347,8 +343,16 @@ function LavaLamp() {
       );
     });
 
-    // Animation loop
-    const animate = () => {
+    // Animation loop - throttled to 30fps
+    let lastTime = 0;
+    const targetInterval = 1000 / 30;
+    const animate = (currentTime) => {
+      animationRef.current = requestAnimationFrame(animate);
+
+      const delta = currentTime - lastTime;
+      if (delta < targetInterval) return;
+      lastTime = currentTime - (delta % targetInterval);
+
       lavaLampsRef.current.forEach((lavaLamp, index) => {
         if (!lavaLamp) return;
         const canvas = canvasRefs.current[index];
@@ -356,8 +360,6 @@ function LavaLamp() {
         ctx.clearRect(0, 0, width, height);
         lavaLamp.renderMetaballs();
       });
-
-      animationRef.current = requestAnimationFrame(animate);
     };
 
     animate();
@@ -419,7 +421,7 @@ function LavaLamp() {
           }
         `}
       </style>
-      {[...Array(4)].map((_, index) => (
+      {[...Array(2)].map((_, index) => (
         <canvas
           key={index}
           ref={(el) => (canvasRefs.current[index] = el)}

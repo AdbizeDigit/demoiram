@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import compression from 'compression'
 import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -45,6 +46,7 @@ const app = express()
 const PORT = process.env.PORT || 5000
 
 // Middleware
+app.use(compression())
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
 app.use(express.urlencoded({ extended: true, limit: '50mb' }))
@@ -91,9 +93,18 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })
 })
 
-// Serve frontend static files in production
+// Serve frontend static files in production with cache headers
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist')
-app.use(express.static(frontendDist))
+app.use(express.static(frontendDist, {
+  maxAge: '1y',
+  etag: true,
+  setHeaders: (res, filePath) => {
+    // HTML files should not be cached aggressively
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Cache-Control', 'no-cache')
+    }
+  }
+}))
 
 // SPA fallback - serve index.html for non-API routes
 app.get('*', (req, res) => {

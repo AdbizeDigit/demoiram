@@ -135,7 +135,7 @@ function HeroSection() {
           <h1
             className="hero-title text-white relative px-4 leading-tight"
             style={{
-              textShadow: '0 4px 12px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 40px rgba(255, 255, 255, 0.3)',
+              textShadow: '0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.6)',
               zIndex: 10
             }}
           >
