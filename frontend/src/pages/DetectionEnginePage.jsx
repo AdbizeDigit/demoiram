@@ -80,12 +80,13 @@ export default function DetectionEnginePage() {
     setLoading(true)
     setError(null)
 
-    const [oppsRes, statsRes, statusRes, sourcesRes, logsRes] = await Promise.allSettled([
+    const [oppsRes, statsRes, statusRes, sourcesRes, logsRes, leadsStatsRes] = await Promise.allSettled([
       api.get('/api/detection/opportunities', { params: { limit: 100 } }),
       api.get('/api/detection/opportunities/stats'),
       api.get('/api/detection/scan/status'),
       api.get('/api/detection/sources'),
       api.get('/api/detection/logs', { params: { limit: 20 } }),
+      api.get('/api/scraping-engine/leads/stats'),
     ])
 
     if (oppsRes.status === 'fulfilled') {
@@ -130,6 +131,11 @@ export default function DetectionEnginePage() {
     if (statsRes.status === 'fulfilled') {
       const stats = statsRes.value.data
       setLeadsCount(stats.total || 0)
+    }
+
+    if (leadsStatsRes.status === 'fulfilled') {
+      const ld = leadsStatsRes.value.data?.data || leadsStatsRes.value.data
+      if (ld?.total) setLeadsCount(ld.total)
     }
 
     if (sourcesRes.status === 'fulfilled') {

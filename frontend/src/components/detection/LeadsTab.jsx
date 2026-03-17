@@ -36,24 +36,29 @@ export default function LeadsTab() {
       if (search) params.search = search;
       if (typeFilter) params.type = typeFilter;
 
-      const res = await api.get('/api/detection/opportunities', { params });
-      const data = res.data;
-      let items = data.data || data.opportunities || [];
+      const res = await api.get('/api/scraping-engine/leads', { params });
+      const data = res.data.data || res.data;
+      let items = data.leads || data.data || [];
 
-      // Transform opportunities into lead-like cards
-      items = items.map((opp) => ({
-        id: opp.id,
-        company: opp.company_mentioned || opp.company || opp.name || 'Sin empresa',
-        location: opp.location_mentioned || opp.location || opp.region || '',
-        type: opp.opportunity_type || opp.type || 'OTRO',
-        score: opp.relevance_score ?? opp.fitScore ?? 0,
-        priority: opp.priority || 'MEDIA',
-        description: opp.summary || opp.description || '',
-        source: opp.source || '',
-        createdAt: opp.created_at || opp.createdAt || opp.detectedAt || '',
-        value: opp.estimated_value || opp.value || 0,
-        raw: opp,
+      // Map lead fields
+      items = items.map((lead) => ({
+        id: lead.id,
+        company: lead.name || 'Sin empresa',
+        location: [lead.city, lead.state].filter(Boolean).join(', ') || lead.address || '',
+        type: lead.sector || 'OTRO',
+        score: lead.score ?? 0,
+        priority: lead.score >= 70 ? 'ALTA' : lead.score >= 40 ? 'MEDIA' : 'BAJA',
+        description: lead.address || '',
+        source: lead.source_url || '',
+        createdAt: lead.created_at || '',
+        value: 0,
+        phone: lead.phone || '',
+        email: lead.email || '',
+        website: lead.website || '',
+        raw: lead,
       }));
+
+      setTotal(data.total || items.length);
 
       // Client-side priority filter
       if (priorityFilter) {

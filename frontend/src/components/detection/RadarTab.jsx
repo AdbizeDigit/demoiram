@@ -63,14 +63,15 @@ export default function RadarTab({
     async function fetchStats() {
       try {
         const [statsRes, scanRes] = await Promise.all([
-          api.get('/api/detection/opportunities/stats').catch(() => null),
+          api.get('/api/scraping-engine/leads/stats').catch(() => null),
           api.get('/api/detection/scan/status').catch(() => null),
         ]);
 
         if (cancelled) return;
 
         if (statsRes && statsRes.data) {
-          setStats(statsRes.data);
+          const d = statsRes.data.data || statsRes.data;
+          setStats(d);
         } else {
           // Use fallback stats from props
           setStats(buildFallbackStats(opportunities, sources));
@@ -106,8 +107,12 @@ export default function RadarTab({
     );
   }
 
-  const emailPct = stats.total > 0 ? Math.round((stats.withEmail / stats.total) * 100) : 0;
-  const phonePct = stats.total > 0 ? Math.round((stats.withPhone / stats.total) * 100) : 0;
+  const totalLeads = stats.total || 0;
+  const withEmail = stats.withEmail || 0;
+  const withPhone = stats.withPhone || 0;
+  const withWebsite = stats.withWebsite || 0;
+  const emailPct = totalLeads > 0 ? Math.round((withEmail / totalLeads) * 100) : 0;
+  const phonePct = totalLeads > 0 ? Math.round((withPhone / totalLeads) * 100) : 0;
 
   // Enrichment data
   const byEnrichment = stats.byEnrichmentStatus || [];
@@ -119,7 +124,7 @@ export default function RadarTab({
   const bySector = stats.bySector || [];
   const sectorData = bySector.map((s, i) => ({
     name: s.sector || 'Sin sector',
-    value: s._count,
+    value: parseInt(s._count || s.count || 0),
     color: SECTOR_COLORS[i % SECTOR_COLORS.length],
   })).filter(s => s.value > 0);
 
