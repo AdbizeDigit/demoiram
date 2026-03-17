@@ -42,6 +42,8 @@ const InternalToolsPage = lazy(() => import('./pages/InternalToolsPage'))
 // Admin Section - Detection Engine
 const AdminLayout = lazy(() => import('./components/AdminLayout'))
 const DetectionEnginePage = lazy(() => import('./pages/DetectionEnginePage'))
+const EmailOutreachPage = lazy(() => import('./pages/EmailOutreachPage'))
+const WhatsAppOutreachPage = lazy(() => import('./pages/WhatsAppOutreachPage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -103,6 +105,8 @@ function App() {
           {/* Admin Section - separate layout with sidebar */}
           <Route path="/admin" element={<PrivateRoute><AdminLayout /></PrivateRoute>}>
             <Route index element={<DetectionEnginePage />} />
+            <Route path="email-outreach" element={<EmailOutreachPage />} />
+            <Route path="whatsapp-outreach" element={<WhatsAppOutreachPage />} />
             <Route path="*" element={<DetectionEnginePage />} />
           </Route>
         </Routes>

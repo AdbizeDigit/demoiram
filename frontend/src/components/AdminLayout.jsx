@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/authStore'
 import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
-  Shield, Search, Settings, BarChart3,
+  Shield, Search, Settings, BarChart3, Mail, MessageCircle,
 } from 'lucide-react'
 
 const navItems = [
@@ -15,6 +15,8 @@ const navItems = [
   { path: '/admin/reglas', icon: Cpu, label: 'Reglas' },
   { path: '/admin/pipeline', icon: GitBranch, label: 'Pipeline' },
   { path: '/admin/leads', icon: Users, label: 'Leads' },
+  { path: '/admin/email-outreach', icon: Mail, label: 'Email Outreach' },
+  { path: '/admin/whatsapp-outreach', icon: MessageCircle, label: 'WhatsApp Outreach' },
   { path: '/admin/logs', icon: Activity, label: 'Actividad' },
 ]
 
