@@ -3,7 +3,7 @@ import {
   Mail, Send, Clock, AlertCircle, CheckCircle, XCircle,
   Play, Square, Settings, ChevronDown, ChevronUp,
   Eye, RefreshCw, Filter, Users, BarChart3, Zap,
-  Edit3, Loader2
+  Edit3, Loader2, FlaskConical, Beaker, Copy, RotateCcw
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -67,6 +67,22 @@ export default function EmailOutreachPage() {
 
   // Notification
   const [notification, setNotification] = useState(null)
+
+  // Playground
+  const [playgroundOpen, setPlaygroundOpen] = useState(false)
+  const [pgTestEmail, setPgTestEmail] = useState('')
+  const [pgCompanyName, setPgCompanyName] = useState('Empresa Test SA')
+  const [pgSector, setPgSector] = useState('tecnologia')
+  const [pgCity, setPgCity] = useState('Buenos Aires')
+  const [pgEmailType, setPgEmailType] = useState('introduction')
+  const [pgTemperature, setPgTemperature] = useState(0.7)
+  const [pgWebsite, setPgWebsite] = useState('www.empresatest.com.ar')
+  const [pgPreview, setPgPreview] = useState(null)
+  const [pgSequence, setPgSequence] = useState(null)
+  const [pgActiveTab, setPgActiveTab] = useState('introduction')
+  const [pgSending, setPgSending] = useState(false)
+  const [pgStatus, setPgStatus] = useState(null) // null | 'generating' | 'sent' | 'error'
+  const [pgLogs, setPgLogs] = useState([])
 
   const showNotification = useCallback((message, type = 'success') => {
     setNotification({ message, type })
@@ -207,6 +223,211 @@ export default function EmailOutreachPage() {
     } finally {
       setStartingAuto(false)
     }
+  }
+
+  // ── Playground helpers ──
+
+  const PG_SECTORS = ['tecnologia', 'fabricas', 'consultora', 'software', 'alimentos', 'logistica', 'retail', 'construccion']
+  const PG_CITIES = ['Buenos Aires', 'Cordoba', 'Rosario', 'Mendoza', 'Tucuman', 'Salta']
+  const PG_EMAIL_TYPES = [
+    { value: 'introduction', label: 'Presentacion' },
+    { value: 'value', label: 'Valor' },
+    { value: 'case_study', label: 'Caso de Exito' },
+    { value: 'urgency', label: 'Urgencia' },
+    { value: 'last_chance', label: 'Ultimo' },
+  ]
+
+  const generateClientSideEmail = (type, data) => {
+    const { name, sector, city, website } = data
+    const templates = {
+      introduction: {
+        subject: `${name} - Potenciemos su presencia digital en ${city}`,
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
+<p>Mi nombre es [Tu Nombre] y me especializo en ayudar a empresas del sector <strong>${sector}</strong> en ${city} a potenciar su presencia digital y generar mas oportunidades de negocio.</p>
+<p>Hemos trabajado con empresas similares a la suya y los resultados han sido muy positivos:</p>
+<ul>
+<li>Incremento del 40% en leads calificados</li>
+<li>Reduccion del 25% en costo por adquisicion</li>
+<li>Mayor visibilidad en su mercado objetivo</li>
+</ul>
+<p>Me encantaria agendar una breve llamada de 15 minutos para mostrarle como podriamos replicar estos resultados para ${name}.</p>
+<p>Puede ver mas sobre nuestro trabajo en <a href="https://${website}">${website}</a>.</p>
+<p style="margin-top: 20px;">Saludos cordiales,<br/>[Tu Nombre]</p>
+</div>`
+      },
+      value: {
+        subject: `3 estrategias que empresas de ${sector} en ${city} estan usando para crecer`,
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
+<p>Le escribo porque identifique 3 oportunidades especificas para empresas de <strong>${sector}</strong> en ${city}:</p>
+<ol>
+<li><strong>Automatizacion de procesos comerciales:</strong> Reducir tiempos de respuesta a prospectos en un 60%</li>
+<li><strong>Segmentacion inteligente:</strong> Llegar al cliente ideal con precision usando datos de mercado</li>
+<li><strong>Contenido personalizado:</strong> Generar confianza con comunicacion relevante para su industria</li>
+</ol>
+<p>Estas estrategias han generado un ROI promedio de 3x para empresas como ${name}.</p>
+<p>Le interesaria una demo personalizada de 15 minutos?</p>
+<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
+</div>`
+      },
+      case_study: {
+        subject: `Como una empresa de ${sector} en ${city} aumento sus ventas un 150%`,
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
+<p>Queria compartirle un caso de exito que creo le resultara muy relevante:</p>
+<div style="background: #f8f9fa; border-left: 4px solid #10b981; padding: 15px; margin: 15px 0; border-radius: 4px;">
+<p><strong>Empresa:</strong> [Cliente del sector ${sector}] - ${city}</p>
+<p><strong>Desafio:</strong> Baja conversion de prospectos y proceso comercial manual</p>
+<p><strong>Solucion:</strong> Implementacion de automatizacion + IA para outreach personalizado</p>
+<p><strong>Resultados:</strong></p>
+<ul>
+<li>+150% en tasa de conversion</li>
+<li>-40% en tiempo de ciclo de venta</li>
+<li>+200% en pipeline de oportunidades</li>
+</ul>
+</div>
+<p>Creo que ${name} podria obtener resultados similares. Le gustaria conocer los detalles?</p>
+<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
+</div>`
+      },
+      urgency: {
+        subject: `${name}: oportunidad limitada para empresas de ${sector}`,
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
+<p>Le escribo porque estamos ofreciendo un <strong>programa exclusivo</strong> para empresas de ${sector} en ${city} con condiciones especiales que vencen este mes.</p>
+<p>El programa incluye:</p>
+<ul>
+<li>Auditoria completa de su proceso comercial actual (valorada en $500 USD)</li>
+<li>Setup e implementacion sin costo</li>
+<li>30 dias de prueba con soporte dedicado</li>
+<li>Descuento del 30% en el primer trimestre</li>
+</ul>
+<p style="background: #fef3c7; padding: 12px; border-radius: 6px; border: 1px solid #f59e0b;">Solo quedan <strong>5 lugares disponibles</strong> para empresas en ${city}. No quisiera que ${name} se quede afuera.</p>
+<p>Puedo agendarle una llamada esta semana?</p>
+<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
+</div>`
+      },
+      last_chance: {
+        subject: `Ultimo mensaje - ${name}`,
+        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
+<p>Este es mi ultimo mensaje. Entiendo que los tiempos pueden no ser los ideales, y no quiero ser insistente.</p>
+<p>Solo queria dejarle saber que seguimos disponibles cuando ${name} este lista para explorar nuevas oportunidades de crecimiento en el sector <strong>${sector}</strong>.</p>
+<p>Si en algun momento desea retomar la conversacion, puede:</p>
+<ul>
+<li>Responder a este email</li>
+<li>Agendar directamente en nuestro calendario: <a href="https://${website}">${website}</a></li>
+<li>Llamarnos sin compromiso</li>
+</ul>
+<p>Le deseo mucho exito a ${name} y a todo su equipo en ${city}.</p>
+<p style="margin-top: 20px;">Cordialmente,<br/>[Tu Nombre]</p>
+</div>`
+      },
+    }
+    return templates[type] || templates.introduction
+  }
+
+  const addPgLog = (message, type = 'info') => {
+    setPgLogs(prev => {
+      const newLogs = [{ message, type, time: new Date().toLocaleTimeString('es-AR') }, ...prev]
+      return newLogs.slice(0, 10)
+    })
+  }
+
+  const handlePgGeneratePreview = () => {
+    const start = performance.now()
+    setPgStatus('generating')
+    setPgSequence(null)
+    const data = { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite }
+    setTimeout(() => {
+      const email = generateClientSideEmail(pgEmailType, data)
+      setPgPreview(email)
+      setPgStatus(null)
+      const elapsed = (performance.now() - start).toFixed(0)
+      addPgLog(`Preview generado (${PG_EMAIL_TYPES.find(t => t.value === pgEmailType)?.label}) - ${elapsed}ms - client-side render`, 'success')
+    }, 300)
+  }
+
+  const handlePgGenerateSequence = () => {
+    const start = performance.now()
+    setPgStatus('generating')
+    setPgPreview(null)
+    const data = { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite }
+    setTimeout(() => {
+      const seq = {}
+      PG_EMAIL_TYPES.forEach(t => {
+        seq[t.value] = generateClientSideEmail(t.value, data)
+      })
+      setPgSequence(seq)
+      setPgActiveTab('introduction')
+      setPgStatus(null)
+      const elapsed = (performance.now() - start).toFixed(0)
+      addPgLog(`Secuencia completa generada (5 emails) - ${elapsed}ms - client-side render`, 'success')
+    }, 500)
+  }
+
+  const handlePgSendTest = async () => {
+    if (!pgTestEmail) {
+      addPgLog('Error: Debes ingresar un email destino de prueba', 'error')
+      return
+    }
+    setPgSending(true)
+    setPgStatus('generating')
+    const currentPreview = pgSequence ? pgSequence[pgActiveTab] : pgPreview
+    if (!currentPreview) {
+      addPgLog('Error: Genera un preview primero antes de enviar', 'error')
+      setPgSending(false)
+      setPgStatus(null)
+      return
+    }
+    const start = performance.now()
+    try {
+      // NOTE: The backend /api/outreach/email/send endpoint needs to accept
+      // a `testEmail` field to override the lead's email for test sends.
+      await api.post('/api/outreach/email/send', {
+        lead_id: null,
+        subject: currentPreview.subject,
+        body: currentPreview.body,
+        testEmail: pgTestEmail,
+        testData: { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite },
+      })
+      setPgStatus('sent')
+      const elapsed = (performance.now() - start).toFixed(0)
+      addPgLog(`Email de prueba enviado a ${pgTestEmail} - ${elapsed}ms`, 'success')
+      setTimeout(() => setPgStatus(null), 3000)
+    } catch (err) {
+      setPgStatus('error')
+      const elapsed = (performance.now() - start).toFixed(0)
+      const errorMsg = err.response?.data?.error || err.message || 'Error desconocido'
+      addPgLog(`Error enviando a ${pgTestEmail}: ${errorMsg} - ${elapsed}ms`, 'error')
+      setTimeout(() => setPgStatus(null), 3000)
+    } finally {
+      setPgSending(false)
+    }
+  }
+
+  const handlePgCopyHtml = () => {
+    const currentPreview = pgSequence ? pgSequence[pgActiveTab] : pgPreview
+    if (currentPreview) {
+      navigator.clipboard.writeText(currentPreview.body)
+      addPgLog('HTML copiado al portapapeles', 'success')
+    }
+  }
+
+  const handlePgReset = () => {
+    setPgPreview(null)
+    setPgSequence(null)
+    setPgStatus(null)
+    setPgTestEmail('')
+    setPgCompanyName('Empresa Test SA')
+    setPgSector('tecnologia')
+    setPgCity('Buenos Aires')
+    setPgEmailType('introduction')
+    setPgTemperature(0.7)
+    setPgWebsite('www.empresatest.com.ar')
+    setPgLogs([])
+    addPgLog('Playground reseteado', 'info')
   }
 
   // ── Helpers ──
@@ -687,6 +908,285 @@ export default function EmailOutreachPage() {
               </div>
             )}
           </>
+        )}
+      </div>
+
+      {/* ═══ PLAYGROUND SECTION ═══ */}
+      <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
+        {/* Playground Header */}
+        <button
+          onClick={() => setPlaygroundOpen(!playgroundOpen)}
+          className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+              <FlaskConical className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div className="text-left">
+              <h2 className="text-base font-semibold text-gray-100">Playground Email</h2>
+              <p className="text-xs text-gray-500">Genera y testea emails con datos ficticios</p>
+            </div>
+          </div>
+          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${playgroundOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {/* Playground Content */}
+        {playgroundOpen && (
+          <div className="border-t border-gray-700/50 px-6 py-5 space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              {/* Left: Test Configuration */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Beaker className="w-4 h-4 text-blue-400" />
+                  <h3 className="text-sm font-semibold text-gray-300">Configuracion de Prueba</h3>
+                </div>
+
+                {/* Test email */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Email destino de prueba</label>
+                  <input
+                    type="email"
+                    value={pgTestEmail}
+                    onChange={(e) => setPgTestEmail(e.target.value)}
+                    placeholder="tu@email.com"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Company name */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Nombre empresa ficticia</label>
+                  <input
+                    type="text"
+                    value={pgCompanyName}
+                    onChange={(e) => setPgCompanyName(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Sector + City row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Sector</label>
+                    <select
+                      value={pgSector}
+                      onChange={(e) => setPgSector(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    >
+                      {PG_SECTORS.map(s => (
+                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Ciudad</label>
+                    <select
+                      value={pgCity}
+                      onChange={(e) => setPgCity(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    >
+                      {PG_CITIES.map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Email type */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Tipo de email</label>
+                  <select
+                    value={pgEmailType}
+                    onChange={(e) => setPgEmailType(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  >
+                    {PG_EMAIL_TYPES.map(t => (
+                      <option key={t.value} value={t.value}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Temperature slider */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Temperatura IA: <span className="text-emerald-400 font-mono">{pgTemperature}</span>
+                  </label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.1"
+                    value={pgTemperature}
+                    onChange={(e) => setPgTemperature(parseFloat(e.target.value))}
+                    className="w-full accent-emerald-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
+                    <span>0.1 Preciso</span>
+                    <span>1.0 Creativo</span>
+                  </div>
+                </div>
+
+                {/* Website */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Website ficticio</label>
+                  <input
+                    type="text"
+                    value={pgWebsite}
+                    onChange={(e) => setPgWebsite(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                  />
+                </div>
+
+                {/* Actions row */}
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={handlePgGeneratePreview}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    Generar Preview
+                  </button>
+                  <button
+                    onClick={handlePgSendTest}
+                    disabled={pgSending || !pgTestEmail}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    {pgSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Enviar Email de Prueba
+                  </button>
+                  <button
+                    onClick={handlePgGenerateSequence}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    Generar Secuencia Completa
+                  </button>
+                  <button
+                    onClick={handlePgCopyHtml}
+                    disabled={!pgPreview && !pgSequence}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-gray-300 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    Copiar HTML
+                  </button>
+                  <button
+                    onClick={handlePgReset}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    Reset
+                  </button>
+                </div>
+              </div>
+
+              {/* Right: Preview Area */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-gray-300">Preview</h3>
+                  {pgStatus === 'generating' && (
+                    <span className="flex items-center gap-1.5 text-xs text-blue-400">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Generando...
+                    </span>
+                  )}
+                  {pgStatus === 'sent' && (
+                    <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Enviado!
+                    </span>
+                  )}
+                  {pgStatus === 'error' && (
+                    <span className="flex items-center gap-1.5 text-xs text-red-400">
+                      <XCircle className="w-3.5 h-3.5" />
+                      Error al enviar
+                    </span>
+                  )}
+                </div>
+
+                {/* Sequence tabs */}
+                {pgSequence && (
+                  <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
+                    {PG_EMAIL_TYPES.map(t => (
+                      <button
+                        key={t.value}
+                        onClick={() => setPgActiveTab(t.value)}
+                        className={`flex-1 px-2 py-1.5 text-[11px] font-medium rounded-md transition-colors ${
+                          pgActiveTab === t.value
+                            ? 'bg-emerald-600 text-white'
+                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Email preview */}
+                {(pgPreview || pgSequence) ? (
+                  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                    {/* Subject */}
+                    <div className="px-4 py-2.5 border-b border-gray-700 bg-gray-800/80">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Asunto</p>
+                      <p className="text-sm text-gray-200 font-medium">
+                        {pgSequence ? pgSequence[pgActiveTab]?.subject : pgPreview?.subject}
+                      </p>
+                    </div>
+                    {/* Body */}
+                    <div className="p-4 bg-white max-h-[400px] overflow-y-auto">
+                      <div
+                        className="text-sm"
+                        dangerouslySetInnerHTML={{
+                          __html: pgSequence ? pgSequence[pgActiveTab]?.body : pgPreview?.body
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-gray-800 rounded-xl border border-gray-700 flex items-center justify-center h-64">
+                    <div className="text-center">
+                      <FlaskConical className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                      <p className="text-sm text-gray-500">Genera un preview para ver el email aqui</p>
+                      <p className="text-xs text-gray-600 mt-1">Los emails se generan client-side con templates</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Response Log */}
+            {pgLogs.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-700/50">
+                <h3 className="text-xs font-semibold text-gray-400 mb-2 uppercase tracking-wider">Response Log</h3>
+                <div className="bg-gray-950 rounded-lg border border-gray-800 max-h-[160px] overflow-y-auto font-mono text-xs">
+                  {pgLogs.map((log, i) => (
+                    <div
+                      key={i}
+                      className={`px-3 py-1.5 border-b border-gray-800/50 flex items-start gap-2 ${
+                        i === 0 ? 'bg-gray-900/50' : ''
+                      }`}
+                    >
+                      <span className="text-gray-600 flex-shrink-0">[{log.time}]</span>
+                      <span className={
+                        log.type === 'success' ? 'text-emerald-400' :
+                        log.type === 'error' ? 'text-red-400' :
+                        'text-blue-400'
+                      }>
+                        {log.type === 'success' ? '++' : log.type === 'error' ? '!!' : '--'}
+                      </span>
+                      <span className={
+                        log.type === 'success' ? 'text-emerald-300' :
+                        log.type === 'error' ? 'text-red-300' :
+                        'text-gray-400'
+                      }>
+                        {log.message}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

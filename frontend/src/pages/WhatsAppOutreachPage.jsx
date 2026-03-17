@@ -7,6 +7,7 @@ import {
   Loader2, RefreshCw, ChevronDown, ChevronUp, Filter,
   ChevronLeft, ChevronRight, Zap, AlertCircle, Users, Clock,
   ToggleLeft, ToggleRight, Sparkles, X, Search, Eye,
+  FlaskConical, RotateCcw,
 } from 'lucide-react'
 
 const PAGE_SIZE = 10
@@ -47,6 +48,19 @@ export default function WhatsAppOutreachPage() {
   const [statusFilter, setStatusFilter] = useState('ALL')
   const [page, setPage] = useState(1)
   const [searchTerm, setSearchTerm] = useState('')
+
+  // ── Playground state ──
+  const [playgroundOpen, setPlaygroundOpen] = useState(false)
+  const [pgPhone, setPgPhone] = useState('')
+  const [pgName, setPgName] = useState('Empresa Test SA')
+  const [pgSector, setPgSector] = useState('tecnologia')
+  const [pgCity, setPgCity] = useState('Buenos Aires')
+  const [pgWebsite, setPgWebsite] = useState('www.empresatest.com.ar')
+  const [pgContext, setPgContext] = useState('')
+  const [pgMessage, setPgMessage] = useState('')
+  const [pgVariations, setPgVariations] = useState([])
+  const [pgLog, setPgLog] = useState([])
+  const [pgApiLoading, setPgApiLoading] = useState(false)
 
   // ── Notifications ──
   const [toast, setToast] = useState(null)
@@ -155,6 +169,70 @@ export default function WhatsAppOutreachPage() {
     }).catch(() => {
       showToast('Error al copiar', 'error')
     })
+  }
+
+  // ── Playground: generate test message ──
+  const generateTestMessage = (data, style = 'professional') => {
+    const senderName = 'Gian Koch'
+    const templates = {
+      professional: `Hola! Soy ${senderName} de Adbize. Encontre a ${data.name} investigando empresas de ${data.sector} en ${data.city}. En Adbize ayudamos a empresas a automatizar procesos con inteligencia artificial. ¿Les interesaria saber como la IA puede ayudarles a crecer?`,
+      casual: `Hola! 👋 Soy ${senderName} de Adbize. Vi que ${data.name} trabaja en ${data.sector} en ${data.city} y me parecio interesante. Nosotros hacemos soluciones de IA para empresas. ¿Te copa que charlemos 5 min?`,
+      direct: `Hola, soy ${senderName} de Adbize. Tenemos soluciones de IA para empresas de ${data.sector}. ¿Tienen 15 min esta semana para una demo rapida?`,
+    }
+    return templates[style] || templates.professional
+  }
+
+  const pgData = { name: pgName, sector: pgSector, city: pgCity, website: pgWebsite, context: pgContext }
+
+  const handlePgGenerate = () => {
+    const msg = generateTestMessage(pgData, 'professional')
+    setPgMessage(msg)
+    setPgLog(prev => [{ text: msg, style: 'professional', timestamp: new Date().toISOString() }, ...prev])
+    showToast('Mensaje generado localmente')
+  }
+
+  const handlePgGenerateApi = async () => {
+    setPgApiLoading(true)
+    try {
+      const res = await api.post('/api/outreach/whatsapp/generate', { leadId: 'playground-test' })
+      const msg = res.data?.data?.text || res.data?.data?.message || res.data?.data?.content || res.data?.message || ''
+      if (msg) {
+        setPgMessage(msg)
+        setPgLog(prev => [{ text: msg, style: 'api', timestamp: new Date().toISOString() }, ...prev])
+        showToast('Mensaje generado via API')
+      }
+    } catch {
+      // Fallback to client-side generation
+      const msg = generateTestMessage(pgData, 'professional')
+      setPgMessage(msg)
+      setPgLog(prev => [{ text: msg, style: 'fallback', timestamp: new Date().toISOString() }, ...prev])
+      showToast('API no disponible, generado localmente', 'info')
+    } finally {
+      setPgApiLoading(false)
+    }
+  }
+
+  const handlePgVariations = () => {
+    const styles = [
+      { key: 'professional', label: 'Formal' },
+      { key: 'casual', label: 'Casual / Amigable' },
+      { key: 'direct', label: 'Directo / Corto' },
+    ]
+    const variations = styles.map(s => ({
+      label: s.label,
+      style: s.key,
+      text: generateTestMessage(pgData, s.key),
+    }))
+    setPgVariations(variations)
+    variations.forEach(v => {
+      setPgLog(prev => [{ text: v.text, style: v.style, timestamp: new Date().toISOString() }, ...prev])
+    })
+    showToast('3 variaciones generadas')
+  }
+
+  const handlePgUseVariation = (text) => {
+    setPgMessage(text)
+    showToast('Variacion seleccionada')
   }
 
   // ── Bulk generate ──
@@ -794,6 +872,322 @@ export default function WhatsAppOutreachPage() {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════ PLAYGROUND ═══════════════════ */}
+      <div className="bg-gray-900 rounded-2xl border border-gray-700 shadow-lg overflow-hidden">
+        {/* Playground Header */}
+        <button
+          onClick={() => setPlaygroundOpen(!playgroundOpen)}
+          className="w-full flex items-center justify-between p-5 hover:bg-gray-800/50 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-500/20 rounded-xl flex items-center justify-center">
+              <FlaskConical className="w-5 h-5 text-green-400" />
+            </div>
+            <div className="text-left">
+              <h2 className="text-lg font-bold text-white">Playground WhatsApp</h2>
+              <p className="text-xs text-gray-500">Genera y previsualiza mensajes de prueba sin enviar</p>
+            </div>
+          </div>
+          {playgroundOpen ? (
+            <ChevronUp className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          )}
+        </button>
+
+        {/* Playground Content */}
+        {playgroundOpen && (
+          <div className="border-t border-gray-700 p-5 space-y-6">
+
+            {/* ── Config + Preview Row ── */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+              {/* Left: Test Configuration */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Configuracion de prueba</h3>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Numero WhatsApp de prueba</label>
+                  <input
+                    type="text"
+                    value={pgPhone}
+                    onChange={(e) => setPgPhone(e.target.value)}
+                    placeholder="+5491112345678"
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Nombre empresa ficticia</label>
+                  <input
+                    type="text"
+                    value={pgName}
+                    onChange={(e) => setPgName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Sector</label>
+                    <select
+                      value={pgSector}
+                      onChange={(e) => setPgSector(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="tecnologia">Tecnologia</option>
+                      <option value="fabricas">Fabricas</option>
+                      <option value="consultora">Consultora</option>
+                      <option value="software">Software</option>
+                      <option value="alimentos">Alimentos</option>
+                      <option value="logistica">Logistica</option>
+                      <option value="retail">Retail</option>
+                      <option value="construccion">Construccion</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Ciudad</label>
+                    <select
+                      value={pgCity}
+                      onChange={(e) => setPgCity(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    >
+                      <option value="Buenos Aires">Buenos Aires</option>
+                      <option value="Cordoba">Cordoba</option>
+                      <option value="Rosario">Rosario</option>
+                      <option value="Mendoza">Mendoza</option>
+                      <option value="Tucuman">Tucuman</option>
+                      <option value="Salta">Salta</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Website ficticio</label>
+                  <input
+                    type="text"
+                    value={pgWebsite}
+                    onChange={(e) => setPgWebsite(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Contexto adicional <span className="text-gray-600">(opcional)</span></label>
+                  <textarea
+                    value={pgContext}
+                    onChange={(e) => setPgContext(e.target.value)}
+                    rows={2}
+                    placeholder="Ej: empresa familiar, 50 empleados, buscan automatizar..."
+                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                  />
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    onClick={handlePgGenerate}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Generar Mensaje IA
+                  </button>
+                  <button
+                    onClick={handlePgGenerateApi}
+                    disabled={pgApiLoading}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {pgApiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                    Generar con API
+                  </button>
+                  {pgMessage && (
+                    <>
+                      <button
+                        onClick={() => openWhatsApp(pgPhone || '+5491100000000', pgMessage)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        Abrir WhatsApp
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(pgMessage)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-gray-600 text-white hover:bg-gray-500 transition-colors"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        Copiar Mensaje
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: WhatsApp Phone Preview */}
+              <div className="flex flex-col items-center">
+                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide mb-3 self-start">Vista previa</h3>
+
+                {/* Phone mockup */}
+                <div className="w-full max-w-xs">
+                  <div className="bg-gray-800 rounded-3xl border-2 border-gray-600 overflow-hidden shadow-2xl">
+                    {/* Notch */}
+                    <div className="flex justify-center py-2 bg-gray-800">
+                      <div className="w-20 h-1.5 bg-gray-600 rounded-full" />
+                    </div>
+
+                    {/* Chat header */}
+                    <div className="bg-[#075e54] px-4 py-3 flex items-center gap-3">
+                      <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-xs font-bold text-white">
+                        {pgName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{pgName}</p>
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-green-400 rounded-full" />
+                          <span className="text-[10px] text-green-200">en linea</span>
+                        </div>
+                      </div>
+                      <Phone className="w-4 h-4 text-white/70" />
+                    </div>
+
+                    {/* Chat body */}
+                    <div className="bg-[#0b141a] min-h-[200px] p-4 flex flex-col justify-end" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
+                      {pgMessage ? (
+                        <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm p-3 max-w-[90%] self-end shadow-sm">
+                          <p className="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed">{pgMessage}</p>
+                          <div className="flex items-center justify-end gap-1 mt-1.5">
+                            <span className="text-[9px] text-gray-500">11:30</span>
+                            <span className="text-[9px] text-blue-500">✓✓</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-500 text-xs py-8">
+                          <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                          Genera un mensaje para ver la vista previa
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Input bar (decorative) */}
+                    <div className="bg-[#1f2c34] px-3 py-2.5 flex items-center gap-2">
+                      <div className="flex-1 bg-[#2a3942] rounded-full px-4 py-2">
+                        <span className="text-xs text-gray-500">Escribe un mensaje...</span>
+                      </div>
+                      <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
+                        <Send className="w-3.5 h-3.5 text-white" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Counters */}
+                {pgMessage && (
+                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
+                    <span>{pgMessage.length} caracteres</span>
+                    <span>{pgMessage.split(/\s+/).filter(Boolean).length} palabras</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Variations Generator ── */}
+            <div className="border-t border-gray-700 pt-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Variaciones</h3>
+                <button
+                  onClick={handlePgVariations}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-gray-700 text-green-400 hover:bg-gray-600 border border-gray-600 transition-colors"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Generar 3 Variaciones
+                </button>
+              </div>
+
+              {pgVariations.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {pgVariations.map((v, idx) => (
+                    <div key={idx} className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                      <div className="px-3 py-2 bg-gray-750 border-b border-gray-700 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-green-400">{v.label}</span>
+                        <span className="text-[10px] text-gray-500">{v.text.length} chars</span>
+                      </div>
+                      <div className="p-3">
+                        <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm p-3 shadow-sm">
+                          <p className="text-[11px] text-gray-800 whitespace-pre-wrap leading-relaxed">{v.text}</p>
+                          <div className="flex items-center justify-end gap-1 mt-1.5">
+                            <span className="text-[9px] text-gray-500">11:30</span>
+                            <span className="text-[9px] text-blue-500">✓✓</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="px-3 pb-3 flex gap-2">
+                        <button
+                          onClick={() => handlePgUseVariation(v.text)}
+                          className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
+                        >
+                          <CheckCircle className="w-3 h-3" />
+                          Usar esta
+                        </button>
+                        <button
+                          onClick={() => copyToClipboard(v.text)}
+                          className="px-2.5 py-1.5 rounded-lg text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+                        >
+                          <Copy className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* ── Test Log ── */}
+            {pgLog.length > 0 && (
+              <div className="border-t border-gray-700 pt-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Log de generacion</h3>
+                  <button
+                    onClick={() => setPgLog([])}
+                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {pgLog.map((entry, idx) => (
+                    <div key={idx} className="flex items-start gap-3 bg-gray-800 rounded-lg p-3 border border-gray-700">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${
+                            entry.style === 'professional' ? 'bg-blue-500/20 text-blue-400' :
+                            entry.style === 'casual' ? 'bg-yellow-500/20 text-yellow-400' :
+                            entry.style === 'direct' ? 'bg-red-500/20 text-red-400' :
+                            entry.style === 'api' ? 'bg-purple-500/20 text-purple-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {entry.style}
+                          </span>
+                          <span className="text-[10px] text-gray-600">
+                            {new Date(entry.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 line-clamp-2">{entry.text}</p>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(entry.text)}
+                        className="flex-shrink-0 p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
+                        title="Copiar"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         )}
       </div>

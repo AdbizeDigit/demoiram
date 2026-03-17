@@ -228,4 +228,62 @@ router.get('/lead/:id/messages', async (req, res) => {
   }
 });
 
+// POST /email/test - Send a test email to any address (playground)
+router.post('/email/test', async (req, res) => {
+  try {
+    const { email, subject, body, companyName, sector, city, stepType } = req.body;
+
+    if (!email) return res.status(400).json({ success: false, error: 'Email requerido' });
+
+    // Generate email with AI using fake lead data
+    const fakeLead = {
+      name: companyName || 'Empresa Test',
+      sector: sector || 'tecnologia',
+      city: city || 'Buenos Aires',
+      state: '',
+      email: email,
+      website: req.body.website || '',
+      score: 75,
+    };
+
+    let emailContent;
+    if (subject && body) {
+      // Use provided content
+      emailContent = { subject, body };
+    } else {
+      // Generate with AI
+      emailContent = await emailOutreachService.generateEmail(fakeLead, stepType || 'introduction', 1);
+    }
+
+    // Send the test email
+    await emailOutreachService.sendEmail(email, emailContent.subject, emailContent.body);
+
+    res.json({ success: true, message: `Email de prueba enviado a ${email}`, email: emailContent });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/test - Generate WhatsApp message with fake data (playground)
+router.post('/whatsapp/test', async (req, res) => {
+  try {
+    const { phone, companyName, sector, city, website } = req.body;
+
+    const fakeLead = {
+      name: companyName || 'Empresa Test',
+      sector: sector || 'tecnologia',
+      city: city || 'Buenos Aires',
+      phone: phone || '+5491112345678',
+      website: website || '',
+    };
+
+    const message = await whatsappOutreachService.generateMessage(fakeLead);
+    const link = whatsappOutreachService.getWhatsAppLink(phone || fakeLead.phone, message);
+
+    res.json({ success: true, message, link, phone: phone || fakeLead.phone });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
