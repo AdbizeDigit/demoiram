@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Search, Eye, ChevronLeft, ChevronRight, Loader2,
   AlertCircle, Building2, MapPin, RefreshCw, X,
-  Phone, Mail, Globe, ExternalLink, Sparkles,
+  Phone, Mail, Globe, ExternalLink, Sparkles, CheckCircle,
 } from 'lucide-react';
 import api from '../../services/api';
 import { OPPORTUNITY_TYPES, PriorityTag, FitScoreBadge, TypeTag, CustomSelect, formatTimeAgo } from './shared';
@@ -355,6 +355,14 @@ function StatCard({ label, value, color }) {
 function LeadDetailModal({ lead, onClose }) {
   const [report, setReport] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [emailPreview, setEmailPreview] = useState(null);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
+  const [whatsappMsg, setWhatsappMsg] = useState(null);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
+  const [callScript, setCallScript] = useState(null);
+  const [callLoading, setCallLoading] = useState(false);
+  const [activeOutreach, setActiveOutreach] = useState(null); // 'email' | 'whatsapp' | 'call' | null
 
   useEffect(() => {
     if (lead?.id) {
@@ -365,6 +373,54 @@ function LeadDetailModal({ lead, onClose }) {
         .catch(() => {});
     }
   }, [lead?.id]);
+
+  const handleEmailPreview = async () => {
+    setEmailLoading(true);
+    setActiveOutreach('email');
+    try {
+      const res = await api.post('/api/outreach/email/preview', { leadId: lead.id });
+      if (res.data?.preview) setEmailPreview(res.data.preview);
+    } catch (err) { console.error(err); }
+    setEmailLoading(false);
+  };
+
+  const handleSendEmail = async () => {
+    setEmailLoading(true);
+    try {
+      await api.post('/api/outreach/email/send', { leadId: lead.id });
+      setEmailSent(true);
+    } catch (err) { console.error(err); }
+    setEmailLoading(false);
+  };
+
+  const handleSendSequence = async () => {
+    setEmailLoading(true);
+    try {
+      await api.post('/api/outreach/email/sequence', { leadId: lead.id });
+      setEmailSent(true);
+    } catch (err) { console.error(err); }
+    setEmailLoading(false);
+  };
+
+  const handleWhatsApp = async () => {
+    setWhatsappLoading(true);
+    setActiveOutreach('whatsapp');
+    try {
+      const res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id });
+      if (res.data) setWhatsappMsg(res.data);
+    } catch (err) { console.error(err); }
+    setWhatsappLoading(false);
+  };
+
+  const handleCallScript = async () => {
+    setCallLoading(true);
+    setActiveOutreach('call');
+    try {
+      const res = await api.post('/api/outreach/call/script', { leadId: lead.id });
+      if (res.data?.script) setCallScript(res.data.script);
+    } catch (err) { console.error(err); }
+    setCallLoading(false);
+  };
 
   const generateReport = async () => {
     setReportLoading(true);
@@ -620,6 +676,116 @@ function LeadDetailModal({ lead, onClose }) {
               ) : null}
             </div>
           )}
+
+          {/* Outreach Actions */}
+          <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl p-4 space-y-3 border border-indigo-100">
+            <p className="text-[11px] text-indigo-600 font-semibold uppercase tracking-wider">Acciones de Contacto</p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {lead.email && (
+                <button onClick={handleEmailPreview} disabled={emailLoading}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-xl text-xs font-medium transition-all ${
+                    activeOutreach === 'email' ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-blue-50 border border-gray-200'
+                  }`}>
+                  {emailLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Mail className="w-5 h-5" />}
+                  Email IA
+                </button>
+              )}
+              {(lead.phone || lead.socialWhatsapp) && (
+                <button onClick={handleWhatsApp} disabled={whatsappLoading}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-xl text-xs font-medium transition-all ${
+                    activeOutreach === 'whatsapp' ? 'bg-green-500 text-white' : 'bg-white text-gray-700 hover:bg-green-50 border border-gray-200'
+                  }`}>
+                  {whatsappLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Phone className="w-5 h-5" />}
+                  WhatsApp IA
+                </button>
+              )}
+              {lead.phone && (
+                <button onClick={handleCallScript} disabled={callLoading}
+                  className={`flex flex-col items-center gap-1 p-3 rounded-xl text-xs font-medium transition-all ${
+                    activeOutreach === 'call' ? 'bg-purple-500 text-white' : 'bg-white text-gray-700 hover:bg-purple-50 border border-gray-200'
+                  }`}>
+                  {callLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Phone className="w-5 h-5" />}
+                  Guion Llamada
+                </button>
+              )}
+            </div>
+
+            {/* Email Preview */}
+            {activeOutreach === 'email' && emailPreview && (
+              <div className="bg-white rounded-xl p-3 border border-blue-200 space-y-2">
+                <p className="text-xs font-semibold text-blue-700">Preview Email IA</p>
+                <p className="text-xs text-gray-500">Asunto: <span className="text-gray-800 font-medium">{emailPreview.subject}</span></p>
+                <div className="text-xs text-gray-700 leading-relaxed border-t border-gray-100 pt-2" dangerouslySetInnerHTML={{ __html: emailPreview.body }} />
+                {!emailSent ? (
+                  <div className="flex gap-2 pt-2">
+                    <button onClick={handleSendEmail} disabled={emailLoading}
+                      className="flex-1 flex items-center justify-center gap-1 py-2 bg-blue-500 text-white rounded-lg text-xs font-medium hover:bg-blue-600 transition-colors disabled:opacity-50">
+                      {emailLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />} Enviar Email
+                    </button>
+                    <button onClick={handleSendSequence} disabled={emailLoading}
+                      className="flex-1 flex items-center justify-center gap-1 py-2 bg-indigo-500 text-white rounded-lg text-xs font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50">
+                      {emailLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />} Secuencia 5 Emails
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 rounded-lg p-2">
+                    <CheckCircle className="w-4 h-4" /> Email enviado exitosamente
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* WhatsApp Message */}
+            {activeOutreach === 'whatsapp' && whatsappMsg && (
+              <div className="bg-white rounded-xl p-3 border border-green-200 space-y-2">
+                <p className="text-xs font-semibold text-green-700">Mensaje WhatsApp IA</p>
+                <p className="text-xs text-gray-700 bg-green-50 rounded-lg p-3 leading-relaxed">{whatsappMsg.message}</p>
+                <a href={whatsappMsg.link} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 py-2.5 bg-green-500 text-white rounded-lg text-xs font-medium hover:bg-green-600 transition-colors">
+                  <ExternalLink className="w-3 h-3" /> Abrir WhatsApp y Enviar
+                </a>
+              </div>
+            )}
+
+            {/* Call Script */}
+            {activeOutreach === 'call' && callScript && (
+              <div className="bg-white rounded-xl p-3 border border-purple-200 space-y-2">
+                <p className="text-xs font-semibold text-purple-700">Guion de Llamada IA</p>
+                <div className="space-y-2 text-xs">
+                  <div className="bg-purple-50 rounded-lg p-2">
+                    <p className="text-purple-600 font-semibold mb-1">Apertura</p>
+                    <p className="text-gray-700">{callScript.opening}</p>
+                  </div>
+                  <div className="bg-blue-50 rounded-lg p-2">
+                    <p className="text-blue-600 font-semibold mb-1">Gancho</p>
+                    <p className="text-gray-700">{callScript.hook}</p>
+                  </div>
+                  <div className="bg-emerald-50 rounded-lg p-2">
+                    <p className="text-emerald-600 font-semibold mb-1">Propuesta de Valor</p>
+                    <p className="text-gray-700">{callScript.value_proposition}</p>
+                  </div>
+                  {callScript.objections?.map((obj, i) => (
+                    <div key={i} className="bg-amber-50 rounded-lg p-2">
+                      <p className="text-amber-700 font-semibold mb-1">Objecion: "{obj.objection}"</p>
+                      <p className="text-gray-700">{obj.response}</p>
+                    </div>
+                  ))}
+                  <div className="bg-indigo-50 rounded-lg p-2">
+                    <p className="text-indigo-600 font-semibold mb-1">Cierre</p>
+                    <p className="text-gray-700">{callScript.closing}</p>
+                  </div>
+                  <p className="text-gray-400 text-center">Duracion estimada: {callScript.estimated_duration}</p>
+                </div>
+                {lead.phone && (
+                  <a href={`tel:${lead.phone}`}
+                    className="flex items-center justify-center gap-2 py-2.5 bg-purple-500 text-white rounded-lg text-xs font-medium hover:bg-purple-600 transition-colors">
+                    <Phone className="w-3 h-3" /> Llamar Ahora: {lead.phone}
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Details grid */}
           <div className="grid grid-cols-2 gap-4">
