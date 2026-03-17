@@ -34,9 +34,13 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Handle unauthorized access
-      localStorage.removeItem('auth-storage')
-      window.location.href = '/login'
+      const url = error.config?.url || ''
+      // Only force logout on auth endpoints (login/me), not on every 401
+      // This prevents admin panel API calls from logging out the user
+      if (url.includes('/api/auth/') && !url.includes('/api/auth/login')) {
+        localStorage.removeItem('auth-storage')
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
