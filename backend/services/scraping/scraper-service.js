@@ -5,7 +5,7 @@ import parser from './parser-service.js';
 import { pageScraper } from './page-scraper.js';
 import { enrichmentService } from './enrichment-service.js';
 
-// Sectores de busqueda por defecto (19 sectors)
+// Sectores de busqueda por defecto (50+ sectores orientados a Argentina)
 const DEFAULT_SEARCH_TERMS = [
   'empresas',
   'fabricas',
@@ -17,14 +17,48 @@ const DEFAULT_SEARCH_TERMS = [
   'construccion',
   'alimentos',
   'textil',
+  'inmobiliaria',
   'automotriz',
-  'metalmecanica',
-  'plasticos',
+  'metalurgica',
   'quimica',
   'farmaceutica',
   'logistica',
   'transporte',
-  'inmobiliaria',
+  'consultora',
+  'estudio contable',
+  'estudio juridico',
+  'agencia publicidad',
+  'agencia marketing',
+  'clinica',
+  'laboratorio',
+  'imprenta',
+  'grafica',
+  'packaging',
+  'software',
+  'fintech',
+  'agtech',
+  'edtech',
+  'seguros',
+  'corredora',
+  'distribuidora',
+  'mayorista',
+  'importadora',
+  'exportadora',
+  'frigorifico',
+  'bodega',
+  'hotel',
+  'restaurante',
+  'catering',
+  'limpieza industrial',
+  'seguridad privada',
+  'recursos humanos',
+  'coworking',
+  'call center',
+  'datacenter',
+  'ecommerce',
+  'retail',
+  'metalmecanica',
+  'plasticos',
   'consultoria',
 ];
 
@@ -101,7 +135,7 @@ class ScraperService extends EventEmitter {
     this.activeJobs = new Map();
     this.ddgScraper = new DuckDuckGoScraper();
     this.config = {
-      delayBetweenRequests: 3000,
+      delayBetweenRequests: 2000,
       maxConcurrentJobs: 1,
     };
 
@@ -171,7 +205,7 @@ class ScraperService extends EventEmitter {
     }
 
     // Determine search terms
-    const terms = searchTerms || (sector ? [sector] : DEFAULT_SEARCH_TERMS.slice(0, 10));
+    const terms = searchTerms || (sector ? [sector] : DEFAULT_SEARCH_TERMS.slice(0, 15));
 
     // Create ScrapingJob in DB
     const jobRes = await pool.query(
@@ -262,7 +296,7 @@ class ScraperService extends EventEmitter {
           zone.name,
           zone.city,
           zone.state,
-          15
+          25
         );
 
         // Process each result

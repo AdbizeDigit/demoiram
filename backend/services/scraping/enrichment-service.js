@@ -5,7 +5,7 @@ import { pool } from '../../config/database.js';
 import { DuckDuckGoScraper } from './duckduckgo-scraper.js';
 import { pageScraper } from './page-scraper.js';
 
-const MAX_ENRICHMENT_ATTEMPTS = 3;
+const MAX_ENRICHMENT_ATTEMPTS = 5;
 const DELAY_BETWEEN_SEARCHES = 2500;
 
 function delay(ms) {
@@ -80,7 +80,7 @@ class EnrichmentService {
       if (!leadId) continue;
 
       try {
-        await this.enrichLead(leadId);
+        await this.deepEnrichLead(leadId);
       } catch (error) {
         console.error(`Error enriching lead ${leadId}:`, error);
       }
@@ -178,6 +178,58 @@ class EnrichmentService {
       }
     }
 
+    // Step 3: Deep Social Search - search DDG for social media profiles
+    {
+      const cleanName = lead.company.replace(/[^\w\s]/g, '').trim();
+      const socialQueries = [
+        `${cleanName} whatsapp argentina`,
+        `${cleanName} instagram`,
+        `${cleanName} facebook`,
+        `${cleanName} linkedin argentina`,
+        `site:instagram.com ${cleanName}`,
+        `site:facebook.com ${cleanName}`,
+        `site:wa.me ${cleanName}`,
+      ];
+
+      console.log(`   Deep Social Search for ${lead.company}...`);
+
+      for (const query of socialQueries) {
+        try {
+          const results = await this.ddgScraper.search(query, 10);
+
+          for (const result of results) {
+            const fullText = `${result.title} ${result.snippet} ${result.url}`;
+            const socialLinks = this._extractSocialMediaUrls(fullText);
+
+            if (socialLinks.whatsapp && !updatedData.social_whatsapp) {
+              updatedData.social_whatsapp = socialLinks.whatsapp;
+              console.log(`   Found WhatsApp: ${socialLinks.whatsapp}`);
+            }
+            if (socialLinks.instagram && !updatedData.social_instagram) {
+              updatedData.social_instagram = socialLinks.instagram;
+              console.log(`   Found Instagram: ${socialLinks.instagram}`);
+            }
+            if (socialLinks.facebook && !updatedData.social_facebook) {
+              updatedData.social_facebook = socialLinks.facebook;
+              console.log(`   Found Facebook: ${socialLinks.facebook}`);
+            }
+            if (socialLinks.linkedin && !updatedData.social_linkedin) {
+              updatedData.social_linkedin = socialLinks.linkedin;
+              console.log(`   Found LinkedIn: ${socialLinks.linkedin}`);
+            }
+            if (socialLinks.twitter && !updatedData.social_twitter) {
+              updatedData.social_twitter = socialLinks.twitter;
+              console.log(`   Found Twitter/X: ${socialLinks.twitter}`);
+            }
+          }
+
+          await delay(DELAY_BETWEEN_SEARCHES);
+        } catch (err) {
+          console.log(`   Error in social search "${query}": ${err.message}`);
+        }
+      }
+    }
+
     // Determine final status
     const attempts = (lead.enrichment_attempts || 0) + 1;
     let enrichmentStatus;
@@ -212,6 +264,14 @@ class EnrichmentService {
       paramIndex++;
     }
 
+    // Ensure social media fields are included in updatedData for the UPDATE
+    const socialFields = ['social_facebook', 'social_instagram', 'social_linkedin', 'social_twitter', 'social_whatsapp'];
+    for (const sf of socialFields) {
+      if (updatedData[sf]) {
+        // Already in updatedData, will be added below
+      }
+    }
+
     // Add all found data fields
     for (const [key, value] of Object.entries(updatedData)) {
       setClauses.push(`${key} = $${paramIndex}`);
@@ -237,6 +297,182 @@ class EnrichmentService {
     console.log(`   Enrichment result for ${lead.company}: ${JSON.stringify(enrichmentResult)}`);
 
     return enrichmentResult;
+  }
+
+  // Deep enrichment: everything enrichLead does PLUS additional page visits, Maps queries, WhatsApp extraction
+  async deepEnrichLead(leadId) {
+    // Run the standard enrichment first
+    const enrichResult = await this.enrichLead(leadId);
+
+    // Fetch the lead again with updated data
+    const leadResult = await pool.query(
+      `SELECT l.*, z.name as zone_name, z.city_name, z.state
+       FROM leads l
+       LEFT JOIN zones z ON l.zone_id = z.id
+       WHERE l.id = $1`,
+      [leadId]
+    );
+
+    if (leadResult.rows.length === 0) return enrichResult;
+
+    const lead = leadResult.rows[0];
+    const deepUpdatedData = {};
+    const cleanName = lead.company.replace(/[^\w\s]/g, '').trim();
+    const city = lead.city_name || lead.zone_name || '';
+
+    console.log(`   Deep enrichment phase for ${lead.company}...`);
+
+    // Deep Step 1: Visit additional pages on the company website (about, team, contact)
+    if (lead.website) {
+      const subPages = ['contacto', 'contact', 'about', 'nosotros', 'equipo', 'team', 'quienes-somos'];
+      let pagesVisited = 0;
+
+      for (const subPage of subPages) {
+        if (pagesVisited >= 3) break;
+
+        const baseUrl = lead.website.replace(/\/$/, '');
+        const pageUrl = `${baseUrl}/${subPage}`;
+
+        try {
+          console.log(`   Visiting sub-page: ${pageUrl}`);
+          const pageData = await pageScraper.scrapeWithRetry(pageUrl, lead.company);
+          pagesVisited++;
+
+          // Extract any new data found on sub-pages
+          if (pageData.phone && !lead.phone && !deepUpdatedData.phone) {
+            deepUpdatedData.phone = pageData.phone;
+            console.log(`   Found phone on sub-page: ${pageData.phone}`);
+          }
+          if (pageData.email && !lead.email && !deepUpdatedData.email) {
+            deepUpdatedData.email = pageData.email;
+            console.log(`   Found email on sub-page: ${pageData.email}`);
+          }
+          if (pageData.whatsapp && !lead.social_whatsapp && !deepUpdatedData.social_whatsapp) {
+            deepUpdatedData.social_whatsapp = pageData.whatsapp;
+            console.log(`   Found WhatsApp on sub-page: ${pageData.whatsapp}`);
+          }
+          if (pageData.facebook && !lead.social_facebook && !deepUpdatedData.social_facebook) {
+            deepUpdatedData.social_facebook = pageData.facebook;
+          }
+          if (pageData.instagram && !lead.social_instagram && !deepUpdatedData.social_instagram) {
+            deepUpdatedData.social_instagram = pageData.instagram;
+          }
+          if (pageData.linkedin && !lead.social_linkedin && !deepUpdatedData.social_linkedin) {
+            deepUpdatedData.social_linkedin = pageData.linkedin;
+          }
+          if (pageData.twitter && !lead.social_twitter && !deepUpdatedData.social_twitter) {
+            deepUpdatedData.social_twitter = pageData.twitter;
+          }
+
+          // Extract WhatsApp numbers from raw page content
+          if (pageData.rawHtml || pageData.text) {
+            const rawContent = pageData.rawHtml || pageData.text || '';
+            const waNumbers = this._extractWhatsAppNumbers(rawContent);
+            if (waNumbers.length > 0 && !lead.social_whatsapp && !deepUpdatedData.social_whatsapp) {
+              deepUpdatedData.social_whatsapp = waNumbers[0];
+              console.log(`   Found WhatsApp number from page content: ${waNumbers[0]}`);
+            }
+          }
+
+          await delay(1500);
+        } catch (err) {
+          // Sub-page might not exist, that's ok
+          console.log(`   Sub-page ${pageUrl} not reachable`);
+        }
+      }
+    }
+
+    // Deep Step 2: Search Google Maps style queries via DDG
+    const mapsQueries = [
+      `${cleanName} ${city} telefono horario`,
+      `${cleanName} ${city} google maps`,
+      `${cleanName} ${city} direccion whatsapp`,
+      `${cleanName} maps ficha negocio`,
+    ];
+
+    for (const query of mapsQueries) {
+      try {
+        console.log(`   Maps/business search: "${query}"`);
+        const results = await this.ddgScraper.search(query, 10);
+
+        for (const result of results) {
+          const fullText = `${result.title} ${result.snippet} ${result.url}`;
+
+          // Extract WhatsApp numbers from search results
+          const waNumbers = this._extractWhatsAppNumbers(fullText);
+          if (waNumbers.length > 0 && !lead.social_whatsapp && !deepUpdatedData.social_whatsapp) {
+            deepUpdatedData.social_whatsapp = waNumbers[0];
+            console.log(`   Found WhatsApp from maps search: ${waNumbers[0]}`);
+          }
+
+          // Extract phone numbers
+          if (!lead.phone && !deepUpdatedData.phone) {
+            const phones = this._extractPhoneNumbers(fullText);
+            if (phones.length > 0 && this._isResultRelevant(result.title, result.url, lead.company)) {
+              deepUpdatedData.phone = phones[0];
+              console.log(`   Found phone from maps search: ${phones[0]}`);
+            }
+          }
+
+          // Extract social media URLs
+          const socialLinks = this._extractSocialMediaUrls(fullText);
+          if (socialLinks.whatsapp && !lead.social_whatsapp && !deepUpdatedData.social_whatsapp) {
+            deepUpdatedData.social_whatsapp = socialLinks.whatsapp;
+          }
+          if (socialLinks.instagram && !lead.social_instagram && !deepUpdatedData.social_instagram) {
+            deepUpdatedData.social_instagram = socialLinks.instagram;
+          }
+          if (socialLinks.facebook && !lead.social_facebook && !deepUpdatedData.social_facebook) {
+            deepUpdatedData.social_facebook = socialLinks.facebook;
+          }
+          if (socialLinks.linkedin && !lead.social_linkedin && !deepUpdatedData.social_linkedin) {
+            deepUpdatedData.social_linkedin = socialLinks.linkedin;
+          }
+          if (socialLinks.twitter && !lead.social_twitter && !deepUpdatedData.social_twitter) {
+            deepUpdatedData.social_twitter = socialLinks.twitter;
+          }
+        }
+
+        await delay(DELAY_BETWEEN_SEARCHES);
+      } catch (err) {
+        console.log(`   Error in maps search: ${err.message}`);
+      }
+    }
+
+    // Deep Step 3: Save any new data found during deep enrichment
+    if (Object.keys(deepUpdatedData).length > 0) {
+      const setClauses = [];
+      const values = [];
+      let paramIndex = 1;
+
+      for (const [key, value] of Object.entries(deepUpdatedData)) {
+        setClauses.push(`${key} = $${paramIndex}`);
+        values.push(value);
+        paramIndex++;
+      }
+
+      values.push(leadId);
+      const updateQuery = `UPDATE leads SET ${setClauses.join(', ')} WHERE id = $${paramIndex}`;
+      await pool.query(updateQuery, values);
+
+      console.log(`   Deep enrichment saved ${Object.keys(deepUpdatedData).length} additional fields for ${lead.company}`);
+    }
+
+    // Generate AI report for this lead after enrichment is complete
+    try {
+      await this.generateLeadReport(leadId);
+    } catch (err) {
+      console.log(`   Could not generate lead report: ${err.message}`);
+    }
+
+    return enrichResult;
+  }
+
+  // Placeholder for AI report generation - will be implemented in the AI report agent
+  async generateLeadReport(leadId) {
+    console.log(`   Generating AI report for lead ${leadId}...`);
+    // This method will be implemented by the AI report agent
+    // For now, just log the intent
   }
 
   // Search for a specific field for a company via DDG
@@ -419,6 +655,99 @@ class EnrichmentService {
       !email.includes('wordpress') &&
       !email.includes('sentry')
     );
+  }
+
+  // Extract social media URLs from text using regex patterns
+  _extractSocialMediaUrls(text) {
+    const result = {
+      whatsapp: null,
+      instagram: null,
+      facebook: null,
+      linkedin: null,
+      twitter: null,
+    };
+
+    // WhatsApp: wa.me/NUMBERS or api.whatsapp.com/send?phone=NUMBERS
+    const waPatterns = [
+      /https?:\/\/wa\.me\/(\d+)/i,
+      /https?:\/\/api\.whatsapp\.com\/send\?phone=(\d+)/i,
+      /wa\.me\/(\d+)/i,
+      /api\.whatsapp\.com\/send\?phone=(\d+)/i,
+    ];
+    for (const pattern of waPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        result.whatsapp = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
+        break;
+      }
+    }
+
+    // Instagram: instagram.com/USERNAME
+    const igMatch = text.match(/(?:https?:\/\/)?(?:www\.)?instagram\.com\/([a-zA-Z0-9_.]+)/i);
+    if (igMatch && !['p', 'reel', 'explore', 'stories', 'accounts', 'directory'].includes(igMatch[1].toLowerCase())) {
+      result.instagram = `https://instagram.com/${igMatch[1]}`;
+    }
+
+    // Facebook: facebook.com/PAGE
+    const fbMatch = text.match(/(?:https?:\/\/)?(?:www\.)?facebook\.com\/([a-zA-Z0-9_.]+)/i);
+    if (fbMatch && !['sharer', 'share', 'dialog', 'login', 'pages', 'groups', 'watch', 'events', 'marketplace'].includes(fbMatch[1].toLowerCase())) {
+      result.facebook = `https://facebook.com/${fbMatch[1]}`;
+    }
+
+    // LinkedIn: linkedin.com/company/NAME or linkedin.com/in/NAME
+    const liMatch = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/(company|in)\/([a-zA-Z0-9_-]+)/i);
+    if (liMatch) {
+      result.linkedin = `https://linkedin.com/${liMatch[1]}/${liMatch[2]}`;
+    }
+
+    // Twitter/X: twitter.com/USER or x.com/USER
+    const twMatch = text.match(/(?:https?:\/\/)?(?:www\.)?(?:twitter\.com|x\.com)\/([a-zA-Z0-9_]+)/i);
+    if (twMatch && !['intent', 'share', 'search', 'hashtag', 'i', 'home', 'explore', 'settings'].includes(twMatch[1].toLowerCase())) {
+      result.twitter = `https://x.com/${twMatch[1]}`;
+    }
+
+    return result;
+  }
+
+  // Extract WhatsApp numbers from text content (looking for wa.me links, +54 9 patterns, whatsapp mentions)
+  _extractWhatsAppNumbers(text) {
+    const numbers = [];
+
+    // wa.me/NUMBERS
+    const waLinkMatches = text.match(/wa\.me\/(\d{10,15})/gi) || [];
+    for (const match of waLinkMatches) {
+      const numMatch = match.match(/(\d{10,15})/);
+      if (numMatch) numbers.push(`https://wa.me/${numMatch[1]}`);
+    }
+
+    // api.whatsapp.com/send?phone=NUMBERS
+    const apiMatches = text.match(/api\.whatsapp\.com\/send\?phone=(\d{10,15})/gi) || [];
+    for (const match of apiMatches) {
+      const numMatch = match.match(/(\d{10,15})/);
+      if (numMatch) numbers.push(`https://wa.me/${numMatch[1]}`);
+    }
+
+    // Argentine phone patterns near "whatsapp" keyword
+    const whatsappContext = text.toLowerCase();
+    if (whatsappContext.includes('whatsapp') || whatsappContext.includes('wsp') || whatsappContext.includes('wa.me')) {
+      // +54 9 XX XXXX-XXXX patterns
+      const arPatterns = [
+        /\+54\s*9?\s*\d{2,4}\s*[-.]?\s*\d{4}\s*[-.]?\s*\d{4}/g,
+        /(?:11|15)\s*[-.]?\s*\d{4}\s*[-.]?\s*\d{4}/g,
+      ];
+      for (const pattern of arPatterns) {
+        const matches = text.match(pattern) || [];
+        for (const m of matches) {
+          const cleaned = m.replace(/[^\d+]/g, '');
+          if (cleaned.length >= 10) {
+            const fullNumber = cleaned.startsWith('+54') ? cleaned : (cleaned.startsWith('54') ? `+${cleaned}` : `+54${cleaned}`);
+            numbers.push(`https://wa.me/${fullNumber.replace('+', '')}`);
+          }
+        }
+      }
+    }
+
+    return [...new Set(numbers)];
   }
 
   // Extract website URL from text

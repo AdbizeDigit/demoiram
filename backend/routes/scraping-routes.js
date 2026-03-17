@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pool } from '../config/database.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import scraperService from '../services/scraping/scraper-service.js';
 import competitorScraper from '../services/scraping/competitor-scraper.js';
@@ -204,6 +205,32 @@ router.get('/competitors', async (req, res) => {
     res.json({ success: true, data: competitors });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─── Lead Reports ─────────────────────────────────────────────────────────────
+
+// POST /scraping/leads/:id/report - Generate AI report
+router.post('/leads/:id/report', async (req, res) => {
+  try {
+    const { default: leadReportService } = await import('../services/scraping/lead-report-service.js');
+    const report = await leadReportService.generateReport(req.params.id);
+    res.json({ success: true, report });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /scraping/leads/:id/report - Get existing report
+router.get('/leads/:id/report', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT ai_report, report_generated_at FROM leads WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ success: false, error: 'Lead not found' });
+    const lead = result.rows[0];
+    const report = lead.ai_report ? JSON.parse(lead.ai_report) : null;
+    res.json({ success: true, report, generatedAt: lead.report_generated_at });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

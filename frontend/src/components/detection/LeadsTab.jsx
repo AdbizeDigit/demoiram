@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Search, Eye, ChevronLeft, ChevronRight, Loader2,
   AlertCircle, Building2, MapPin, RefreshCw, X,
-  Phone, Mail, Globe, ExternalLink,
+  Phone, Mail, Globe, ExternalLink, Sparkles,
 } from 'lucide-react';
 import api from '../../services/api';
 import { OPPORTUNITY_TYPES, PriorityTag, FitScoreBadge, TypeTag, CustomSelect, formatTimeAgo } from './shared';
@@ -353,6 +353,30 @@ function StatCard({ label, value, color }) {
 }
 
 function LeadDetailModal({ lead, onClose }) {
+  const [report, setReport] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  useEffect(() => {
+    if (lead?.id) {
+      api.get(`/api/scraping-engine/leads/${lead.id}/report`)
+        .then(res => {
+          if (res.data?.report) setReport(res.data.report);
+        })
+        .catch(() => {});
+    }
+  }, [lead?.id]);
+
+  const generateReport = async () => {
+    setReportLoading(true);
+    try {
+      const res = await api.post(`/api/scraping-engine/leads/${lead.id}/report`);
+      if (res.data?.report) setReport(res.data.report);
+    } catch (err) {
+      console.error('Error generating report:', err);
+    }
+    setReportLoading(false);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/30 backdrop-blur-sm"
@@ -389,6 +413,24 @@ function LeadDetailModal({ lead, onClose }) {
             <PriorityTag priority={lead.priority} />
             <FitScoreBadge score={lead.score} />
           </div>
+
+          {/* Generate report button */}
+          {!report && !reportLoading && (
+            <button
+              onClick={generateReport}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-gradient-to-r from-blue-500 to-indigo-500 text-white rounded-xl text-sm font-medium hover:from-blue-600 hover:to-indigo-600 transition-all"
+            >
+              <Sparkles className="w-4 h-4" /> Generar Informe IA
+            </button>
+          )}
+          {report && !reportLoading && (
+            <button
+              onClick={generateReport}
+              className="w-full flex items-center justify-center gap-2 py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-medium hover:bg-gray-200 transition-all"
+            >
+              <RefreshCw className="w-3 h-3" /> Regenerar Informe
+            </button>
+          )}
 
           {/* Description */}
           {lead.description && (
@@ -460,6 +502,122 @@ function LeadDetailModal({ lead, onClose }) {
                   </a>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* AI Report */}
+          {(report || reportLoading) && (
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 space-y-3 border border-blue-100">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-blue-600 font-semibold uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" /> Informe de Inteligencia IA
+                </p>
+                {report?.priority && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${
+                    report.priority === 'ALTA' ? 'bg-red-100 text-red-700' :
+                    report.priority === 'MEDIA' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                  }`}>{report.priority}</span>
+                )}
+              </div>
+
+              {reportLoading ? (
+                <div className="flex items-center justify-center py-6">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                  <span className="text-sm text-blue-500 ml-2">Generando informe...</span>
+                </div>
+              ) : report ? (
+                <div className="space-y-3">
+                  {/* Company Profile */}
+                  {report.companyProfile && (
+                    <p className="text-sm text-gray-700 leading-relaxed">{report.companyProfile}</p>
+                  )}
+
+                  {/* Contact Quality & Social Presence */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {report.contactQuality && (
+                      <div className="bg-white rounded-lg p-2">
+                        <p className="text-[10px] text-gray-400">Calidad Contacto</p>
+                        <p className={`text-sm font-semibold ${
+                          report.contactQuality === 'ALTA' ? 'text-emerald-600' :
+                          report.contactQuality === 'MEDIA' ? 'text-amber-600' : 'text-red-600'
+                        }`}>{report.contactQuality}</p>
+                      </div>
+                    )}
+                    {report.socialPresence && (
+                      <div className="bg-white rounded-lg p-2">
+                        <p className="text-[10px] text-gray-400">Presencia Digital</p>
+                        <p className={`text-sm font-semibold ${
+                          report.socialPresence === 'FUERTE' ? 'text-emerald-600' :
+                          report.socialPresence === 'MODERADA' ? 'text-amber-600' : 'text-red-600'
+                        }`}>{report.socialPresence}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Contact Summary */}
+                  {report.contactSummary && (
+                    <div className="bg-white rounded-lg p-2">
+                      <p className="text-[10px] text-gray-400 mb-1">Resumen de Contacto</p>
+                      <p className="text-xs text-gray-700">{report.contactSummary}</p>
+                    </div>
+                  )}
+
+                  {/* Recommended Approach */}
+                  {report.recommendedApproach && (
+                    <div className="bg-white rounded-lg p-2 border-l-2 border-blue-400">
+                      <p className="text-[10px] text-blue-500 mb-1">Estrategia Recomendada</p>
+                      <p className="text-xs text-gray-700">{report.recommendedApproach}</p>
+                    </div>
+                  )}
+
+                  {/* Strengths */}
+                  {report.strengths?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-gray-400 mb-1">Fortalezas</p>
+                      <div className="flex flex-wrap gap-1">
+                        {report.strengths.map((s, i) => (
+                          <span key={i} className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">{s}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Opportunities */}
+                  {report.opportunities?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-gray-400 mb-1">Oportunidades</p>
+                      <div className="flex flex-wrap gap-1">
+                        {report.opportunities.map((o, i) => (
+                          <span key={i} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{o}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Next Steps */}
+                  {report.nextSteps?.length > 0 && (
+                    <div>
+                      <p className="text-[10px] text-gray-400 mb-1">Proximos Pasos</p>
+                      <ol className="space-y-1">
+                        {report.nextSteps.map((step, i) => (
+                          <li key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                            <span className="text-blue-500 font-bold">{i + 1}.</span> {step}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {/* Tags */}
+                  {report.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {report.tags.map((tag, i) => (
+                        <span key={i} className="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">#{tag}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </div>
           )}
 

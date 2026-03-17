@@ -107,6 +107,10 @@ class DuckDuckGoScraper {
       `"${sector}" empresa ${zoneName} ${cityName} telefono`,
       `empresas de ${sector} en ${zoneName} ${cityName} ${stateName} contacto`,
       `fabrica ${sector} ${cityName} sitio web`,
+      `${sector} ${zoneName} ${cityName} Argentina contacto telefono`,
+      `directorio ${sector} ${zoneName} ${cityName} ${stateName}`,
+      `${sector} cerca de ${zoneName} ${cityName} whatsapp`,
+      `listado ${sector} ${cityName} ${stateName} Argentina`,
     ];
 
     const allResults = [];
