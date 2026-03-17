@@ -468,11 +468,14 @@ class EnrichmentService {
     return enrichResult;
   }
 
-  // Placeholder for AI report generation - will be implemented in the AI report agent
   async generateLeadReport(leadId) {
-    console.log(`   Generating AI report for lead ${leadId}...`);
-    // This method will be implemented by the AI report agent
-    // For now, just log the intent
+    try {
+      const { default: leadReportService } = await import('./lead-report-service.js');
+      await leadReportService.generateReport(leadId);
+      console.log(`   AI report generated for lead ${leadId}`);
+    } catch (err) {
+      console.log(`   AI report skipped: ${err.message}`);
+    }
   }
 
   // Search for a specific field for a company via DDG

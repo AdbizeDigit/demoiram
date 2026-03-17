@@ -405,12 +405,10 @@ class ScraperService extends EventEmitter {
               },
             });
 
-            // Queue for enrichment if data incomplete
-            if (needsEnrichment && enrichmentService && typeof enrichmentService.queueLeadForEnrichment === 'function') {
-              enrichmentService.queueLeadForEnrichment(savedLead.id).catch((err) => {
-                console.log(`[ScraperService] Error queuing enrichment for ${parsedLead.company}:`, err);
-              });
-            }
+            // ALWAYS queue for deep enrichment + AI report (automatic pipeline)
+            this._autoProcessLead(savedLead.id, parsedLead.company).catch((err) => {
+              console.log(`[ScraperService] Auto-process error for ${parsedLead.company}:`, err.message);
+            });
           } catch (error) {
             // Could be a duplicate constraint or other DB error
             console.log(`[ScraperService] Lead duplicate or error: ${parsedLead.company}`, error.message);
@@ -453,6 +451,35 @@ class ScraperService extends EventEmitter {
       });
     } finally {
       this.activeJobs.delete(jobId);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Auto-process lead: deep enrichment → AI report (runs in background)
+  // ---------------------------------------------------------------------------
+
+  async _autoProcessLead(leadId, companyName) {
+    try {
+      // Step 1: Deep enrichment (re-scrape for WhatsApp, social media, subpages)
+      if (enrichmentService && typeof enrichmentService.deepEnrichLead === 'function') {
+        console.log(`[AutoProcess] Deep enriching: ${companyName}`);
+        await enrichmentService.deepEnrichLead(leadId);
+      } else if (enrichmentService && typeof enrichmentService.enrichLead === 'function') {
+        await enrichmentService.enrichLead(leadId);
+      }
+
+      // Step 2: Generate AI report
+      try {
+        const { default: leadReportService } = await import('./lead-report-service.js');
+        console.log(`[AutoProcess] Generating AI report: ${companyName}`);
+        await leadReportService.generateReport(leadId);
+      } catch (reportErr) {
+        console.log(`[AutoProcess] Report error for ${companyName}:`, reportErr.message);
+      }
+
+      console.log(`[AutoProcess] Complete: ${companyName}`);
+    } catch (err) {
+      console.log(`[AutoProcess] Error for ${companyName}:`, err.message);
     }
   }
 
