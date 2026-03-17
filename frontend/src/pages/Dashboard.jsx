@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageSquare, Eye, Users, ShoppingCart, Heart, Mic, FileText, TrendingUp } from 'lucide-react'
+import { MessageSquare, Eye, Users, ShoppingCart, Heart, Mic, FileText, TrendingUp, Radar } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
 const demos = [
@@ -280,7 +280,7 @@ function Dashboard() {
         })}
       </div>
 
-      {user?.email === 'contacto@adbize.com' && (
+      {(user?.role === 'admin' || user?.email === 'contacto@adbize.com') && (
         <div className="mt-12">
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Sistema interno Adbize</h2>
           <p className="text-gray-600 mb-4">Herramientas internas para operaciones, growth y prospección avanzada.</p>
@@ -353,6 +353,42 @@ function Dashboard() {
                 </p>
                 <div className="mt-5 pt-4 border-t border-gray-200 flex items-center justify-between text-sm font-bold bg-gradient-to-r from-cyan-400 via-blue-500 to-indigo-600 bg-clip-text text-transparent">
                   <span>VER MAPA</span>
+                  <svg className="w-5 h-5 group-hover:translate-x-2 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                  </svg>
+                </div>
+              </div>
+            </Link>
+            <Link
+              to="/admin"
+              className="group relative bg-gradient-to-br from-white to-gray-50 border border-gray-200 rounded-2xl p-6 overflow-hidden transition-all duration-300 hover:shadow-2xl hover:scale-105 hover:border-transparent"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-2xl" style={{ padding: '2px' }}>
+                <div className="absolute inset-[2px] bg-white rounded-2xl"></div>
+              </div>
+
+              <div className="relative z-10">
+                <div className="absolute -top-6 -right-6">
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg">
+                    ADMIN
+                  </span>
+                </div>
+
+                <div className="mb-5 relative">
+                  <div className="absolute inset-0 bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 rounded-2xl blur-xl opacity-30 group-hover:opacity-60 transition-opacity duration-300"></div>
+                  <div className="relative w-16 h-16 bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600 rounded-2xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <Radar className="text-white" size={28} />
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold mb-3 bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 bg-clip-text text-transparent group-hover:scale-105 transition-transform duration-300 origin-left">
+                  Motor de Detección
+                </h3>
+                <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                  Detección automática de oportunidades comerciales. Escanea fuentes RSS, noticias y búsquedas web con análisis de IA.
+                </p>
+                <div className="mt-5 pt-4 border-t border-gray-200 flex items-center justify-between text-sm font-bold bg-gradient-to-r from-emerald-400 via-teal-500 to-cyan-600 bg-clip-text text-transparent">
+                  <span>ABRIR MOTOR</span>
                   <svg className="w-5 h-5 group-hover:translate-x-2 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                   </svg>

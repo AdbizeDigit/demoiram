@@ -39,6 +39,10 @@ const PAC3AdminPanel = lazy(() => import('./pages/PAC3AdminPanel'))
 // Internal Tools
 const InternalToolsPage = lazy(() => import('./pages/InternalToolsPage'))
 
+// Admin Section - Detection Engine
+const AdminLayout = lazy(() => import('./components/AdminLayout'))
+const DetectionEnginePage = lazy(() => import('./pages/DetectionEnginePage'))
+
 // Loading component
 const LoadingFallback = () => (
   <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -93,6 +97,13 @@ function App() {
 
             {/* Internal Tools */}
             <Route path="internal-tools" element={<InternalToolsPage />} />
+
+          </Route>
+
+          {/* Admin Section - separate layout with sidebar */}
+          <Route path="/admin" element={<PrivateRoute><AdminLayout /></PrivateRoute>}>
+            <Route index element={<DetectionEnginePage />} />
+            <Route path="*" element={<DetectionEnginePage />} />
           </Route>
         </Routes>
       </Suspense>

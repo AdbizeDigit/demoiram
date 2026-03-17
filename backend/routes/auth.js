@@ -86,6 +86,7 @@ router.post('/login', async (req, res) => {
           id: user.id,
           name: user.name,
           email: user.email,
+          role: user.role || 'user',
           serviceUsage: {
             chatbot: user.chatbot_uses,
             customChatbot: user.custom_chatbot_uses || 3,
@@ -118,6 +119,7 @@ router.get('/me', protect, async (req, res) => {
         id: req.user.id,
         name: req.user.name,
         email: req.user.email,
+        role: req.user.role || 'user',
         serviceUsage: {
           chatbot: usage.chatbot_uses,
           customChatbot: usage.custom_chatbot_uses || 3,

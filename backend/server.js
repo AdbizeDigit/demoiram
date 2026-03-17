@@ -36,6 +36,8 @@ import multiChannelOutreachRoutes from './routes/multi-channel-outreach.js'
 import personalizationOptimizationRoutes from './routes/personalization-optimization.js'
 import pac3Routes from './routes/pac-3.0.js'
 import scrapingTerritoriesRoutes from './routes/scraping-territories.js'
+import detectionRoutes from './routes/detection.js'
+import scrapingSystemRoutes from './routes/scraping-routes.js'
 import { connectDB } from './config/database.js'
 import { initializeScheduledSearches } from './routes/automation.js'
 import CustomChatbot from './models/CustomChatbot.js'
@@ -87,6 +89,8 @@ app.use('/api/multi-channel', multiChannelOutreachRoutes)
 app.use('/api/personalization', personalizationOptimizationRoutes)
 app.use('/api/pac-3.0', pac3Routes)
 app.use('/api/scraping', scrapingTerritoriesRoutes)
+app.use('/api/detection', detectionRoutes)
+app.use('/api/scraping-engine', scrapingSystemRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -126,4 +130,13 @@ app.listen(PORT, async () => {
   // Inicializar búsquedas programadas automáticas
   await initializeScheduledSearches()
   console.log('🤖 Sistema de automatización inicializado')
+
+  // Inicializar tablas de scraping
+  try {
+    const { initScrapingTables } = await import('./services/scraping/scraper-service.js')
+    await initScrapingTables()
+    console.log('🔍 Tablas de scraping inicializadas')
+  } catch (err) {
+    console.error('⚠️ Error inicializando tablas de scraping:', err.message)
+  }
 })

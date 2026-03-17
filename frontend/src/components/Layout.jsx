@@ -1,6 +1,6 @@
 import { Outlet, Link, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { LogOut } from 'lucide-react'
+import { LogOut, Radar } from 'lucide-react'
 
 function Layout() {
   const { user, logout } = useAuthStore()
@@ -25,6 +25,15 @@ function Layout() {
             </Link>
 
             <div className="flex items-center space-x-3">
+              {user?.role === 'admin' && (
+                <Link
+                  to="/admin"
+                  className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors duration-200"
+                >
+                  <Radar size={16} />
+                  <span className="hidden md:inline">Motor de Deteccion</span>
+                </Link>
+              )}
               <span className="text-sm text-gray-600 hidden sm:block">{user?.name}</span>
               <button
                 onClick={handleLogout}
