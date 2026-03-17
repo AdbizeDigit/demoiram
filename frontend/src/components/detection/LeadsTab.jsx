@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Search, Eye, ChevronLeft, ChevronRight, Loader2,
   AlertCircle, Building2, MapPin, RefreshCw, X,
+  Phone, Mail, Globe, ExternalLink,
 } from 'lucide-react';
 import api from '../../services/api';
 import { OPPORTUNITY_TYPES, PriorityTag, FitScoreBadge, TypeTag, CustomSelect, formatTimeAgo } from './shared';
@@ -55,6 +56,12 @@ export default function LeadsTab() {
         phone: lead.phone || '',
         email: lead.email || '',
         website: lead.website || '',
+        socialFacebook: lead.social_facebook || '',
+        socialInstagram: lead.social_instagram || '',
+        socialLinkedin: lead.social_linkedin || '',
+        socialTwitter: lead.social_twitter || '',
+        socialWhatsapp: lead.social_whatsapp || '',
+        enrichmentStatus: lead.enrichment_status || '',
         raw: lead,
       }));
 
@@ -213,9 +220,54 @@ export default function LeadsTab() {
                 <PriorityTag priority={lead.priority} />
               </div>
 
-              {/* Description snippet */}
-              {lead.description && (
-                <p className="text-xs text-gray-500 mb-3 line-clamp-2">{lead.description}</p>
+              {/* Contact info */}
+              <div className="space-y-1 mb-3">
+                {lead.phone && (
+                  <a href={`tel:${lead.phone}`} className="text-xs text-gray-600 flex items-center gap-1.5 hover:text-emerald-600 transition-colors">
+                    <Phone className="w-3 h-3 text-gray-400" /> {lead.phone}
+                  </a>
+                )}
+                {lead.email && (
+                  <a href={`mailto:${lead.email}`} className="text-xs text-gray-600 flex items-center gap-1.5 hover:text-emerald-600 transition-colors truncate">
+                    <Mail className="w-3 h-3 text-gray-400" /> {lead.email}
+                  </a>
+                )}
+                {lead.website && (
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-600 flex items-center gap-1.5 hover:text-emerald-600 transition-colors truncate">
+                    <Globe className="w-3 h-3 text-gray-400" /> {lead.website.replace(/^https?:\/\//, '')}
+                  </a>
+                )}
+              </div>
+
+              {/* Social icons */}
+              {(lead.socialFacebook || lead.socialInstagram || lead.socialWhatsapp || lead.socialLinkedin || lead.socialTwitter) && (
+                <div className="flex items-center gap-2 mb-3">
+                  {lead.socialWhatsapp && (
+                    <a href={`https://wa.me/${lead.socialWhatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="w-6 h-6 rounded bg-green-50 flex items-center justify-center text-green-600 hover:bg-green-100 transition-colors" title="WhatsApp">
+                      <span className="text-xs font-bold">W</span>
+                    </a>
+                  )}
+                  {lead.socialFacebook && (
+                    <a href={lead.socialFacebook} target="_blank" rel="noopener noreferrer" className="w-6 h-6 rounded bg-blue-50 flex items-center justify-center text-blue-600 hover:bg-blue-100 transition-colors" title="Facebook">
+                      <span className="text-xs font-bold">F</span>
+                    </a>
+                  )}
+                  {lead.socialInstagram && (
+                    <a href={lead.socialInstagram} target="_blank" rel="noopener noreferrer" className="w-6 h-6 rounded bg-pink-50 flex items-center justify-center text-pink-600 hover:bg-pink-100 transition-colors" title="Instagram">
+                      <span className="text-xs font-bold">I</span>
+                    </a>
+                  )}
+                  {lead.socialLinkedin && (
+                    <a href={lead.socialLinkedin} target="_blank" rel="noopener noreferrer" className="w-6 h-6 rounded bg-sky-50 flex items-center justify-center text-sky-600 hover:bg-sky-100 transition-colors" title="LinkedIn">
+                      <span className="text-xs font-bold">L</span>
+                    </a>
+                  )}
+                  {lead.socialTwitter && (
+                    <a href={lead.socialTwitter} target="_blank" rel="noopener noreferrer" className="w-6 h-6 rounded bg-gray-50 flex items-center justify-center text-gray-600 hover:bg-gray-100 transition-colors" title="Twitter/X">
+                      <span className="text-xs font-bold">X</span>
+                    </a>
+                  )}
+                </div>
               )}
 
               {/* Footer: score + date */}
@@ -346,37 +398,101 @@ function LeadDetailModal({ lead, onClose }) {
             </div>
           )}
 
+          {/* Contact info */}
+          <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+            <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider">Datos de Contacto</p>
+            {lead.phone && (
+              <a href={`tel:${lead.phone}`} className="flex items-center gap-2 text-sm text-gray-700 hover:text-emerald-600 transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center"><Phone className="w-4 h-4 text-emerald-600" /></div>
+                {lead.phone}
+              </a>
+            )}
+            {lead.email && (
+              <a href={`mailto:${lead.email}`} className="flex items-center gap-2 text-sm text-gray-700 hover:text-emerald-600 transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center"><Mail className="w-4 h-4 text-blue-600" /></div>
+                {lead.email}
+              </a>
+            )}
+            {lead.website && (
+              <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-gray-700 hover:text-emerald-600 transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center"><Globe className="w-4 h-4 text-purple-600" /></div>
+                {lead.website.replace(/^https?:\/\//, '')}
+                <ExternalLink className="w-3 h-3 text-gray-400 ml-auto" />
+              </a>
+            )}
+            {!lead.phone && !lead.email && !lead.website && (
+              <p className="text-xs text-gray-400">Sin datos de contacto disponibles</p>
+            )}
+          </div>
+
+          {/* Social media */}
+          {(lead.socialWhatsapp || lead.socialFacebook || lead.socialInstagram || lead.socialLinkedin || lead.socialTwitter) && (
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+              <p className="text-[11px] text-gray-400 font-semibold uppercase tracking-wider">Redes Sociales</p>
+              <div className="flex flex-wrap gap-2">
+                {lead.socialWhatsapp && (
+                  <a href={`https://wa.me/${lead.socialWhatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors">
+                    WhatsApp: {lead.socialWhatsapp}
+                  </a>
+                )}
+                {lead.socialFacebook && (
+                  <a href={lead.socialFacebook} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 transition-colors">
+                    Facebook
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                {lead.socialInstagram && (
+                  <a href={lead.socialInstagram} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 bg-pink-100 text-pink-700 rounded-lg text-xs font-medium hover:bg-pink-200 transition-colors">
+                    Instagram
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                {lead.socialLinkedin && (
+                  <a href={lead.socialLinkedin} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 bg-sky-100 text-sky-700 rounded-lg text-xs font-medium hover:bg-sky-200 transition-colors">
+                    LinkedIn
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                {lead.socialTwitter && (
+                  <a href={lead.socialTwitter} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200 transition-colors">
+                    Twitter/X
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Details grid */}
           <div className="grid grid-cols-2 gap-4">
             <InfoRow label="Empresa" value={lead.company} />
             <InfoRow label="Ubicacion" value={lead.location} />
-            <InfoRow label="Fuente" value={lead.source} />
-            <InfoRow
-              label="Valor Estimado"
-              value={lead.value ? `$${Number(lead.value).toLocaleString('es-MX')}` : null}
-            />
+            <InfoRow label="Sector" value={lead.type} />
+            <InfoRow label="Direccion" value={lead.description} />
+            {lead.source && (
+              <div className="col-span-2">
+                <p className="text-[11px] text-gray-400">Fuente</p>
+                <a href={lead.source} target="_blank" rel="noopener noreferrer" className="text-sm text-emerald-600 hover:underline truncate block">{lead.source}</a>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
           <div className="flex items-center gap-2 pt-2 border-t border-gray-100 text-xs text-gray-400">
             <span>
               Score:{' '}
-              <strong
-                className={
-                  lead.score >= 70
-                    ? 'text-emerald-600'
-                    : lead.score >= 40
-                      ? 'text-amber-600'
-                      : 'text-gray-500'
-                }
-              >
-                {lead.score}
+              <strong className={lead.score >= 70 ? 'text-emerald-600' : lead.score >= 40 ? 'text-amber-600' : 'text-gray-500'}>
+                {lead.score}%
               </strong>
             </span>
             <span>|</span>
-            <span>
-              Detectado: {lead.createdAt ? formatTimeAgo(lead.createdAt) : 'N/A'}
-            </span>
+            <span>Detectado: {lead.createdAt ? formatTimeAgo(lead.createdAt) : 'N/A'}</span>
+            {lead.enrichmentStatus && (
+              <>
+                <span>|</span>
+                <span>Enriquecimiento: {lead.enrichmentStatus}</span>
+              </>
+            )}
           </div>
         </div>
       </div>
