@@ -286,4 +286,155 @@ router.post('/whatsapp/test', async (req, res) => {
   }
 });
 
+// ── WhatsApp Direct Connection (QR-based) ──
+
+// POST /whatsapp/connect - Start WhatsApp connection (generates QR)
+router.post('/whatsapp/connect', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await whatsappConnection.connect();
+
+    // Wait a moment for QR to generate
+    await new Promise(r => setTimeout(r, 3000));
+    const status = whatsappConnection.getStatus();
+
+    res.json({ success: true, ...status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/disconnect - Disconnect and clear session
+router.post('/whatsapp/disconnect', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await whatsappConnection.disconnect();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /whatsapp/status - Get connection status + QR
+router.get('/whatsapp/status', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const status = whatsappConnection.getStatus();
+    res.json({ success: true, ...status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /whatsapp/qr - Get QR code image
+router.get('/whatsapp/qr', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const status = whatsappConnection.getStatus();
+    if (status.qrCode) {
+      res.json({ success: true, qrCode: status.qrCode });
+    } else if (status.status === 'connected') {
+      res.json({ success: true, status: 'connected', phone: status.phone });
+    } else {
+      res.json({ success: false, status: status.status, message: 'QR no disponible. Inicie la conexion primero.' });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/send-direct - Send message via connected WhatsApp
+router.post('/whatsapp/send-direct', async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, error: 'phone y message son requeridos' });
+    }
+
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await whatsappConnection.sendMessage(phone, message);
+    res.json({ success: true, message: 'Mensaje enviado por WhatsApp', result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/send-to-lead - Generate AI message and send to lead via connected WhatsApp
+router.post('/whatsapp/send-to-lead', async (req, res) => {
+  try {
+    const { leadId } = req.body;
+    if (!leadId) return res.status(400).json({ success: false, error: 'leadId requerido' });
+
+    const leadRes = await pool.query('SELECT * FROM leads WHERE id = $1', [leadId]);
+    if (leadRes.rows.length === 0) return res.status(404).json({ success: false, error: 'Lead no encontrado' });
+    const lead = leadRes.rows[0];
+
+    const phone = lead.social_whatsapp || lead.phone;
+    if (!phone) return res.status(400).json({ success: false, error: 'Lead no tiene telefono/WhatsApp' });
+
+    // Generate AI message
+    const message = await whatsappOutreachService.generateMessage(lead);
+
+    // Send via connected WhatsApp
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await whatsappConnection.sendMessage(phone, message);
+
+    // Save to outreach messages
+    await whatsappOutreachService.saveMessage(leadId, message, null);
+
+    res.json({ success: true, message: 'Mensaje enviado por WhatsApp', sentMessage: message, result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /whatsapp/messages - Get message history
+router.get('/whatsapp/messages', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const messages = whatsappConnection.getMessages(parseInt(req.query.limit || '50'));
+    res.json({ success: true, messages });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/send-bulk - Send AI messages to multiple leads
+router.post('/whatsapp/send-bulk', async (req, res) => {
+  try {
+    const { leadIds } = req.body;
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+
+    if (whatsappConnection.connectionStatus !== 'connected') {
+      return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado' });
+    }
+
+    // Get leads
+    let leads;
+    if (leadIds && leadIds.length > 0) {
+      const placeholders = leadIds.map((_, i) => `$${i + 1}`).join(',');
+      const result = await pool.query(`SELECT * FROM leads WHERE id IN (${placeholders})`, leadIds);
+      leads = result.rows;
+    } else {
+      const result = await pool.query("SELECT * FROM leads WHERE (phone IS NOT NULL OR social_whatsapp IS NOT NULL) AND phone != '' LIMIT 50");
+      leads = result.rows;
+    }
+
+    // Send in background
+    const contacts = leads.map(l => ({ ...l, phone: l.social_whatsapp || l.phone })).filter(l => l.phone);
+
+    whatsappConnection.sendBulkMessages(contacts, async (contact) => {
+      return await whatsappOutreachService.generateMessage(contact);
+    }).then(results => {
+      console.log(`[WhatsApp Bulk] Sent ${results.filter(r => r.success).length}/${results.length} messages`);
+    }).catch(err => {
+      console.error('[WhatsApp Bulk] Error:', err.message);
+    });
+
+    res.json({ success: true, message: `Enviando mensajes a ${contacts.length} leads en segundo plano` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;

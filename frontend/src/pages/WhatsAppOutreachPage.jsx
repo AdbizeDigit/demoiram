@@ -7,7 +7,7 @@ import {
   Loader2, RefreshCw, ChevronDown, ChevronUp, Filter,
   ChevronLeft, ChevronRight, Zap, AlertCircle, Users, Clock,
   ToggleLeft, ToggleRight, Sparkles, X, Search, Eye,
-  FlaskConical, RotateCcw,
+  FlaskConical, RotateCcw, QrCode,
 } from 'lucide-react'
 
 const PAGE_SIZE = 10
@@ -62,6 +62,14 @@ export default function WhatsAppOutreachPage() {
   const [pgLog, setPgLog] = useState([])
   const [pgApiLoading, setPgApiLoading] = useState(false)
 
+  // ── WhatsApp Connection ──
+  const [waStatus, setWaStatus] = useState('disconnected') // disconnected, connecting, qr_ready, connected
+  const [waQR, setWaQR] = useState(null) // base64 QR image
+  const [waPhone, setWaPhone] = useState(null)
+  const [waName, setWaName] = useState(null)
+  const [waMessages, setWaMessages] = useState([])
+  const [waConnecting, setWaConnecting] = useState(false)
+
   // ── Notifications ──
   const [toast, setToast] = useState(null)
 
@@ -69,6 +77,76 @@ export default function WhatsAppOutreachPage() {
     setToast({ text, type })
     setTimeout(() => setToast(null), 3000)
   }
+
+  // ── WhatsApp Connection handlers ──
+  const handleConnectWA = async () => {
+    setWaConnecting(true);
+    try {
+      await api.post('/api/outreach/whatsapp/connect');
+      // Start polling for status
+      pollWAStatus();
+    } catch (err) {
+      console.error(err);
+      setWaConnecting(false);
+    }
+  };
+
+  const pollWAStatus = () => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await api.get('/api/outreach/whatsapp/status');
+        const data = res.data;
+        setWaStatus(data.status);
+        if (data.qrCode) setWaQR(data.qrCode);
+        if (data.phone) setWaPhone(data.phone);
+        if (data.name) setWaName(data.name);
+        if (data.status === 'connected') {
+          clearInterval(interval);
+          setWaConnecting(false);
+          // Load messages
+          const msgRes = await api.get('/api/outreach/whatsapp/messages');
+          if (msgRes.data?.messages) setWaMessages(msgRes.data.messages);
+        }
+      } catch {}
+    }, 3000);
+    // Stop polling after 2 minutes
+    setTimeout(() => clearInterval(interval), 120000);
+  };
+
+  const handleDisconnectWA = async () => {
+    try {
+      await api.post('/api/outreach/whatsapp/disconnect');
+      setWaStatus('disconnected');
+      setWaQR(null);
+      setWaPhone(null);
+      setWaName(null);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleSendDirectWA = async (phone, message) => {
+    try {
+      await api.post('/api/outreach/whatsapp/send-direct', { phone, message });
+      return true;
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  };
+
+  // ── Check WA status on mount ──
+  useEffect(() => {
+    api.get('/api/outreach/whatsapp/status')
+      .then(res => {
+        const data = res.data;
+        setWaStatus(data.status || 'disconnected');
+        if (data.phone) setWaPhone(data.phone);
+        if (data.name) setWaName(data.name);
+        if (data.qrCode) setWaQR(data.qrCode);
+      })
+      .catch(() => {});
+  }, []);
 
   // ── Data loading ──
   const loadLeads = useCallback(async () => {
@@ -382,6 +460,59 @@ export default function WhatsAppOutreachPage() {
             <p className="text-xs text-yellow-600 mt-1">Pendientes</p>
           </div>
         </div>
+      </div>
+
+      {/* ═══════════════════ WHATSAPP CONNECTION ═══════════════════ */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded-full ${waStatus === 'connected' ? 'bg-green-500' : waStatus === 'qr_ready' ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
+            <h3 className="text-sm font-semibold text-gray-700">
+              {waStatus === 'connected' ? 'WhatsApp Conectado' : waStatus === 'qr_ready' ? 'Escanea el QR' : 'WhatsApp no vinculado'}
+            </h3>
+          </div>
+          {waStatus === 'connected' ? (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-500">{waName} ({waPhone})</span>
+              <button onClick={handleDisconnectWA} className="text-xs text-red-500 hover:text-red-700 font-medium">Desconectar</button>
+            </div>
+          ) : waStatus !== 'qr_ready' ? (
+            <button onClick={handleConnectWA} disabled={waConnecting}
+              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-50">
+              {waConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
+              Vincular WhatsApp
+            </button>
+          ) : null}
+        </div>
+
+        {/* QR Code */}
+        {waStatus === 'qr_ready' && waQR && (
+          <div className="flex flex-col items-center py-6 bg-gray-50 rounded-xl">
+            <img src={waQR} alt="QR WhatsApp" className="w-64 h-64 rounded-xl border-4 border-white shadow-lg" />
+            <p className="text-sm text-gray-500 mt-4">Abri WhatsApp en tu telefono → Dispositivos vinculados → Vincular dispositivo</p>
+            <div className="flex items-center gap-2 mt-2 text-xs text-blue-500">
+              <Loader2 className="w-3 h-3 animate-spin" /> Esperando escaneo...
+            </div>
+          </div>
+        )}
+
+        {/* Connected - show inbox */}
+        {waStatus === 'connected' && waMessages.length > 0 && (
+          <div className="mt-4">
+            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Mensajes Recientes</p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {waMessages.slice(0, 10).map((msg, i) => (
+                <div key={i} className={`flex ${msg.isFromMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[70%] rounded-xl px-3 py-2 text-xs ${msg.isFromMe ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
+                    {!msg.isFromMe && <p className="font-semibold text-[10px] mb-0.5">{msg.fromName}</p>}
+                    <p>{msg.text}</p>
+                    <p className="text-[9px] text-gray-400 mt-0.5 text-right">{new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'})}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ═══════════════════ AUTO MODE ═══════════════════ */}
