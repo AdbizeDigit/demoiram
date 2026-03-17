@@ -4,6 +4,18 @@ import axios from 'axios'
 
 const API_URL = '/api/auth'
 
+// Helper to get token from persisted storage directly
+function getPersistedToken() {
+  try {
+    const raw = localStorage.getItem('auth-storage')
+    if (raw) {
+      const { state } = JSON.parse(raw)
+      return state?.token || null
+    }
+  } catch {}
+  return null
+}
+
 export const useAuthStore = create(
   persist(
     (set) => ({
@@ -46,7 +58,12 @@ export const useAuthStore = create(
 
       fetchUserData: async () => {
         try {
-          const response = await axios.get(`${API_URL}/me`)
+          // Read token directly from localStorage to avoid hydration timing issues
+          const token = getPersistedToken() || useAuthStore.getState().token
+          if (!token) return { success: false, error: 'No token' }
+          const response = await axios.get(`${API_URL}/me`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
           set({ user: response.data.user })
           return { success: true }
         } catch (error) {
@@ -56,9 +73,10 @@ export const useAuthStore = create(
       },
 
       initializeAuth: () => {
-        const state = useAuthStore.getState()
-        if (state.token) {
-          axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`
+        // Read directly from localStorage to avoid zustand hydration timing
+        const token = getPersistedToken()
+        if (token) {
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
         }
       }
     }),

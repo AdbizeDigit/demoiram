@@ -33,15 +33,8 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      const url = error.config?.url || ''
-      // Only force logout on auth endpoints (login/me), not on every 401
-      // This prevents admin panel API calls from logging out the user
-      if (url.includes('/api/auth/') && !url.includes('/api/auth/login')) {
-        localStorage.removeItem('auth-storage')
-        window.location.href = '/login'
-      }
-    }
+    // Don't auto-logout on 401 - let components handle auth errors
+    // This prevents detection/scraping API calls from logging out the user
     return Promise.reject(error)
   }
 )
