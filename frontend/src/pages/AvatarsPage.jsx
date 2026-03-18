@@ -170,11 +170,27 @@ export default function AvatarsPage() {
     }
     setSaving(true)
     try {
+      // Clean up local blob URL before saving
+      const saveData = { ...formData }
+      if (saveData.photo_url?.startsWith('blob:')) saveData.photo_url = ''
+      delete saveData._pendingFile
+
       if (editingAvatar) {
-        await api.put(`/api/avatars/${editingAvatar.id}`, formData)
+        await api.put(`/api/avatars/${editingAvatar.id}`, saveData)
         showNotification('Avatar actualizado correctamente')
       } else {
-        await api.post('/api/avatars', formData)
+        const res = await api.post('/api/avatars', saveData)
+        const newId = res.data?.avatar?.id
+        // Upload pending photo for new avatar
+        if (newId && formData._pendingFile) {
+          const fd = new FormData()
+          fd.append('photo', formData._pendingFile)
+          try {
+            await api.post(`/api/avatars/${newId}/upload-photo`, fd, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            })
+          } catch {}
+        }
         showNotification('Avatar creado correctamente')
       }
       closeModal()
@@ -751,15 +767,64 @@ export default function AvatarsPage() {
                         className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">URL foto de perfil</label>
-                      <input
-                        type="url"
-                        value={formData.photo_url}
-                        onChange={(e) => setFormData(prev => ({ ...prev, photo_url: e.target.value }))}
-                        placeholder="https://ejemplo.com/foto.jpg"
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Foto de Perfil</label>
+                      <div className="flex items-start gap-3">
+                        {/* Preview */}
+                        <div className="flex-shrink-0">
+                          {formData.photo_url ? (
+                            <img src={formData.photo_url} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-2 border-gray-200" onError={(e) => { e.target.style.display = 'none' }} />
+                          ) : (
+                            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-200 to-gray-300 flex items-center justify-center text-gray-500">
+                              <User className="w-8 h-8" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 space-y-2">
+                          {/* File upload */}
+                          <label className="flex items-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 rounded-xl text-sm font-medium cursor-pointer hover:bg-emerald-100 transition-colors border border-emerald-200">
+                            <Plus className="w-4 h-4" />
+                            Subir Imagen
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                // If editing existing avatar, upload immediately
+                                if (editingAvatar && editingAvatar.id) {
+                                  const fd = new FormData()
+                                  fd.append('photo', file)
+                                  try {
+                                    const res = await api.post(`/api/avatars/${editingAvatar.id}/upload-photo`, fd, {
+                                      headers: { 'Content-Type': 'multipart/form-data' }
+                                    })
+                                    if (res.data?.photoUrl) {
+                                      setFormData(prev => ({ ...prev, photo_url: res.data.photoUrl }))
+                                    }
+                                  } catch (err) {
+                                    console.error('Upload error:', err)
+                                  }
+                                } else {
+                                  // For new avatars, use local preview URL
+                                  const localUrl = URL.createObjectURL(file)
+                                  setFormData(prev => ({ ...prev, photo_url: localUrl, _pendingFile: file }))
+                                }
+                              }}
+                            />
+                          </label>
+                          {/* URL fallback */}
+                          <input
+                            type="url"
+                            value={formData.photo_url || ''}
+                            onChange={(e) => setFormData(prev => ({ ...prev, photo_url: e.target.value }))}
+                            placeholder="O pegar URL de imagen..."
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <p className="text-[10px] text-gray-400">Esta imagen aparecera en los emails enviados por este avatar.</p>
+                        </div>
+                      </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">LinkedIn URL</label>

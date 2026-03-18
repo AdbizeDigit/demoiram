@@ -1,7 +1,41 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
 import { protect, adminOnly } from '../middleware/auth.js';
 import { avatarService } from '../services/outreach/avatar-service.js';
 import { pool } from '../config/database.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const UPLOADS_DIR = path.join(__dirname, '..', '..', 'frontend', 'dist', 'uploads', 'avatars');
+const UPLOADS_DEV_DIR = path.join(__dirname, '..', '..', 'frontend', 'public', 'uploads', 'avatars');
+
+// Ensure upload dirs exist
+[UPLOADS_DIR, UPLOADS_DEV_DIR].forEach(dir => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    // Save to both dist (production) and public (dev)
+    cb(null, fs.existsSync(UPLOADS_DIR) ? UPLOADS_DIR : UPLOADS_DEV_DIR);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname) || '.png';
+    cb(null, `avatar-${Date.now()}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+  fileFilter: (req, file, cb) => {
+    const allowed = /\.(jpg|jpeg|png|gif|webp|svg)$/i;
+    if (allowed.test(path.extname(file.originalname))) cb(null, true);
+    else cb(new Error('Solo se permiten imagenes (jpg, png, gif, webp, svg)'));
+  },
+});
 
 const router = Router();
 router.use(protect, adminOnly);
@@ -122,6 +156,29 @@ router.get('/:id/stats', async (req, res) => {
     );
 
     res.json({ success: true, avatar, breakdown: messagesRes.rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /avatars/:id/upload-photo - Upload avatar profile photo
+router.post('/:id/upload-photo', upload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, error: 'No se envio imagen' });
+
+    const photoUrl = `/uploads/avatars/${req.file.filename}`;
+
+    // Also copy to dev public dir
+    try {
+      const devPath = path.join(UPLOADS_DEV_DIR, req.file.filename);
+      if (!fs.existsSync(devPath) && fs.existsSync(req.file.path)) {
+        fs.copyFileSync(req.file.path, devPath);
+      }
+    } catch {}
+
+    const avatar = await avatarService.updateAvatar(req.params.id, { photo_url: photoUrl });
+
+    res.json({ success: true, avatar, photoUrl });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

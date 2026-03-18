@@ -198,19 +198,86 @@ ${stepType === 'last_chance' ? 'Ultimo email. Breve, respetuoso. Preguntar si ha
     return templates[stepType] || templates.introduction;
   }
 
-  // Send a single email
+  // Get avatar info for email branding
+  async getActiveAvatar() {
+    try {
+      const res = await pool.query('SELECT * FROM avatars WHERE is_default = true AND is_active = true LIMIT 1');
+      if (res.rows.length > 0) return res.rows[0];
+      const fallback = await pool.query('SELECT * FROM avatars WHERE is_active = true ORDER BY created_at ASC LIMIT 1');
+      return fallback.rows[0] || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Build email signature with avatar photo
+  buildSignatureWithPhoto(avatar) {
+    if (!avatar) return '';
+
+    const name = avatar.name || 'Adbize';
+    const role = avatar.role || '';
+    const company = avatar.company || 'Adbize';
+    const phone = avatar.phone || '';
+    const email = avatar.email || '';
+    const linkedin = avatar.linkedin_url || '';
+    const calendar = avatar.calendar_url || '';
+
+    // If avatar has custom signature HTML, use it
+    if (avatar.signature_html) return avatar.signature_html;
+
+    // Build signature with photo
+    const baseUrl = process.env.APP_URL || 'https://adbize.com';
+    const photoHtml = avatar.photo_url
+      ? `<img src="${baseUrl}${avatar.photo_url}" alt="${name}" style="width:60px;height:60px;border-radius:50%;object-fit:cover;margin-right:12px;" />`
+      : `<div style="width:60px;height:60px;border-radius:50%;background:#10b981;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:24px;margin-right:12px;">${name.charAt(0)}</div>`;
+
+    return `
+<table cellpadding="0" cellspacing="0" style="margin-top:20px;border-top:1px solid #e5e7eb;padding-top:16px;">
+  <tr>
+    <td style="vertical-align:top;padding-right:12px;">
+      ${photoHtml}
+    </td>
+    <td style="vertical-align:top;font-family:Arial,sans-serif;">
+      <strong style="font-size:14px;color:#1f2937;">${name}</strong><br/>
+      ${role ? `<span style="font-size:12px;color:#6b7280;">${role}</span><br/>` : ''}
+      <span style="font-size:12px;color:#10b981;font-weight:600;">${company}</span><br/>
+      ${phone ? `<span style="font-size:11px;color:#6b7280;">📱 ${phone}</span><br/>` : ''}
+      ${email ? `<span style="font-size:11px;color:#6b7280;">✉️ ${email}</span><br/>` : ''}
+      ${linkedin ? `<a href="${linkedin}" style="font-size:11px;color:#0077b5;text-decoration:none;">LinkedIn</a> ` : ''}
+      ${calendar ? `<a href="${calendar}" style="font-size:11px;color:#10b981;text-decoration:none;">📅 Agendar reunion</a>` : ''}
+    </td>
+  </tr>
+</table>`;
+  }
+
+  // Send a single email (with avatar branding)
   async sendEmail(to, subject, htmlBody) {
     const transporter = this.getTransporter();
-    const fromName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
+
+    // Get active avatar for branding
+    const avatar = await this.getActiveAvatar();
+    const fromName = avatar?.name || process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
+    const fromEmail = avatar?.email || process.env.SMTP_FROM || process.env.SMTP_USER;
+
+    // Append avatar signature if not already present
+    let finalBody = htmlBody;
+    if (avatar && !htmlBody.includes('border-top:1px solid') && !htmlBody.includes('signature')) {
+      finalBody += this.buildSignatureWithPhoto(avatar);
+    }
 
     const info = await transporter.sendMail({
-      from: `"${fromName}" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      from: `"${fromName}" <${fromEmail}>`,
       to,
       subject,
-      html: htmlBody,
+      html: finalBody,
     });
 
-    console.log(`[EmailOutreach] Email sent to ${to}: ${info.messageId}`);
+    // Track avatar stats
+    if (avatar) {
+      pool.query('UPDATE avatars SET emails_sent = emails_sent + 1, messages_sent = messages_sent + 1 WHERE id = $1', [avatar.id]).catch(() => {});
+    }
+
+    console.log(`[EmailOutreach] Email sent to ${to} as ${fromName}: ${info.messageId}`);
     return info;
   }
 
