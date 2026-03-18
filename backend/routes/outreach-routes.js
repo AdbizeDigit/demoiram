@@ -458,4 +458,28 @@ router.post('/whatsapp/send-bulk', async (req, res) => {
   }
 });
 
+// ── Email Config ──
+
+// GET /email/config - Get active email config
+router.get('/email/config', async (req, res) => {
+  try {
+    const { default: emailTemplateConfig } = await import('../services/outreach/email-template-config.js');
+    const config = await emailTemplateConfig.getActiveConfig();
+    res.json({ success: true, config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT /email/config - Save email config
+router.put('/email/config', async (req, res) => {
+  try {
+    const { default: emailTemplateConfig } = await import('../services/outreach/email-template-config.js');
+    const config = await emailTemplateConfig.saveConfig(req.body);
+    res.json({ success: true, config });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;

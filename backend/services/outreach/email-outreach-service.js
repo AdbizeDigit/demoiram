@@ -1,6 +1,5 @@
 import nodemailer from 'nodemailer';
 import { pool } from '../../config/database.js';
-import { analyzeWithDeepSeek } from '../deepseek.js';
 
 // SMTP transporter
 function createTransporter() {
@@ -92,58 +91,81 @@ class EmailOutreachService {
 
   // Generate personalized email with AI
   async generateEmail(lead, stepType, stepNumber) {
-    const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
+    // Load active config and avatar
+    const { default: emailTemplateConfig } = await import('./email-template-config.js');
+    const config = await emailTemplateConfig.getActiveConfig();
+    const avatar = await this.getActiveAvatar();
 
-    const systemPrompt = `Eres ${senderName} de Adbize, una empresa de tecnologia e inteligencia artificial que ayuda a empresas a automatizar procesos, aumentar ventas y optimizar operaciones con IA.
+    const systemPrompt = config?.system_prompt || this.getDefaultSystemPrompt();
+    const senderName = avatar?.name || process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
 
-Servicios de Adbize:
-- Chatbots inteligentes personalizados
-- Automatizacion de procesos con IA
-- Scraping inteligente y prospeccion automatizada
-- Analisis de datos con IA
-- Integracion de IA en sistemas existentes
+    const stepContext = {
+      introduction: 'Primer contacto. Presentate brevemente y menciona como podes ayudar a esta empresa especifica.',
+      value: 'Segundo contacto. Comparte un dato de valor relevante para su sector. Ofrece una consulta gratuita.',
+      case_study: 'Tercer contacto. Menciona un caso de exito breve de una empresa similar. Muestra resultados concretos.',
+      urgency: 'Cuarto contacto. Mencion suave de disponibilidad limitada este mes. No ser agresivo.',
+      last_chance: 'Ultimo contacto. Breve y respetuoso. Preguntar si hay interes o si prefieren que no los contactes mas.',
+    };
 
-Genera un email de prospeccion en espanol argentino profesional. El email debe ser:
-- Corto (max 150 palabras en el body)
-- Personalizado para la empresa y sector del lead
-- Con un CTA claro
-- Sin ser spam ni agresivo
-- Tono consultivo, no vendedor
+    const leadContext = `LEAD A CONTACTAR:
+- Empresa: ${lead.name || 'Desconocida'}
+- Sector: ${lead.sector || 'general'}
+- Ciudad: ${lead.city || 'Argentina'}, ${lead.state || ''}
+- Email: ${lead.email || 'no disponible'}
+- Website: ${lead.website || 'no disponible'}
+- Score: ${lead.score || 0}/100
 
-Responde SOLO con JSON valido:
-{
-  "subject": "asunto del email (max 60 chars, sin emojis)",
-  "body": "cuerpo del email en HTML simple (p, br, b, a tags). Incluir saludo, 2-3 parrafos cortos, CTA, firma de ${senderName} - Adbize"
-}`;
+TIPO DE EMAIL: ${stepType} (paso ${stepNumber || 1} de 5)
+INSTRUCCION: ${stepContext[stepType] || stepContext.introduction}
 
-    const context = `Empresa: ${lead.name}
-Sector: ${lead.sector || 'general'}
-Ciudad: ${lead.city || ''}, ${lead.state || ''}
-Website: ${lead.website || 'no disponible'}
-Contacto: ${lead.email}
-Score: ${lead.score}/100
-
-Tipo de email: ${stepType}
-Numero en secuencia: ${stepNumber}/5
-
-${stepType === 'introduction' ? 'Email de presentacion inicial. Mencionar que detectaste su empresa y como Adbize puede ayudarles.' : ''}
-${stepType === 'value' ? 'Email de valor. Compartir un dato o insight relevante para su sector. Ofrecer una consulta gratuita.' : ''}
-${stepType === 'case_study' ? 'Email con caso de exito. Inventar un caso breve de una empresa similar que uso IA para mejorar resultados.' : ''}
-${stepType === 'urgency' ? 'Email con urgencia suave. Mencionar que tenes disponibilidad limitada este mes para nuevos proyectos.' : ''}
-${stepType === 'last_chance' ? 'Ultimo email. Breve, respetuoso. Preguntar si hay interes o si prefieren que no los contactes mas.' : ''}`;
+Tu nombre es: ${senderName}
+Firma se agrega automaticamente, NO la incluyas en el body.`;
 
     try {
-      const response = await analyzeWithDeepSeek(`${systemPrompt}\n\n${context}`);
+      const { analyzeWithDeepSeek } = await import('../deepseek.js');
+      const response = await analyzeWithDeepSeek(`${systemPrompt}\n\n${leadContext}`);
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
-        return JSON.parse(jsonMatch[0]);
+        const parsed = JSON.parse(jsonMatch[0]);
+        const bodyHtml = parsed.body_html || parsed.body || parsed.html || '';
+        const subject = parsed.subject || `${lead.name} - ${senderName} de Adbize`;
+
+        // Wrap in HTML template
+        const finalHtml = this.wrapInTemplate(bodyHtml, avatar, config);
+        return { subject, body: finalHtml };
       }
     } catch (err) {
       console.error('[EmailOutreach] AI generation failed:', err.message);
     }
 
-    // Fallback template
+    // Fallback to template
     return this.getTemplateEmail(lead, stepType, stepNumber);
+  }
+
+  getDefaultSystemPrompt() {
+    return `Eres un representante comercial de Adbize, una empresa argentina de tecnologia e inteligencia artificial.
+Genera un email de prospeccion en espanol argentino profesional. Maximo 120 palabras. Tono consultivo.
+Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
+  }
+
+  wrapInTemplate(bodyHtml, avatar, config) {
+    const signature = this.buildSignatureWithPhoto(avatar);
+
+    if (config?.html_template) {
+      return config.html_template
+        .replace('{{BODY}}', bodyHtml)
+        .replace('{{SIGNATURE}}', signature);
+    }
+
+    // Default wrapper - clean, anti-spam friendly
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
+<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#333333;background-color:#f9fafb;">
+<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;">
+<tr><td style="padding:32px 28px 0;">${bodyHtml}</td></tr>
+<tr><td style="padding:16px 28px 32px;">${signature}</td></tr>
+</table>
+</body></html>`;
   }
 
   getTemplateEmail(lead, stepType, stepNumber) {
@@ -253,26 +275,17 @@ ${stepType === 'last_chance' ? 'Ultimo email. Breve, respetuoso. Preguntar si ha
   // Send a single email (with avatar branding)
   async sendEmail(to, subject, htmlBody) {
     const transporter = this.getTransporter();
-
-    // Get active avatar for branding
     const avatar = await this.getActiveAvatar();
     const fromName = avatar?.name || process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
     const fromEmail = avatar?.email || process.env.SMTP_FROM || process.env.SMTP_USER;
-
-    // Append avatar signature if not already present
-    let finalBody = htmlBody;
-    if (avatar && !htmlBody.includes('border-top:1px solid') && !htmlBody.includes('signature')) {
-      finalBody += this.buildSignatureWithPhoto(avatar);
-    }
 
     const info = await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to,
       subject,
-      html: finalBody,
+      html: htmlBody,
     });
 
-    // Track avatar stats
     if (avatar) {
       pool.query('UPDATE avatars SET emails_sent = emails_sent + 1, messages_sent = messages_sent + 1 WHERE id = $1', [avatar.id]).catch(() => {});
     }

@@ -75,14 +75,17 @@ export default function EmailOutreachPage() {
   const [pgSector, setPgSector] = useState('tecnologia')
   const [pgCity, setPgCity] = useState('Buenos Aires')
   const [pgEmailType, setPgEmailType] = useState('introduction')
-  const [pgTemperature, setPgTemperature] = useState(0.7)
   const [pgWebsite, setPgWebsite] = useState('www.empresatest.com.ar')
   const [pgPreview, setPgPreview] = useState(null)
-  const [pgSequence, setPgSequence] = useState(null)
-  const [pgActiveTab, setPgActiveTab] = useState('introduction')
   const [pgSending, setPgSending] = useState(false)
-  const [pgStatus, setPgStatus] = useState(null) // null | 'generating' | 'sent' | 'error'
+  const [pgGenerating, setPgGenerating] = useState(false)
+  const [pgStatus, setPgStatus] = useState(null)
   const [pgLogs, setPgLogs] = useState([])
+  // Email config state
+  const [emailConfig, setEmailConfig] = useState(null)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [configSaving, setConfigSaving] = useState(false)
+  const [activeAvatar, setActiveAvatar] = useState(null)
 
   const showNotification = useCallback((message, type = 'success') => {
     setNotification({ message, type })
@@ -236,135 +239,89 @@ export default function EmailOutreachPage() {
     { value: 'urgency', label: 'Urgencia' },
     { value: 'last_chance', label: 'Ultimo' },
   ]
-
-  const generateClientSideEmail = (type, data) => {
-    const { name, sector, city, website } = data
-    const templates = {
-      introduction: {
-        subject: `${name} - Potenciemos su presencia digital en ${city}`,
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
-<p>Mi nombre es [Tu Nombre] y me especializo en ayudar a empresas del sector <strong>${sector}</strong> en ${city} a potenciar su presencia digital y generar mas oportunidades de negocio.</p>
-<p>Hemos trabajado con empresas similares a la suya y los resultados han sido muy positivos:</p>
-<ul>
-<li>Incremento del 40% en leads calificados</li>
-<li>Reduccion del 25% en costo por adquisicion</li>
-<li>Mayor visibilidad en su mercado objetivo</li>
-</ul>
-<p>Me encantaria agendar una breve llamada de 15 minutos para mostrarle como podriamos replicar estos resultados para ${name}.</p>
-<p>Puede ver mas sobre nuestro trabajo en <a href="https://${website}">${website}</a>.</p>
-<p style="margin-top: 20px;">Saludos cordiales,<br/>[Tu Nombre]</p>
-</div>`
-      },
-      value: {
-        subject: `3 estrategias que empresas de ${sector} en ${city} estan usando para crecer`,
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
-<p>Le escribo porque identifique 3 oportunidades especificas para empresas de <strong>${sector}</strong> en ${city}:</p>
-<ol>
-<li><strong>Automatizacion de procesos comerciales:</strong> Reducir tiempos de respuesta a prospectos en un 60%</li>
-<li><strong>Segmentacion inteligente:</strong> Llegar al cliente ideal con precision usando datos de mercado</li>
-<li><strong>Contenido personalizado:</strong> Generar confianza con comunicacion relevante para su industria</li>
-</ol>
-<p>Estas estrategias han generado un ROI promedio de 3x para empresas como ${name}.</p>
-<p>Le interesaria una demo personalizada de 15 minutos?</p>
-<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
-</div>`
-      },
-      case_study: {
-        subject: `Como una empresa de ${sector} en ${city} aumento sus ventas un 150%`,
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
-<p>Queria compartirle un caso de exito que creo le resultara muy relevante:</p>
-<div style="background: #f8f9fa; border-left: 4px solid #10b981; padding: 15px; margin: 15px 0; border-radius: 4px;">
-<p><strong>Empresa:</strong> [Cliente del sector ${sector}] - ${city}</p>
-<p><strong>Desafio:</strong> Baja conversion de prospectos y proceso comercial manual</p>
-<p><strong>Solucion:</strong> Implementacion de automatizacion + IA para outreach personalizado</p>
-<p><strong>Resultados:</strong></p>
-<ul>
-<li>+150% en tasa de conversion</li>
-<li>-40% en tiempo de ciclo de venta</li>
-<li>+200% en pipeline de oportunidades</li>
-</ul>
-</div>
-<p>Creo que ${name} podria obtener resultados similares. Le gustaria conocer los detalles?</p>
-<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
-</div>`
-      },
-      urgency: {
-        subject: `${name}: oportunidad limitada para empresas de ${sector}`,
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
-<p>Le escribo porque estamos ofreciendo un <strong>programa exclusivo</strong> para empresas de ${sector} en ${city} con condiciones especiales que vencen este mes.</p>
-<p>El programa incluye:</p>
-<ul>
-<li>Auditoria completa de su proceso comercial actual (valorada en $500 USD)</li>
-<li>Setup e implementacion sin costo</li>
-<li>30 dias de prueba con soporte dedicado</li>
-<li>Descuento del 30% en el primer trimestre</li>
-</ul>
-<p style="background: #fef3c7; padding: 12px; border-radius: 6px; border: 1px solid #f59e0b;">Solo quedan <strong>5 lugares disponibles</strong> para empresas en ${city}. No quisiera que ${name} se quede afuera.</p>
-<p>Puedo agendarle una llamada esta semana?</p>
-<p style="margin-top: 20px;">Saludos,<br/>[Tu Nombre]</p>
-</div>`
-      },
-      last_chance: {
-        subject: `Ultimo mensaje - ${name}`,
-        body: `<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-<h2 style="color: #1a1a2e;">Hola equipo de ${name},</h2>
-<p>Este es mi ultimo mensaje. Entiendo que los tiempos pueden no ser los ideales, y no quiero ser insistente.</p>
-<p>Solo queria dejarle saber que seguimos disponibles cuando ${name} este lista para explorar nuevas oportunidades de crecimiento en el sector <strong>${sector}</strong>.</p>
-<p>Si en algun momento desea retomar la conversacion, puede:</p>
-<ul>
-<li>Responder a este email</li>
-<li>Agendar directamente en nuestro calendario: <a href="https://${website}">${website}</a></li>
-<li>Llamarnos sin compromiso</li>
-</ul>
-<p>Le deseo mucho exito a ${name} y a todo su equipo en ${city}.</p>
-<p style="margin-top: 20px;">Cordialmente,<br/>[Tu Nombre]</p>
-</div>`
-      },
-    }
-    return templates[type] || templates.introduction
-  }
+  const PG_TONES = ['consultivo', 'formal', 'amigable', 'directo', 'tecnico']
+  const PG_CTA_TYPES = ['call', 'meeting', 'demo', 'reply', 'website']
 
   const addPgLog = (message, type = 'info') => {
     setPgLogs(prev => {
       const newLogs = [{ message, type, time: new Date().toLocaleTimeString('es-AR') }, ...prev]
-      return newLogs.slice(0, 10)
+      return newLogs.slice(0, 15)
     })
   }
 
-  const handlePgGeneratePreview = () => {
-    const start = performance.now()
-    setPgStatus('generating')
-    setPgSequence(null)
-    const data = { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite }
-    setTimeout(() => {
-      const email = generateClientSideEmail(pgEmailType, data)
-      setPgPreview(email)
-      setPgStatus(null)
-      const elapsed = (performance.now() - start).toFixed(0)
-      addPgLog(`Preview generado (${PG_EMAIL_TYPES.find(t => t.value === pgEmailType)?.label}) - ${elapsed}ms - client-side render`, 'success')
-    }, 300)
+  const loadEmailConfig = async () => {
+    setConfigLoading(true)
+    try {
+      const res = await api.get('/api/outreach/email/config')
+      if (res.data?.config) {
+        setEmailConfig(res.data.config)
+        addPgLog('Configuracion cargada desde DB', 'success')
+      }
+    } catch (err) {
+      addPgLog('Error cargando config: ' + (err.response?.data?.error || err.message), 'error')
+    } finally {
+      setConfigLoading(false)
+    }
   }
 
-  const handlePgGenerateSequence = () => {
-    const start = performance.now()
-    setPgStatus('generating')
+  const loadActiveAvatar = async () => {
+    try {
+      const res = await api.get('/api/avatars')
+      const avatars = res.data?.avatars || []
+      const active = avatars.find(a => a.is_default) || avatars[0] || null
+      setActiveAvatar(active)
+    } catch {
+      // silently fail
+    }
+  }
+
+  const handleSaveConfig = async () => {
+    if (!emailConfig) return
+    setConfigSaving(true)
+    try {
+      const res = await api.put('/api/outreach/email/config', emailConfig)
+      if (res.data?.config) {
+        setEmailConfig(res.data.config)
+        addPgLog('Configuracion guardada exitosamente', 'success')
+        showNotification('Configuracion de email guardada')
+      }
+    } catch (err) {
+      addPgLog('Error guardando config: ' + (err.response?.data?.error || err.message), 'error')
+      showNotification('Error guardando configuracion', 'error')
+    } finally {
+      setConfigSaving(false)
+    }
+  }
+
+  const handlePgGenerateWithAI = async () => {
+    setPgGenerating(true)
     setPgPreview(null)
-    const data = { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite }
-    setTimeout(() => {
-      const seq = {}
-      PG_EMAIL_TYPES.forEach(t => {
-        seq[t.value] = generateClientSideEmail(t.value, data)
+    setPgStatus('generating')
+    const start = performance.now()
+    addPgLog('Generando email con IA (DeepSeek)...', 'info')
+    try {
+      const res = await api.post('/api/outreach/email/test', {
+        email: pgTestEmail || 'test@test.com',
+        companyName: pgCompanyName,
+        sector: pgSector,
+        city: pgCity,
+        website: pgWebsite,
+        stepType: pgEmailType,
       })
-      setPgSequence(seq)
-      setPgActiveTab('introduction')
-      setPgStatus(null)
+      if (res.data?.email) {
+        setPgPreview(res.data.email)
+        const elapsed = (performance.now() - start).toFixed(0)
+        addPgLog(`Email generado con IA - ${elapsed}ms`, 'success')
+        setPgStatus(null)
+      }
+    } catch (err) {
       const elapsed = (performance.now() - start).toFixed(0)
-      addPgLog(`Secuencia completa generada (5 emails) - ${elapsed}ms - client-side render`, 'success')
-    }, 500)
+      addPgLog(`Error generando: ${err.response?.data?.error || err.message} - ${elapsed}ms`, 'error')
+      setPgStatus('error')
+      setTimeout(() => setPgStatus(null), 3000)
+    } finally {
+      setPgGenerating(false)
+    }
   }
 
   const handlePgSendTest = async () => {
@@ -372,35 +329,35 @@ export default function EmailOutreachPage() {
       addPgLog('Error: Debes ingresar un email destino de prueba', 'error')
       return
     }
-    setPgSending(true)
-    setPgStatus('generating')
-    const currentPreview = pgSequence ? pgSequence[pgActiveTab] : pgPreview
-    if (!currentPreview) {
+    if (!pgPreview) {
       addPgLog('Error: Genera un preview primero antes de enviar', 'error')
-      setPgSending(false)
-      setPgStatus(null)
       return
     }
+    setPgSending(true)
+    setPgStatus('generating')
     const start = performance.now()
     try {
-      // NOTE: The backend /api/outreach/email/send endpoint needs to accept
-      // a `testEmail` field to override the lead's email for test sends.
-      await api.post('/api/outreach/email/send', {
-        lead_id: null,
-        subject: currentPreview.subject,
-        body: currentPreview.body,
-        testEmail: pgTestEmail,
-        testData: { name: pgCompanyName, sector: pgSector, city: pgCity, email: pgTestEmail, website: pgWebsite },
+      await api.post('/api/outreach/email/test', {
+        email: pgTestEmail,
+        subject: pgPreview.subject,
+        body: pgPreview.body,
+        companyName: pgCompanyName,
+        sector: pgSector,
+        city: pgCity,
+        website: pgWebsite,
+        stepType: pgEmailType,
       })
       setPgStatus('sent')
       const elapsed = (performance.now() - start).toFixed(0)
       addPgLog(`Email de prueba enviado a ${pgTestEmail} - ${elapsed}ms`, 'success')
+      showNotification(`Email enviado a ${pgTestEmail}`)
       setTimeout(() => setPgStatus(null), 3000)
     } catch (err) {
       setPgStatus('error')
       const elapsed = (performance.now() - start).toFixed(0)
       const errorMsg = err.response?.data?.error || err.message || 'Error desconocido'
       addPgLog(`Error enviando a ${pgTestEmail}: ${errorMsg} - ${elapsed}ms`, 'error')
+      showNotification('Error enviando email', 'error')
       setTimeout(() => setPgStatus(null), 3000)
     } finally {
       setPgSending(false)
@@ -408,26 +365,27 @@ export default function EmailOutreachPage() {
   }
 
   const handlePgCopyHtml = () => {
-    const currentPreview = pgSequence ? pgSequence[pgActiveTab] : pgPreview
-    if (currentPreview) {
-      navigator.clipboard.writeText(currentPreview.body)
+    if (pgPreview) {
+      navigator.clipboard.writeText(pgPreview.body)
       addPgLog('HTML copiado al portapapeles', 'success')
     }
   }
 
   const handlePgReset = () => {
     setPgPreview(null)
-    setPgSequence(null)
     setPgStatus(null)
     setPgTestEmail('')
     setPgCompanyName('Empresa Test SA')
     setPgSector('tecnologia')
     setPgCity('Buenos Aires')
     setPgEmailType('introduction')
-    setPgTemperature(0.7)
     setPgWebsite('www.empresatest.com.ar')
     setPgLogs([])
     addPgLog('Playground reseteado', 'info')
+  }
+
+  const updateConfig = (field, value) => {
+    setEmailConfig(prev => prev ? { ...prev, [field]: value } : null)
   }
 
   // ── Helpers ──
@@ -915,7 +873,14 @@ export default function EmailOutreachPage() {
       <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
         {/* Playground Header */}
         <button
-          onClick={() => setPlaygroundOpen(!playgroundOpen)}
+          onClick={() => {
+            const opening = !playgroundOpen
+            setPlaygroundOpen(opening)
+            if (opening && !emailConfig) {
+              loadEmailConfig()
+              loadActiveAvatar()
+            }
+          }}
           className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-800/50 transition-colors"
         >
           <div className="flex items-center gap-3">
@@ -923,8 +888,8 @@ export default function EmailOutreachPage() {
               <FlaskConical className="w-5 h-5 text-emerald-400" />
             </div>
             <div className="text-left">
-              <h2 className="text-base font-semibold text-gray-100">Playground Email</h2>
-              <p className="text-xs text-gray-500">Genera y testea emails con datos ficticios</p>
+              <h2 className="text-base font-semibold text-gray-100">Playground Email + Configuracion IA</h2>
+              <p className="text-xs text-gray-500">System prompt, diseno HTML, firma del avatar activo</p>
             </div>
           </div>
           <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${playgroundOpen ? 'rotate-180' : ''}`} />
@@ -933,226 +898,365 @@ export default function EmailOutreachPage() {
         {/* Playground Content */}
         {playgroundOpen && (
           <div className="border-t border-gray-700/50 px-6 py-5 space-y-5">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              {/* Left: Test Configuration */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-1">
-                  <Beaker className="w-4 h-4 text-blue-400" />
-                  <h3 className="text-sm font-semibold text-gray-300">Configuracion de Prueba</h3>
-                </div>
+            {/* Notice */}
+            <div className="bg-amber-900/30 border border-amber-700/50 rounded-lg px-4 py-2.5">
+              <p className="text-xs text-amber-300">Esta configuracion se aplicara a TODOS los emails enviados a leads. Los cambios se guardan en la base de datos.</p>
+            </div>
 
-                {/* Test email */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Email destino de prueba</label>
-                  <input
-                    type="email"
-                    value={pgTestEmail}
-                    onChange={(e) => setPgTestEmail(e.target.value)}
-                    placeholder="tu@email.com"
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  />
-                </div>
-
-                {/* Company name */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Nombre empresa ficticia</label>
-                  <input
-                    type="text"
-                    value={pgCompanyName}
-                    onChange={(e) => setPgCompanyName(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  />
-                </div>
-
-                {/* Sector + City row */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Sector</label>
-                    <select
-                      value={pgSector}
-                      onChange={(e) => setPgSector(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                    >
-                      {PG_SECTORS.map(s => (
-                        <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Ciudad</label>
-                    <select
-                      value={pgCity}
-                      onChange={(e) => setPgCity(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                    >
-                      {PG_CITIES.map(c => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Email type */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Tipo de email</label>
-                  <select
-                    value={pgEmailType}
-                    onChange={(e) => setPgEmailType(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  >
-                    {PG_EMAIL_TYPES.map(t => (
-                      <option key={t.value} value={t.value}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Temperature slider */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">
-                    Temperatura IA: <span className="text-emerald-400 font-mono">{pgTemperature}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1.0"
-                    step="0.1"
-                    value={pgTemperature}
-                    onChange={(e) => setPgTemperature(parseFloat(e.target.value))}
-                    className="w-full accent-emerald-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-gray-600 mt-0.5">
-                    <span>0.1 Preciso</span>
-                    <span>1.0 Creativo</span>
-                  </div>
-                </div>
-
-                {/* Website */}
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Website ficticio</label>
-                  <input
-                    type="text"
-                    value={pgWebsite}
-                    onChange={(e) => setPgWebsite(e.target.value)}
-                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  />
-                </div>
-
-                {/* Actions row */}
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    onClick={handlePgGeneratePreview}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Generar Preview
-                  </button>
-                  <button
-                    onClick={handlePgSendTest}
-                    disabled={pgSending || !pgTestEmail}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors"
-                  >
-                    {pgSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                    Enviar Email de Prueba
-                  </button>
-                  <button
-                    onClick={handlePgGenerateSequence}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    Generar Secuencia Completa
-                  </button>
-                  <button
-                    onClick={handlePgCopyHtml}
-                    disabled={!pgPreview && !pgSequence}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-gray-300 text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    Copiar HTML
-                  </button>
-                  <button
-                    onClick={handlePgReset}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium rounded-lg transition-colors"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Reset
-                  </button>
-                </div>
-              </div>
-
-              {/* Right: Preview Area */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-gray-300">Preview</h3>
-                  {pgStatus === 'generating' && (
-                    <span className="flex items-center gap-1.5 text-xs text-blue-400">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Generando...
-                    </span>
-                  )}
-                  {pgStatus === 'sent' && (
-                    <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-                      <CheckCircle className="w-3.5 h-3.5" />
-                      Enviado!
-                    </span>
-                  )}
-                  {pgStatus === 'error' && (
-                    <span className="flex items-center gap-1.5 text-xs text-red-400">
-                      <XCircle className="w-3.5 h-3.5" />
-                      Error al enviar
-                    </span>
-                  )}
-                </div>
-
-                {/* Sequence tabs */}
-                {pgSequence && (
-                  <div className="flex gap-1 bg-gray-800 rounded-lg p-1">
-                    {PG_EMAIL_TYPES.map(t => (
-                      <button
-                        key={t.value}
-                        onClick={() => setPgActiveTab(t.value)}
-                        className={`flex-1 px-2 py-1.5 text-[11px] font-medium rounded-md transition-colors ${
-                          pgActiveTab === t.value
-                            ? 'bg-emerald-600 text-white'
-                            : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700'
-                        }`}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
+            {/* Active Avatar Info */}
+            {activeAvatar && (
+              <div className="bg-gray-800/50 border border-gray-700/50 rounded-lg px-4 py-3 flex items-center gap-3">
+                {activeAvatar.photo_url ? (
+                  <img src={activeAvatar.photo_url} alt={activeAvatar.name} className="w-10 h-10 rounded-full object-cover" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-lg">
+                    {activeAvatar.name?.charAt(0) || 'A'}
                   </div>
                 )}
+                <div>
+                  <p className="text-sm font-medium text-gray-200">Avatar activo: {activeAvatar.name}</p>
+                  <p className="text-xs text-gray-500">{activeAvatar.role || ''} {activeAvatar.company ? `- ${activeAvatar.company}` : ''} | {activeAvatar.email || ''}</p>
+                </div>
+              </div>
+            )}
 
-                {/* Email preview */}
-                {(pgPreview || pgSequence) ? (
-                  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                    {/* Subject */}
-                    <div className="px-4 py-2.5 border-b border-gray-700 bg-gray-800/80">
-                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Asunto</p>
-                      <p className="text-sm text-gray-200 font-medium">
-                        {pgSequence ? pgSequence[pgActiveTab]?.subject : pgPreview?.subject}
-                      </p>
+            {configLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="w-6 h-6 text-emerald-400 animate-spin" />
+                <span className="ml-2 text-gray-400 text-sm">Cargando configuracion...</span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                {/* ══ LEFT: Configuration ══ */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Settings className="w-4 h-4 text-blue-400" />
+                    <h3 className="text-sm font-semibold text-gray-300">Configuracion del Email IA</h3>
+                  </div>
+
+                  {/* System Prompt */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">System Prompt (instrucciones para la IA)</label>
+                    <textarea
+                      value={emailConfig?.system_prompt || ''}
+                      onChange={(e) => updateConfig('system_prompt', e.target.value)}
+                      rows={12}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono leading-relaxed resize-y"
+                      placeholder="Instrucciones para la IA al generar emails..."
+                    />
+                    <p className="text-[10px] text-gray-600 mt-1">Este prompt se envia a DeepSeek junto con los datos del lead</p>
+                  </div>
+
+                  {/* Company Info */}
+                  <div className="bg-gray-800/40 rounded-lg p-3 space-y-3 border border-gray-700/50">
+                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Datos de la Empresa</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Nombre empresa</label>
+                        <input
+                          type="text"
+                          value={emailConfig?.company_name || ''}
+                          onChange={(e) => updateConfig('company_name', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Website</label>
+                        <input
+                          type="text"
+                          value={emailConfig?.company_website || ''}
+                          onChange={(e) => updateConfig('company_website', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
                     </div>
-                    {/* Body */}
-                    <div className="p-4 bg-white max-h-[400px] overflow-y-auto">
-                      <div
-                        className="text-sm"
-                        dangerouslySetInnerHTML={{
-                          __html: pgSequence ? pgSequence[pgActiveTab]?.body : pgPreview?.body
-                        }}
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Descripcion</label>
+                      <input
+                        type="text"
+                        value={emailConfig?.company_description || ''}
+                        onChange={(e) => updateConfig('company_description', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Servicios</label>
+                      <input
+                        type="text"
+                        value={emailConfig?.company_services || ''}
+                        onChange={(e) => updateConfig('company_services', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Propuesta de valor</label>
+                      <input
+                        type="text"
+                        value={emailConfig?.company_value_proposition || ''}
+                        onChange={(e) => updateConfig('company_value_proposition', e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                       />
                     </div>
                   </div>
-                ) : (
-                  <div className="bg-gray-800 rounded-xl border border-gray-700 flex items-center justify-center h-64">
-                    <div className="text-center">
-                      <FlaskConical className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-                      <p className="text-sm text-gray-500">Genera un preview para ver el email aqui</p>
-                      <p className="text-xs text-gray-600 mt-1">Los emails se generan client-side con templates</p>
+
+                  {/* Email Style Settings */}
+                  <div className="bg-gray-800/40 rounded-lg p-3 space-y-3 border border-gray-700/50">
+                    <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Estilo del Email</h4>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Tono</label>
+                        <select
+                          value={emailConfig?.tone || 'consultivo'}
+                          onChange={(e) => updateConfig('tone', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        >
+                          {PG_TONES.map(t => (
+                            <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 mb-0.5">Max palabras</label>
+                        <input
+                          type="number"
+                          value={emailConfig?.max_words || 150}
+                          onChange={(e) => updateConfig('max_words', parseInt(e.target.value))}
+                          className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-gray-500 mb-0.5">CTA tipo</label>
+                        <select
+                          value={emailConfig?.cta_type || 'call'}
+                          onChange={(e) => updateConfig('cta_type', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-gray-800 border border-gray-600 rounded text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        >
+                          {PG_CTA_TYPES.map(c => (
+                            <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-4 pt-1">
+                      <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={emailConfig?.anti_spam_mode ?? true}
+                          onChange={(e) => updateConfig('anti_spam_mode', e.target.checked)}
+                          className="rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Anti-spam mode
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={emailConfig?.include_avatar_photo ?? true}
+                          onChange={(e) => updateConfig('include_avatar_photo', e.target.checked)}
+                          className="rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Incluir foto avatar
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={emailConfig?.include_calendar_link ?? true}
+                          onChange={(e) => updateConfig('include_calendar_link', e.target.checked)}
+                          className="rounded border-gray-600 bg-gray-800 text-emerald-500 focus:ring-emerald-500"
+                        />
+                        Incluir link calendario
+                      </label>
                     </div>
                   </div>
-                )}
+
+                  {/* HTML Template */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">HTML Template (wrapper)</label>
+                    <textarea
+                      value={emailConfig?.html_template || ''}
+                      onChange={(e) => updateConfig('html_template', e.target.value)}
+                      rows={6}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono leading-relaxed resize-y"
+                      placeholder="HTML wrapper con {{BODY}} y {{SIGNATURE}} como placeholders..."
+                    />
+                    <p className="text-[10px] text-gray-600 mt-1">Usa {'{{BODY}}'} y {'{{SIGNATURE}}'} como placeholders</p>
+                  </div>
+
+                  {/* Save Config Button */}
+                  <button
+                    onClick={handleSaveConfig}
+                    disabled={configSaving}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:text-gray-400 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    {configSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Settings className="w-4 h-4" />}
+                    Guardar Configuracion
+                  </button>
+                </div>
+
+                {/* ══ RIGHT: Test Area ══ */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Beaker className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-semibold text-gray-300">Probar Email con IA</h3>
+                  </div>
+
+                  {/* Test fields */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Email destino de prueba</label>
+                    <input
+                      type="email"
+                      value={pgTestEmail}
+                      onChange={(e) => setPgTestEmail(e.target.value)}
+                      placeholder="tu@email.com"
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Empresa ficticia</label>
+                    <input
+                      type="text"
+                      value={pgCompanyName}
+                      onChange={(e) => setPgCompanyName(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Sector</label>
+                      <select
+                        value={pgSector}
+                        onChange={(e) => setPgSector(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        {PG_SECTORS.map(s => (
+                          <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Ciudad</label>
+                      <select
+                        value={pgCity}
+                        onChange={(e) => setPgCity(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        {PG_CITIES.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Tipo de email</label>
+                      <select
+                        value={pgEmailType}
+                        onChange={(e) => setPgEmailType(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      >
+                        {PG_EMAIL_TYPES.map(t => (
+                          <option key={t.value} value={t.value}>{t.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Website</label>
+                      <input
+                        type="text"
+                        value={pgWebsite}
+                        onChange={(e) => setPgWebsite(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    <button
+                      onClick={handlePgGenerateWithAI}
+                      disabled={pgGenerating}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      {pgGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      Generar con IA
+                    </button>
+                    <button
+                      onClick={handlePgSendTest}
+                      disabled={pgSending || !pgTestEmail || !pgPreview}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-800 disabled:text-gray-400 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      {pgSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      Enviar Email de Prueba
+                    </button>
+                    <button
+                      onClick={handlePgCopyHtml}
+                      disabled={!pgPreview}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500 text-gray-300 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      Copiar HTML
+                    </button>
+                    <button
+                      onClick={handlePgReset}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Reset
+                    </button>
+                  </div>
+
+                  {/* Preview area */}
+                  <div className="space-y-3 mt-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-gray-300">Preview del Email</h3>
+                      {pgStatus === 'generating' && (
+                        <span className="flex items-center gap-1.5 text-xs text-blue-400">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Generando con IA...
+                        </span>
+                      )}
+                      {pgStatus === 'sent' && (
+                        <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Enviado!
+                        </span>
+                      )}
+                      {pgStatus === 'error' && (
+                        <span className="flex items-center gap-1.5 text-xs text-red-400">
+                          <XCircle className="w-3.5 h-3.5" />
+                          Error
+                        </span>
+                      )}
+                    </div>
+
+                    {pgPreview ? (
+                      <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                        <div className="px-4 py-2.5 border-b border-gray-700 bg-gray-800/80">
+                          <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Asunto</p>
+                          <p className="text-sm text-gray-200 font-medium">{pgPreview.subject}</p>
+                        </div>
+                        <div className="p-4 bg-white max-h-[500px] overflow-y-auto">
+                          <div
+                            className="text-sm"
+                            dangerouslySetInnerHTML={{ __html: pgPreview.body }}
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-gray-800 rounded-xl border border-gray-700 flex items-center justify-center h-48">
+                        <div className="text-center">
+                          <FlaskConical className="w-8 h-8 text-gray-600 mx-auto mb-2" />
+                          <p className="text-sm text-gray-500">Haz click en "Generar con IA" para crear un email</p>
+                          <p className="text-xs text-gray-600 mt-1">Usa el system prompt configurado + datos del lead</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Response Log */}
             {pgLogs.length > 0 && (

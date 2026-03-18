@@ -153,6 +153,15 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error inicializando tablas de outreach:', err.message);
   }
 
+  // Inicializar email config
+  try {
+    const { default: emailTemplateConfig } = await import('./services/outreach/email-template-config.js');
+    await emailTemplateConfig.initTable();
+    console.log('Email config inicializado');
+  } catch (err) {
+    console.error('Error inicializando email config:', err.message);
+  }
+
   // Inicializar tablas de avatares
   try {
     const { avatarService } = await import('./services/outreach/avatar-service.js');
