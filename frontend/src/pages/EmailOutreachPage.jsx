@@ -346,6 +346,7 @@ export default function EmailOutreachPage() {
         city: pgCity,
         website: pgWebsite,
         stepType: pgEmailType,
+        sendEmail: true,
       })
       setPgStatus('sent')
       const elapsed = (performance.now() - start).toFixed(0)
