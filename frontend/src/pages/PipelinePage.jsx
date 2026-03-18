@@ -816,6 +816,14 @@ function DetailPanel({ lead, onClose, onMoveStage, onRefreshLead }) {
               ))}
             </div>
           </section>
+
+          {/* Full detail page link */}
+          <section className="pt-4 border-t border-gray-100">
+            <a href={`/admin/lead/${lead.id}`}
+              className="flex items-center justify-center gap-2 w-full py-3 bg-gray-900 text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition-colors">
+              <ExternalLink className="w-4 h-4" /> Ver en Detalle Completo
+            </a>
+          </section>
         </div>
       </div>
     </div>
