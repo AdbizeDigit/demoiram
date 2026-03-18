@@ -77,6 +77,11 @@ router.post('/email/send', async (req, res) => {
       [cid]
     );
 
+    // Auto-regenerate AI report after outreach
+    import('../services/scraping/lead-report-service.js')
+      .then(m => m.default.generateReport(leadId))
+      .catch(() => {});
+
     res.json({ success: true, email, message: 'Email enviado exitosamente' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -392,6 +397,11 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
 
     // Save to outreach messages
     await whatsappOutreachService.saveMessage(leadId, message, null);
+
+    // Auto-regenerate AI report after outreach
+    import('../services/scraping/lead-report-service.js')
+      .then(m => m.default.generateReport(leadId))
+      .catch(() => {});
 
     res.json({ success: true, message: 'Mensaje enviado por WhatsApp', sentMessage: message, result });
   } catch (error) {

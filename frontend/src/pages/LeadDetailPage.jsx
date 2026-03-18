@@ -174,6 +174,24 @@ export default function LeadDetailPage() {
     loadMessages()
   }, [loadLead, loadReport, loadMessages])
 
+  // Auto-generate report if lead has no report
+  useEffect(() => {
+    if (!lead || loadingReport || report) return
+    // Lead loaded but no report exists - generate automatically
+    const timer = setTimeout(async () => {
+      try {
+        setLoadingReport(true)
+        const res = await api.post(`/api/scraping-engine/leads/${id}/report`)
+        setReport(res.data?.report || res.data)
+      } catch {
+        // Silent fail - user can regenerate manually
+      } finally {
+        setLoadingReport(false)
+      }
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [lead, report, loadingReport, id])
+
   // ─── Actions ──────────────────────────────────────────────────────────────
   async function handleAction(type) {
     setActionLoading(type)
@@ -183,9 +201,14 @@ export default function LeadDetailPage() {
       if (type === 'email') {
         res = await api.post('/api/outreach/email/send', { leadId: lead.id })
         setActionResult({ type, success: true, message: 'Email enviado correctamente', data: res.data })
+        // Refresh messages and auto-update report
+        loadMessages()
+        api.post(`/api/scraping-engine/leads/${lead.id}/report`).then(r => setReport(r.data?.report || r.data)).catch(() => {})
       } else if (type === 'sequence') {
         res = await api.post('/api/outreach/email/sequence', { leadId: lead.id })
         setActionResult({ type, success: true, message: 'Secuencia de 5 emails iniciada', data: res.data })
+        loadMessages()
+        api.post(`/api/scraping-engine/leads/${lead.id}/report`).then(r => setReport(r.data?.report || r.data)).catch(() => {})
       } else if (type === 'whatsapp') {
         if (lead.whatsapp || lead.phone) {
           res = await api.post('/api/outreach/whatsapp/send-direct', { leadId: lead.id })
@@ -194,9 +217,12 @@ export default function LeadDetailPage() {
           res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id })
           setActionResult({ type, success: true, message: 'Mensaje WhatsApp generado', data: res.data })
         }
+        loadMessages()
+        api.post(`/api/scraping-engine/leads/${lead.id}/report`).then(r => setReport(r.data?.report || r.data)).catch(() => {})
       } else if (type === 'call') {
         res = await api.post('/api/outreach/call/script', { leadId: lead.id })
         setActionResult({ type, success: true, message: 'Guion de llamada generado', data: res.data })
+        loadMessages()
       } else if (type === 'report') {
         res = await api.post(`/api/scraping-engine/leads/${lead.id}/report`)
         setReport(res.data?.report || res.data)
