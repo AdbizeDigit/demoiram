@@ -138,8 +138,10 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
       console.error('[EmailOutreach] AI generation failed:', err.message);
     }
 
-    // Fallback to template
-    return this.getTemplateEmail(lead, stepType, stepNumber);
+    // Fallback to template (also wrap in HTML template with avatar signature)
+    const fallback = this.getTemplateEmail(lead, stepType, stepNumber);
+    fallback.body = this.wrapInTemplate(fallback.body, avatar, config);
+    return fallback;
   }
 
   getDefaultSystemPrompt() {

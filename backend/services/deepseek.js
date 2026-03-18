@@ -33,7 +33,8 @@ class DeepSeekService {
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
-          }
+          },
+          timeout: 30000
         }
       )
 
