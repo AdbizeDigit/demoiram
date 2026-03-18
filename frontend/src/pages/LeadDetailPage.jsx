@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Clock, ChevronDown, MapPin,
   Zap, Calendar, Tag, TrendingUp, Hash, RefreshCw,
   Facebook, Instagram, Linkedin, Twitter, Save, Plus,
-  ChevronRight
+  ChevronRight, Users, Search
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -103,6 +103,9 @@ export default function LeadDetailPage() {
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [notes, setNotes] = useState([])
+  const [executives, setExecutives] = useState([])
+  const [loadingExecs, setLoadingExecs] = useState(false)
+  const [scanningExecs, setScanningExecs] = useState(false)
 
   // ─── Load lead data ───────────────────────────────────────────────────────
   const loadLead = useCallback(async () => {
@@ -192,6 +195,28 @@ export default function LeadDetailPage() {
     return () => clearTimeout(timer)
   }, [lead, report, loadingReport, id])
 
+  // Load executives
+  useEffect(() => {
+    if (!id) return
+    api.get(`/api/scraping-engine/leads/${id}/executives`)
+      .then(r => setExecutives(r.data?.executives || []))
+      .catch(() => {})
+  }, [id])
+
+  // Auto-scan for executives if none found
+  useEffect(() => {
+    if (!lead || executives.length > 0 || loadingExecs || scanningExecs) return
+    const timer = setTimeout(async () => {
+      setScanningExecs(true)
+      try {
+        const res = await api.post(`/api/scraping-engine/leads/${id}/executives/scan`)
+        setExecutives(res.data?.executives || [])
+      } catch {}
+      setScanningExecs(false)
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [lead, executives.length, loadingExecs, scanningExecs, id])
+
   // ─── Actions ──────────────────────────────────────────────────────────────
   async function handleAction(type) {
     setActionLoading(type)
@@ -276,6 +301,15 @@ export default function LeadDetailPage() {
     } finally {
       setSavingNote(false)
     }
+  }
+
+  async function handleScanExecs() {
+    setScanningExecs(true)
+    try {
+      const res = await api.post(`/api/scraping-engine/leads/${id}/executives/scan`)
+      setExecutives(res.data?.executives || [])
+    } catch {}
+    setScanningExecs(false)
   }
 
   // ─── Loading state ────────────────────────────────────────────────────────
@@ -568,6 +602,53 @@ export default function LeadDetailPage() {
                   <p className="text-sm text-gray-400 italic py-3">No hay datos de contacto disponibles.</p>
                 )}
               </div>
+            </Card>
+
+            {/* Ejecutivos & Cargos Altos */}
+            <Card title="Ejecutivos & Cargos Altos" icon={Users}>
+              {scanningExecs ? (
+                <div className="flex items-center gap-3 py-4">
+                  <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+                  <div>
+                    <p className="text-sm text-gray-600">Buscando ejecutivos de {lead.company || lead.name}...</p>
+                    <p className="text-xs text-gray-400">Buscando en LinkedIn perfiles de directores, gerentes y fundadores</p>
+                  </div>
+                </div>
+              ) : executives.length > 0 ? (
+                <div className="space-y-3">
+                  {executives.map((exec, i) => (
+                    <div key={exec.id || i} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
+                        {exec.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900">{exec.name}</p>
+                        <p className="text-xs text-gray-500">{exec.role}</p>
+                        {exec.snippet && <p className="text-[11px] text-gray-400 mt-1 line-clamp-2">{exec.snippet}</p>}
+                      </div>
+                      {exec.linkedin_url && (
+                        <a href={exec.linkedin_url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-100 transition-colors flex-shrink-0">
+                          <Linkedin className="w-3.5 h-3.5" />
+                          LinkedIn
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                  <button onClick={handleScanExecs} disabled={scanningExecs}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
+                    <RefreshCw className="w-3 h-3" /> Buscar mas ejecutivos
+                  </button>
+                </div>
+              ) : (
+                <div className="text-center py-4">
+                  <p className="text-sm text-gray-400">No se encontraron ejecutivos</p>
+                  <button onClick={handleScanExecs} disabled={scanningExecs}
+                    className="mt-2 flex items-center justify-center gap-2 mx-auto px-4 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors">
+                    <Search className="w-4 h-4" /> Buscar Ejecutivos
+                  </button>
+                </div>
+              )}
             </Card>
 
             {/* Informe IA */}

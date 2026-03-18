@@ -234,4 +234,28 @@ router.get('/leads/:id/report', async (req, res) => {
   }
 });
 
+// ─── Executives / C-Level ────────────────────────────────────────────────────
+
+// GET /leads/:id/executives - Get executives for a lead
+router.get('/leads/:id/executives', async (req, res) => {
+  try {
+    const { default: clevelScraper } = await import('../services/scraping/clevel-scraper.js');
+    const executives = await clevelScraper.getExecutives(req.params.id);
+    res.json({ success: true, executives });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /leads/:id/executives/scan - Scrape executives for a lead
+router.post('/leads/:id/executives/scan', async (req, res) => {
+  try {
+    const { default: clevelScraper } = await import('../services/scraping/clevel-scraper.js');
+    const executives = await clevelScraper.scrapeAndSave(req.params.id);
+    res.json({ success: true, executives, message: `${executives.length} ejecutivos encontrados` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
