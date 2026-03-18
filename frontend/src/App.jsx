@@ -45,6 +45,7 @@ const DetectionEnginePage = lazy(() => import('./pages/DetectionEnginePage'))
 const EmailOutreachPage = lazy(() => import('./pages/EmailOutreachPage'))
 const WhatsAppOutreachPage = lazy(() => import('./pages/WhatsAppOutreachPage'))
 const AvatarsPage = lazy(() => import('./pages/AvatarsPage'))
+const PipelinePage = lazy(() => import('./pages/PipelinePage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -109,6 +110,7 @@ function App() {
             <Route path="email-outreach" element={<EmailOutreachPage />} />
             <Route path="whatsapp-outreach" element={<WhatsAppOutreachPage />} />
             <Route path="avatars" element={<AvatarsPage />} />
+            <Route path="pipeline" element={<PipelinePage />} />
             <Route path="*" element={<DetectionEnginePage />} />
           </Route>
         </Routes>
