@@ -22,6 +22,20 @@ const STAGES = [
 ]
 const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]))
 
+function mapStatus(status) {
+  if (!status) return 'NUEVO'
+  const upper = status.toUpperCase().replace(/\s+/g, '_')
+  if (STAGE_MAP[upper]) return upper
+  if (['NEW', 'NUEVO', 'PENDING', 'NOT_NEEDED'].includes(upper)) return 'NUEVO'
+  if (['CONTACTED', 'CONTACTADO'].includes(upper)) return 'CONTACTADO'
+  if (['IN_CONVERSATION', 'EN_CONVERSACION', 'REPLIED'].includes(upper)) return 'EN_CONVERSACION'
+  if (['PROPOSAL', 'PROPUESTA'].includes(upper)) return 'PROPUESTA'
+  if (['NEGOTIATION', 'NEGOCIACION'].includes(upper)) return 'NEGOCIACION'
+  if (['WON', 'GANADO', 'CONVERTED'].includes(upper)) return 'GANADO'
+  if (['LOST', 'PERDIDO', 'DISMISSED'].includes(upper)) return 'PERDIDO'
+  return 'NUEVO'
+}
+
 function normalizePhone(p) {
   if (!p) return null
   let clean = p.replace(/[^\d+]/g, '')
@@ -95,7 +109,24 @@ export default function LeadDetailPage() {
     try {
       setLoading(true)
       const res = await api.get(`/api/scraping-engine/leads/${id}`)
-      const data = res.data?.lead || res.data
+      const raw = res.data?.data || res.data?.lead || res.data
+      if (!raw || raw.success === false) throw new Error('Lead not found')
+      // Normalize field names
+      const data = {
+        ...raw,
+        company: raw.name || raw.company || '',
+        name: raw.name || raw.company || '',
+        stage: mapStatus(raw.status),
+        createdAt: raw.created_at || raw.createdAt || '',
+        updatedAt: raw.updated_at || raw.updatedAt || '',
+        whatsapp: raw.social_whatsapp || raw.whatsapp || '',
+        socialMedia: {
+          facebook: raw.social_facebook || null,
+          instagram: raw.social_instagram || null,
+          linkedin: raw.social_linkedin || null,
+          twitter: raw.social_twitter || null,
+        },
+      }
       setLead(data)
       // Parse notes from lead
       if (data.notes) {
@@ -184,7 +215,7 @@ export default function LeadDetailPage() {
           try { await api.post('/api/outreach/whatsapp/send-direct', { leadId: lead.id }) } catch {}
         }
         // Step 4: Move stage
-        try { await api.patch(`/api/scraping-engine/leads/${lead.id}`, { stage: 'CONTACTADO' }) } catch {}
+        try { await api.patch(`/api/scraping-engine/leads/${lead.id}`, { status: 'CONTACTADO' }) } catch {}
         setActionResult({ type, success: true, message: 'Contacto automatico completado. Se envio email, WhatsApp y se genero informe.' })
         loadLead()
         loadReport()
