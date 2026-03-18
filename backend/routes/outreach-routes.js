@@ -292,11 +292,22 @@ router.post('/whatsapp/test', async (req, res) => {
 router.post('/whatsapp/connect', async (req, res) => {
   try {
     const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const result = await whatsappConnection.connect();
 
-    // Wait a moment for QR to generate
-    await new Promise(r => setTimeout(r, 3000));
-    const status = whatsappConnection.getStatus();
+    // Reset retry count for fresh connection
+    whatsappConnection.retryCount = 0;
+
+    // Start connection (async, don't await full connection)
+    whatsappConnection.connect().catch(err => {
+      console.error('[WhatsApp Route] Connection error:', err.message);
+    });
+
+    // Wait up to 15 seconds for QR to appear
+    let status = whatsappConnection.getStatus();
+    for (let i = 0; i < 15; i++) {
+      if (status.qrCode || status.status === 'connected') break;
+      await new Promise(r => setTimeout(r, 1000));
+      status = whatsappConnection.getStatus();
+    }
 
     res.json({ success: true, ...status });
   } catch (error) {

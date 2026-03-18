@@ -1,8 +1,11 @@
-import makeWASocket, { DisconnectReason, useMultiFileAuthState, delay } from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
+import pkg from '@whiskeysockets/baileys';
+const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, delay, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = pkg;
+import boomPkg from '@hapi/boom';
+const { Boom } = boomPkg;
 import QRCode from 'qrcode';
 import { EventEmitter } from 'events';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import pino from 'pino';
 
@@ -32,18 +35,39 @@ class WhatsAppConnectionService extends EventEmitter {
     this.emit('status', { status: 'connecting' });
 
     try {
-      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      // Ensure auth directory exists
+      if (!fs.existsSync(AUTH_DIR)) {
+        fs.mkdirSync(AUTH_DIR, { recursive: true });
+      }
 
-      const logger = pino({ level: 'silent' }); // suppress baileys logs
+      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      const logger = pino({ level: 'silent' });
+
+      // Fetch latest version to avoid 405 errors
+      let version;
+      try {
+        const versionInfo = await fetchLatestBaileysVersion();
+        version = versionInfo.version;
+        console.log('[WhatsApp] Using version:', version);
+      } catch {
+        version = [2, 3000, 1015901307];
+        console.log('[WhatsApp] Using fallback version');
+      }
 
       this.socket = makeWASocket({
-        auth: state,
+        version,
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, logger),
+        },
         printQRInTerminal: false,
         logger,
-        browser: ['Adbize Admin', 'Chrome', '120.0.0'],
+        browser: ['Adbize', 'Chrome', '120.0.6099.109'],
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         getMessage: async () => undefined,
+        generateHighQualityLinkPreview: false,
+        syncFullHistory: false,
       });
 
       // Handle connection updates
