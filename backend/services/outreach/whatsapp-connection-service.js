@@ -1,7 +1,7 @@
-import pkg from '@whiskeysockets/baileys';
-const { default: makeWASocket, DisconnectReason, useMultiFileAuthState, delay, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = pkg;
-import boomPkg from '@hapi/boom';
-const { Boom } = boomPkg;
+import * as baileys from '@whiskeysockets/baileys';
+const makeWASocket = baileys.makeWASocket || baileys.default;
+const { DisconnectReason, useMultiFileAuthState, delay, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = baileys;
+import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import { EventEmitter } from 'events';
 import path from 'path';
