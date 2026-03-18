@@ -1,54 +1,916 @@
-import { useState, useEffect, useCallback } from 'react'
-import { GitBranch, Loader2, RefreshCw } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import {
+  GitBranch, Loader2, RefreshCw, LayoutGrid, List, ChevronDown,
+  Phone, Mail, MessageCircle, Globe, ExternalLink, Zap, Eye,
+  X, ArrowRight, CheckCircle2, AlertCircle, Clock, Building2,
+  MapPin, Star, FileText, Send, PhoneCall, BarChart3, Users,
+  TrendingUp, ChevronRight, Search, Filter, MoreVertical,
+  Copy, Check
+} from 'lucide-react'
 import api from '../services/api'
-import PipelineTab from '../components/detection/PipelineTab'
 
+// ─── Stage definitions ────────────────────────────────────────────────────────
+const STAGES = [
+  { key: 'NUEVO', label: 'Nuevo', color: 'gray', bg: 'bg-gray-50', border: 'border-gray-300', badge: 'bg-gray-100 text-gray-700', dot: 'bg-gray-400', desc: 'Leads recien detectados' },
+  { key: 'CONTACTADO', label: 'Contactado', color: 'blue', bg: 'bg-blue-50', border: 'border-blue-400', badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-400', desc: 'Se envio email/whatsapp' },
+  { key: 'EN_CONVERSACION', label: 'En Conversacion', color: 'amber', bg: 'bg-amber-50', border: 'border-amber-400', badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-400', desc: 'Respondio, hay dialogo' },
+  { key: 'PROPUESTA', label: 'Propuesta', color: 'purple', bg: 'bg-purple-50', border: 'border-purple-400', badge: 'bg-purple-100 text-purple-700', dot: 'bg-purple-400', desc: 'Se envio propuesta comercial' },
+  { key: 'NEGOCIACION', label: 'Negociacion', color: 'indigo', bg: 'bg-indigo-50', border: 'border-indigo-400', badge: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-400', desc: 'Negociando precio/condiciones' },
+  { key: 'GANADO', label: 'Ganado', color: 'emerald', bg: 'bg-emerald-50', border: 'border-emerald-400', badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-400', desc: 'Cliente cerrado' },
+  { key: 'PERDIDO', label: 'Perdido', color: 'red', bg: 'bg-red-50', border: 'border-red-400', badge: 'bg-red-100 text-red-700', dot: 'bg-red-400', desc: 'No se concreto' },
+]
+
+const STAGE_MAP = Object.fromEntries(STAGES.map(s => [s.key, s]))
+
+function mapStatus(status) {
+  if (!status) return 'NUEVO'
+  const upper = status.toUpperCase().replace(/\s+/g, '_')
+  if (STAGE_MAP[upper]) return upper
+  if (['NEW', 'NUEVO', 'PENDING'].includes(upper)) return 'NUEVO'
+  if (['CONTACTED', 'CONTACTADO'].includes(upper)) return 'CONTACTADO'
+  if (['IN_CONVERSATION', 'EN_CONVERSACION', 'REPLIED'].includes(upper)) return 'EN_CONVERSACION'
+  if (['PROPOSAL', 'PROPUESTA', 'PROPOSAL_SENT'].includes(upper)) return 'PROPUESTA'
+  if (['NEGOTIATION', 'NEGOCIACION', 'NEGOTIATING'].includes(upper)) return 'NEGOCIACION'
+  if (['WON', 'GANADO', 'CLOSED_WON'].includes(upper)) return 'GANADO'
+  if (['LOST', 'PERDIDO', 'CLOSED_LOST'].includes(upper)) return 'PERDIDO'
+  return 'NUEVO'
+}
+
+function daysAgo(dateStr) {
+  if (!dateStr) return 0
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return 0
+  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
+}
+
+function formatCurrency(val) {
+  if (!val || val === 0) return '$0'
+  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`
+  if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`
+  return `$${val.toLocaleString()}`
+}
+
+function normalizePhone(phone) {
+  if (!phone) return null
+  return phone.replace(/[^0-9+]/g, '')
+}
+
+// ─── Score Bar Component ──────────────────────────────────────────────────────
+function ScoreBar({ score }) {
+  const s = Math.min(100, Math.max(0, score || 0))
+  const color = s >= 70 ? 'bg-emerald-500' : s >= 40 ? 'bg-amber-500' : 'bg-red-400'
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all`} style={{ width: `${s}%` }} />
+      </div>
+      <span className="text-xs font-semibold text-gray-500 w-7 text-right">{s}</span>
+    </div>
+  )
+}
+
+// ─── Lead Card (Kanban) ───────────────────────────────────────────────────────
+function LeadCard({ lead, stage, onOpenDetail, onMoveStage, onAutoContact }) {
+  const [moveOpen, setMoveOpen] = useState(false)
+  const moveRef = useRef(null)
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (moveRef.current && !moveRef.current.contains(e.target)) setMoveOpen(false)
+    }
+    if (moveOpen) document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [moveOpen])
+
+  const phone = normalizePhone(lead.phone)
+  const whatsapp = normalizePhone(lead.whatsapp || lead.phone)
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow">
+      {/* Company name + sector */}
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex-1 min-w-0">
+          <h4 className="font-semibold text-gray-900 text-sm truncate">{lead.company || lead.name || 'Sin nombre'}</h4>
+          {lead.sector && (
+            <span className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 truncate max-w-full">
+              {lead.sector}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Location */}
+      {(lead.city || lead.state) && (
+        <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
+          <MapPin className="w-3 h-3 flex-shrink-0" />
+          <span className="truncate">{[lead.city, lead.state].filter(Boolean).join(', ')}</span>
+        </div>
+      )}
+
+      {/* Score */}
+      <div className="mb-2">
+        <ScoreBar score={lead.score} />
+      </div>
+
+      {/* Contact icons */}
+      <div className="flex items-center gap-1.5 mb-2">
+        {phone && (
+          <a href={`tel:${phone}`} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Llamar">
+            <Phone className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {lead.email && (
+          <a href={`mailto:${lead.email}`} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="Email">
+            <Mail className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {whatsapp && (
+          <a href={`https://wa.me/${whatsapp.replace('+', '')}`} target="_blank" rel="noopener noreferrer"
+            className="p-1.5 rounded-lg hover:bg-green-50 text-green-600 transition-colors" title="WhatsApp">
+            <MessageCircle className="w-3.5 h-3.5" />
+          </a>
+        )}
+        {lead.website && (
+          <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer"
+            className="p-1.5 rounded-lg hover:bg-gray-50 text-gray-400 transition-colors" title="Sitio web">
+            <Globe className="w-3.5 h-3.5" />
+          </a>
+        )}
+        <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-1">
+          <Clock className="w-3 h-3" /> {lead.daysInStage}d
+        </span>
+      </div>
+
+      {/* AI summary */}
+      {lead.aiSummary && (
+        <p className="text-[11px] text-gray-500 italic mb-2 line-clamp-1 border-l-2 border-emerald-300 pl-2">
+          {lead.aiSummary}
+        </p>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-50">
+        <button
+          onClick={(e) => { e.stopPropagation(); onAutoContact(lead) }}
+          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-medium hover:bg-emerald-100 transition-colors"
+        >
+          <Zap className="w-3 h-3" /> Contacto Auto
+        </button>
+
+        <div className="relative" ref={moveRef}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setMoveOpen(!moveOpen) }}
+            className="px-2 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-xs font-medium hover:bg-gray-100 transition-colors flex items-center gap-1"
+          >
+            Mover <ChevronDown className="w-3 h-3" />
+          </button>
+          {moveOpen && (
+            <div className="absolute right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 w-44">
+              {STAGES.filter(s => s.key !== stage.key).map(s => (
+                <button key={s.key}
+                  onClick={(e) => { e.stopPropagation(); onMoveStage(lead.id, s.key); setMoveOpen(false) }}
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 flex items-center gap-2"
+                >
+                  <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={(e) => { e.stopPropagation(); onOpenDetail(lead) }}
+          className="p-1.5 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-colors"
+          title="Ver Detalle"
+        >
+          <Eye className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Kanban Column ────────────────────────────────────────────────────────────
+function KanbanColumn({ stage, leads, onOpenDetail, onMoveStage, onAutoContact }) {
+  const totalValue = leads.reduce((sum, l) => sum + (l.value || 0), 0)
+
+  return (
+    <div className="flex-shrink-0 w-72 flex flex-col max-h-full">
+      {/* Column header */}
+      <div className={`rounded-t-2xl border-t-4 ${stage.border} bg-white px-4 py-3`}>
+        <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <span className={`w-2.5 h-2.5 rounded-full ${stage.dot}`} />
+            <h3 className="font-semibold text-sm text-gray-800">{stage.label}</h3>
+          </div>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stage.badge}`}>{leads.length}</span>
+        </div>
+        {totalValue > 0 && (
+          <p className="text-[11px] text-gray-400 ml-[18px]">{formatCurrency(totalValue)}</p>
+        )}
+        <p className="text-[10px] text-gray-400 ml-[18px] mt-0.5">{stage.desc}</p>
+      </div>
+
+      {/* Cards */}
+      <div className={`flex-1 overflow-y-auto px-2 py-2 space-y-2 ${stage.bg} rounded-b-2xl min-h-[120px]`}>
+        {leads.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-8 text-gray-300">
+            <Building2 className="w-8 h-8 mb-2" />
+            <p className="text-xs">Sin leads</p>
+          </div>
+        )}
+        {leads.map(lead => (
+          <LeadCard
+            key={lead.id}
+            lead={lead}
+            stage={stage}
+            onOpenDetail={onOpenDetail}
+            onMoveStage={onMoveStage}
+            onAutoContact={onAutoContact}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── List View ────────────────────────────────────────────────────────────────
+function ListView({ leads, onOpenDetail, onMoveStage, onAutoContact, selectedIds, onToggleSelect, onSelectAll }) {
+  const [sortField, setSortField] = useState('score')
+  const [sortDir, setSortDir] = useState('desc')
+
+  const sorted = useMemo(() => {
+    const arr = [...leads]
+    arr.sort((a, b) => {
+      let va = a[sortField], vb = b[sortField]
+      if (typeof va === 'string') va = va.toLowerCase()
+      if (typeof vb === 'string') vb = vb.toLowerCase()
+      if (va < vb) return sortDir === 'asc' ? -1 : 1
+      if (va > vb) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+    return arr
+  }, [leads, sortField, sortDir])
+
+  function handleSort(field) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortField(field); setSortDir('desc') }
+  }
+
+  const SortHeader = ({ field, children, className = '' }) => (
+    <th
+      className={`px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider cursor-pointer hover:text-gray-700 select-none ${className}`}
+      onClick={() => handleSort(field)}
+    >
+      <span className="flex items-center gap-1">
+        {children}
+        {sortField === field && <ChevronDown className={`w-3 h-3 transition-transform ${sortDir === 'asc' ? 'rotate-180' : ''}`} />}
+      </span>
+    </th>
+  )
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th className="px-3 py-3 w-10">
+                <input type="checkbox" className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                  checked={selectedIds.size === leads.length && leads.length > 0}
+                  onChange={onSelectAll}
+                />
+              </th>
+              <SortHeader field="company">Empresa</SortHeader>
+              <SortHeader field="sector">Sector</SortHeader>
+              <SortHeader field="city">Ciudad</SortHeader>
+              <SortHeader field="score">Score</SortHeader>
+              <SortHeader field="stage">Etapa</SortHeader>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Telefono</th>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">WhatsApp</th>
+              <SortHeader field="daysInStage">Dias</SortHeader>
+              <th className="px-3 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {sorted.map(lead => {
+              const stg = STAGE_MAP[lead.stage] || STAGE_MAP.NUEVO
+              const phone = normalizePhone(lead.phone)
+              const whatsapp = normalizePhone(lead.whatsapp || lead.phone)
+              return (
+                <tr key={lead.id} className="hover:bg-gray-50/50 transition-colors cursor-pointer" onClick={() => onOpenDetail(lead)}>
+                  <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      checked={selectedIds.has(lead.id)}
+                      onChange={() => onToggleSelect(lead.id)}
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-sm font-medium text-gray-900 max-w-[180px] truncate">{lead.company || lead.name}</td>
+                  <td className="px-3 py-3">
+                    {lead.sector && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{lead.sector}</span>}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-gray-500">{lead.city || '-'}</td>
+                  <td className="px-3 py-3 w-28"><ScoreBar score={lead.score} /></td>
+                  <td className="px-3 py-3">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${stg.badge}`}>{stg.label}</span>
+                  </td>
+                  <td className="px-3 py-3 text-xs text-gray-500 max-w-[160px] truncate">{lead.email || '-'}</td>
+                  <td className="px-3 py-3 text-xs text-gray-500">{phone || '-'}</td>
+                  <td className="px-3 py-3 text-xs text-gray-500">
+                    {whatsapp ? (
+                      <a href={`https://wa.me/${whatsapp.replace('+', '')}`} target="_blank" rel="noopener noreferrer"
+                        className="text-green-600 hover:underline" onClick={e => e.stopPropagation()}>
+                        {whatsapp}
+                      </a>
+                    ) : '-'}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-gray-500">{lead.daysInStage}d</td>
+                  <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => onAutoContact(lead)}
+                        className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors" title="Contacto Auto">
+                        <Zap className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => onOpenDetail(lead)}
+                        className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 transition-colors" title="Ver Detalle">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Lead Detail Panel ────────────────────────────────────────────────────────
+function DetailPanel({ lead, onClose, onMoveStage, onRefreshLead }) {
+  const [report, setReport] = useState(null)
+  const [messages, setMessages] = useState([])
+  const [loadingReport, setLoadingReport] = useState(false)
+  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [actionLoading, setActionLoading] = useState(null)
+  const [actionResult, setActionResult] = useState(null)
+  const [moveOpen, setMoveOpen] = useState(false)
+  const stg = STAGE_MAP[lead.stage] || STAGE_MAP.NUEVO
+
+  useEffect(() => {
+    // Load report
+    setLoadingReport(true)
+    api.get(`/api/scraping-engine/leads/${lead.id}/report`)
+      .then(r => setReport(r.data?.report || r.data))
+      .catch(() => setReport(null))
+      .finally(() => setLoadingReport(false))
+
+    // Load messages
+    setLoadingMessages(true)
+    api.get(`/api/outreach/lead/${lead.id}/messages`)
+      .then(r => setMessages(r.data?.messages || r.data || []))
+      .catch(() => setMessages([]))
+      .finally(() => setLoadingMessages(false))
+  }, [lead.id])
+
+  async function handleAction(type) {
+    setActionLoading(type)
+    setActionResult(null)
+    try {
+      let res
+      if (type === 'email') {
+        res = await api.post('/api/outreach/email/send', { leadId: lead.id })
+        setActionResult({ type, success: true, message: 'Email enviado correctamente', data: res.data })
+      } else if (type === 'whatsapp') {
+        if (lead.whatsapp || lead.phone) {
+          res = await api.post('/api/outreach/whatsapp/send-direct', { leadId: lead.id })
+          setActionResult({ type, success: true, message: 'WhatsApp enviado', data: res.data })
+        } else {
+          res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id })
+          setActionResult({ type, success: true, message: 'Mensaje WhatsApp generado', data: res.data })
+        }
+      } else if (type === 'call') {
+        res = await api.post('/api/outreach/call/script', { leadId: lead.id })
+        setActionResult({ type, success: true, message: 'Guion de llamada generado', data: res.data })
+      } else if (type === 'report') {
+        res = await api.post(`/api/scraping-engine/leads/${lead.id}/report`)
+        setReport(res.data?.report || res.data)
+        setActionResult({ type, success: true, message: 'Informe IA generado', data: res.data })
+      }
+    } catch (err) {
+      setActionResult({ type, success: false, message: err.response?.data?.error || err.message || 'Error al ejecutar la accion' })
+    }
+    setActionLoading(null)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="relative w-full max-w-lg bg-white shadow-2xl overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className={`w-10 h-10 rounded-xl ${stg.badge} flex items-center justify-center`}>
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-bold text-gray-900 truncate">{lead.company || lead.name}</h2>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${stg.badge}`}>{stg.label}</span>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-6">
+          {/* Info section */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Informacion General</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { label: 'Sector', value: lead.sector },
+                { label: 'Ciudad', value: lead.city },
+                { label: 'Estado', value: lead.state },
+                { label: 'Direccion', value: lead.address },
+                { label: 'Score', value: lead.score != null ? `${lead.score}/100` : null },
+                { label: 'Valor', value: lead.value ? formatCurrency(lead.value) : null },
+                { label: 'Dias en etapa', value: `${lead.daysInStage} dias` },
+                { label: 'Fuente', value: lead.source },
+              ].filter(i => i.value).map(item => (
+                <div key={item.label} className="bg-gray-50 rounded-xl px-3 py-2">
+                  <p className="text-[10px] text-gray-400 font-medium">{item.label}</p>
+                  <p className="text-sm text-gray-800 font-medium truncate">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Contact section */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Datos de Contacto</h3>
+            <div className="space-y-2">
+              {lead.email && (
+                <a href={`mailto:${lead.email}`} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                  <Mail className="w-4 h-4 text-emerald-500" />
+                  <span className="text-sm text-gray-700">{lead.email}</span>
+                  <ExternalLink className="w-3 h-3 text-gray-300 ml-auto" />
+                </a>
+              )}
+              {lead.phone && (
+                <a href={`tel:${normalizePhone(lead.phone)}`} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                  <Phone className="w-4 h-4 text-blue-500" />
+                  <span className="text-sm text-gray-700">{lead.phone}</span>
+                  <ExternalLink className="w-3 h-3 text-gray-300 ml-auto" />
+                </a>
+              )}
+              {(lead.whatsapp || lead.phone) && (
+                <a href={`https://wa.me/${normalizePhone(lead.whatsapp || lead.phone)?.replace('+', '')}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                  <MessageCircle className="w-4 h-4 text-green-500" />
+                  <span className="text-sm text-gray-700">{lead.whatsapp || lead.phone}</span>
+                  <ExternalLink className="w-3 h-3 text-gray-300 ml-auto" />
+                </a>
+              )}
+              {lead.website && (
+                <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                  <Globe className="w-4 h-4 text-indigo-500" />
+                  <span className="text-sm text-gray-700 truncate">{lead.website}</span>
+                  <ExternalLink className="w-3 h-3 text-gray-300 ml-auto" />
+                </a>
+              )}
+              {lead.socialMedia && Object.entries(lead.socialMedia).filter(([, v]) => v).map(([key, url]) => (
+                <a key={key} href={url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                  <ExternalLink className="w-4 h-4 text-gray-400" />
+                  <span className="text-sm text-gray-700 capitalize">{key}</span>
+                  <ExternalLink className="w-3 h-3 text-gray-300 ml-auto" />
+                </a>
+              ))}
+            </div>
+          </section>
+
+          {/* AI Report */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Informe IA</h3>
+            {loadingReport ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-300" />
+              </div>
+            ) : report ? (
+              <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 space-y-3">
+                {report.companyProfile && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">Perfil de Empresa</p>
+                    <p className="text-sm text-gray-700 mt-0.5">{typeof report.companyProfile === 'string' ? report.companyProfile : JSON.stringify(report.companyProfile)}</p>
+                  </div>
+                )}
+                {report.contactQuality && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">Calidad de Contacto</p>
+                    <p className="text-sm text-gray-700 mt-0.5">{typeof report.contactQuality === 'string' ? report.contactQuality : JSON.stringify(report.contactQuality)}</p>
+                  </div>
+                )}
+                {report.recommendedApproach && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">Enfoque Recomendado</p>
+                    <p className="text-sm text-gray-700 mt-0.5">{typeof report.recommendedApproach === 'string' ? report.recommendedApproach : JSON.stringify(report.recommendedApproach)}</p>
+                  </div>
+                )}
+                {report.summary && (
+                  <div>
+                    <p className="text-[10px] font-semibold text-emerald-700 uppercase">Resumen</p>
+                    <p className="text-sm text-gray-700 mt-0.5">{report.summary}</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 italic py-3">Sin informe. Genera uno con el boton de abajo.</p>
+            )}
+          </section>
+
+          {/* Outreach history */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Historial de Contacto</h3>
+            {loadingMessages ? (
+              <div className="flex items-center justify-center py-6">
+                <Loader2 className="w-5 h-5 animate-spin text-gray-300" />
+              </div>
+            ) : messages.length > 0 ? (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {messages.map((msg, i) => (
+                  <div key={msg.id || i} className="bg-gray-50 rounded-xl px-3 py-2.5">
+                    <div className="flex items-center gap-2 mb-1">
+                      {msg.channel === 'email' && <Mail className="w-3 h-3 text-emerald-500" />}
+                      {msg.channel === 'whatsapp' && <MessageCircle className="w-3 h-3 text-green-500" />}
+                      {msg.channel === 'call' && <PhoneCall className="w-3 h-3 text-blue-500" />}
+                      <span className="text-[10px] font-semibold text-gray-500 uppercase">{msg.channel || msg.type || 'mensaje'}</span>
+                      <span className="text-[10px] text-gray-400 ml-auto">{msg.createdAt ? new Date(msg.createdAt).toLocaleDateString() : ''}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 line-clamp-2">{msg.content || msg.subject || msg.message || 'Sin contenido'}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 italic py-3">Sin historial de contacto.</p>
+            )}
+          </section>
+
+          {/* Action result */}
+          {actionResult && (
+            <div className={`rounded-xl p-3 flex items-start gap-2 ${actionResult.success ? 'bg-emerald-50 border border-emerald-200' : 'bg-red-50 border border-red-200'}`}>
+              {actionResult.success ? <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />}
+              <div className="min-w-0">
+                <p className={`text-sm font-medium ${actionResult.success ? 'text-emerald-700' : 'text-red-700'}`}>{actionResult.message}</p>
+                {actionResult.data?.generatedMessage && (
+                  <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{actionResult.data.generatedMessage}</p>
+                )}
+                {actionResult.data?.script && (
+                  <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">{actionResult.data.script}</p>
+                )}
+                {actionResult.data?.whatsappUrl && (
+                  <a href={actionResult.data.whatsappUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-1 text-xs text-green-600 hover:underline">
+                    <MessageCircle className="w-3 h-3" /> Abrir WhatsApp
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Acciones</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => handleAction('email')} disabled={actionLoading === 'email'}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50">
+                {actionLoading === 'email' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Enviar Email IA
+              </button>
+              <button onClick={() => handleAction('whatsapp')} disabled={actionLoading === 'whatsapp'}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-green-50 text-green-700 text-sm font-medium hover:bg-green-100 transition-colors disabled:opacity-50">
+                {actionLoading === 'whatsapp' ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
+                Enviar WhatsApp
+              </button>
+              <button onClick={() => handleAction('call')} disabled={actionLoading === 'call'}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-blue-50 text-blue-700 text-sm font-medium hover:bg-blue-100 transition-colors disabled:opacity-50">
+                {actionLoading === 'call' ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneCall className="w-4 h-4" />}
+                Guion Llamada
+              </button>
+              <button onClick={() => handleAction('report')} disabled={actionLoading === 'report'}
+                className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-purple-50 text-purple-700 text-sm font-medium hover:bg-purple-100 transition-colors disabled:opacity-50">
+                {actionLoading === 'report' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                Informe IA
+              </button>
+            </div>
+          </section>
+
+          {/* Move stage */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Mover Etapa</h3>
+            <div className="flex flex-wrap gap-1.5">
+              {STAGES.map(s => (
+                <button key={s.key}
+                  onClick={() => { onMoveStage(lead.id, s.key); onClose() }}
+                  disabled={s.key === lead.stage}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 ${
+                    s.key === lead.stage ? `${s.badge} ring-2 ring-offset-1 ring-current opacity-70 cursor-default` : `${s.badge} hover:opacity-80`
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Auto Contact Modal ───────────────────────────────────────────────────────
+function AutoContactModal({ lead, onClose, onMoveStage }) {
+  const [steps, setSteps] = useState([])
+  const [running, setRunning] = useState(true)
+  const [currentStep, setCurrentStep] = useState(0)
+  const hasRun = useRef(false)
+
+  useEffect(() => {
+    if (hasRun.current) return
+    hasRun.current = true
+    runAutoContact()
+  }, [])
+
+  async function runAutoContact() {
+    const results = []
+    const hasEmail = !!lead.email
+    const hasPhone = !!(lead.whatsapp || lead.phone)
+
+    // Step 1: Generate report
+    setCurrentStep(0)
+    results.push({ label: 'Generando informe IA...', status: 'loading' })
+    setSteps([...results])
+    try {
+      await api.post(`/api/scraping-engine/leads/${lead.id}/report`)
+      results[results.length - 1] = { label: 'Informe IA generado', status: 'success' }
+    } catch {
+      results[results.length - 1] = { label: 'No se pudo generar informe IA', status: 'error' }
+    }
+    setSteps([...results])
+
+    // Step 2: Send email
+    if (hasEmail) {
+      setCurrentStep(1)
+      results.push({ label: 'Enviando email con IA...', status: 'loading' })
+      setSteps([...results])
+      try {
+        const res = await api.post('/api/outreach/email/send', { leadId: lead.id })
+        results[results.length - 1] = { label: 'Email enviado', status: 'success', data: res.data }
+      } catch {
+        results[results.length - 1] = { label: 'No se pudo enviar email', status: 'error' }
+      }
+      setSteps([...results])
+    }
+
+    // Step 3: WhatsApp
+    if (hasPhone) {
+      setCurrentStep(2)
+      results.push({ label: 'Generando mensaje WhatsApp...', status: 'loading' })
+      setSteps([...results])
+      try {
+        const res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id })
+        const waUrl = res.data?.whatsappUrl || null
+        results[results.length - 1] = { label: 'WhatsApp generado', status: 'success', data: res.data, waUrl }
+      } catch {
+        results[results.length - 1] = { label: 'No se pudo generar WhatsApp', status: 'error' }
+      }
+      setSteps([...results])
+    }
+
+    // Step 4: Call script
+    if (hasPhone) {
+      setCurrentStep(3)
+      results.push({ label: 'Generando guion de llamada...', status: 'loading' })
+      setSteps([...results])
+      try {
+        const res = await api.post('/api/outreach/call/script', { leadId: lead.id })
+        results[results.length - 1] = { label: 'Guion de llamada listo', status: 'success', data: res.data }
+      } catch {
+        results[results.length - 1] = { label: 'No se pudo generar guion', status: 'error' }
+      }
+      setSteps([...results])
+    }
+
+    // Move to CONTACTADO
+    try {
+      await api.patch(`/api/scraping-engine/leads/${lead.id}`, { status: 'CONTACTADO' })
+      onMoveStage(lead.id, 'CONTACTADO')
+      results.push({ label: 'Lead movido a "Contactado"', status: 'success' })
+    } catch {
+      results.push({ label: 'No se pudo mover el lead', status: 'error' })
+    }
+    setSteps([...results])
+    setRunning(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={!running ? onClose : undefined} />
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+              <Zap className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-900">Contacto Automatico</h3>
+              <p className="text-xs text-gray-500">{lead.company || lead.name}</p>
+            </div>
+          </div>
+          {!running && (
+            <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+              <X className="w-4 h-4 text-gray-400" />
+            </button>
+          )}
+        </div>
+
+        {/* Steps */}
+        <div className="px-6 py-5 space-y-3">
+          {running && steps.length === 0 && (
+            <div className="flex items-center gap-3 py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
+              <p className="text-sm text-gray-600">Iniciando contacto automatico con <strong>{lead.company || lead.name}</strong>...</p>
+            </div>
+          )}
+          {steps.map((step, i) => (
+            <div key={i} className="flex items-start gap-3">
+              {step.status === 'loading' && <Loader2 className="w-4 h-4 animate-spin text-emerald-500 mt-0.5 flex-shrink-0" />}
+              {step.status === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-500 mt-0.5 flex-shrink-0" />}
+              {step.status === 'error' && <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />}
+              <div className="min-w-0 flex-1">
+                <p className={`text-sm ${step.status === 'error' ? 'text-red-600' : 'text-gray-700'}`}>{step.label}</p>
+                {step.data?.generatedMessage && (
+                  <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded-lg p-2 whitespace-pre-wrap line-clamp-3">{step.data.generatedMessage}</p>
+                )}
+                {step.data?.script && (
+                  <p className="text-xs text-gray-500 mt-1 bg-gray-50 rounded-lg p-2 whitespace-pre-wrap line-clamp-3">{step.data.script}</p>
+                )}
+                {step.waUrl && (
+                  <a href={step.waUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-1 text-xs text-green-600 font-medium hover:underline">
+                    <MessageCircle className="w-3 h-3" /> Abrir en WhatsApp
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        {!running && (
+          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+            <button onClick={onClose}
+              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors">
+              Cerrar
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Pipeline Page ───────────────────────────────────────────────────────
 export default function PipelinePage() {
-  const [opportunities, setOpportunities] = useState([])
+  const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState('kanban')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [detailLead, setDetailLead] = useState(null)
+  const [autoContactLead, setAutoContactLead] = useState(null)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkLoading, setBulkLoading] = useState(false)
 
-  const loadData = useCallback(async () => {
+  const loadLeads = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await api.get('/api/detection/opportunities', { params: { limit: 200 } })
+      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
       const data = res.data
-      const opps = data.opportunities || data.data || (Array.isArray(data) ? data : [])
-      setOpportunities(opps.map(o => ({
-        id: o.id || o._id,
-        name: o.title || o.name || '',
-        description: o.summary || o.description || '',
-        fitScore: o.relevance_score || o.fitScore || 0,
-        priority: o.priority || 'BAJA',
-        type: o.opportunity_type || o.type || 'OTRO',
-        region: o.location_mentioned || o.region || '',
-        value: Number(o.estimated_value || o.value) || 0,
-        detectedAt: o.created_at || o.createdAt || new Date().toISOString(),
-        source: o.source || 'Deteccion IA',
-        contactName: o.company_mentioned || o.contactName || '',
-        addedToPipeline: true,
-        pipelineStage: o.pipelineStage || o.status || 'NEW',
-        status: o.status || 'NEW',
+      const raw = data.leads || data.data || (Array.isArray(data) ? data : [])
+      setLeads(raw.map(l => ({
+        id: l.id || l._id,
+        name: l.name || l.businessName || l.title || '',
+        company: l.businessName || l.company || l.name || l.title || '',
+        sector: l.sector || l.category || l.industry || '',
+        city: l.city || l.ciudad || '',
+        state: l.state || l.estado || l.province || '',
+        address: l.address || l.direccion || '',
+        phone: l.phone || l.telefono || l.phoneNumber || '',
+        whatsapp: l.whatsapp || l.whatsappNumber || '',
+        email: l.email || l.correo || '',
+        website: l.website || l.sitioWeb || l.url || '',
+        socialMedia: l.socialMedia || l.redesSociales || {},
+        score: Number(l.score || l.qualityScore || l.fitScore || 0),
+        value: Number(l.value || l.estimatedValue || l.estimated_value || 0),
+        stage: mapStatus(l.status || l.pipelineStage),
+        source: l.source || l.fuente || '',
+        createdAt: l.createdAt || l.created_at || l.fechaCreacion || '',
+        daysInStage: daysAgo(l.stageChangedAt || l.updatedAt || l.createdAt || l.created_at),
+        aiSummary: l.aiSummary || l.report?.summary || '',
+        raw: l,
       })))
     } catch {
-      setOpportunities([])
+      setLeads([])
     }
     setLoading(false)
   }, [])
 
-  useEffect(() => { loadData() }, [loadData])
+  useEffect(() => { loadLeads() }, [loadLeads])
 
-  const handleViewDetails = (opp) => {
-    // Could open a modal - for now just log
-    console.log('View details:', opp)
+  // ─── Derived data ─────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return leads
+    const q = searchQuery.toLowerCase()
+    return leads.filter(l =>
+      (l.company || '').toLowerCase().includes(q) ||
+      (l.sector || '').toLowerCase().includes(q) ||
+      (l.city || '').toLowerCase().includes(q) ||
+      (l.email || '').toLowerCase().includes(q)
+    )
+  }, [leads, searchQuery])
+
+  const stageGroups = useMemo(() => {
+    const groups = {}
+    STAGES.forEach(s => { groups[s.key] = [] })
+    filtered.forEach(l => {
+      const key = groups[l.stage] ? l.stage : 'NUEVO'
+      groups[key].push(l)
+    })
+    return groups
+  }, [filtered])
+
+  const stats = useMemo(() => {
+    const total = leads.length
+    const totalValue = leads.reduce((s, l) => s + (l.value || 0), 0)
+    const ganados = leads.filter(l => l.stage === 'GANADO').length
+    const perdidos = leads.filter(l => l.stage === 'PERDIDO').length
+    const finalized = ganados + perdidos
+    const conversion = finalized > 0 ? Math.round((ganados / finalized) * 100) : 0
+    return { total, totalValue, ganados, perdidos, conversion }
+  }, [leads])
+
+  // ─── Handlers ─────────────────────────────────────────────────────────────
+  function handleMoveStage(id, newStage) {
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, stage: newStage, daysInStage: 0 } : l))
+    api.patch(`/api/scraping-engine/leads/${id}`, { status: newStage }).catch(() => {})
   }
 
-  const handleMoveStage = async (id, newStage) => {
-    setOpportunities(prev => prev.map(o => o.id === id ? { ...o, pipelineStage: newStage } : o))
-    try {
-      await api.patch(`/api/detection/opportunities/${id}`, { status: newStage })
-    } catch { /* silent */ }
+  function handleToggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
   }
 
+  function handleSelectAll() {
+    if (selectedIds.size === filtered.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(filtered.map(l => l.id)))
+  }
+
+  async function handleBulkContact() {
+    if (selectedIds.size === 0) return
+    setBulkLoading(true)
+    const ids = [...selectedIds]
+    for (const id of ids) {
+      const lead = leads.find(l => l.id === id)
+      if (!lead) continue
+      try {
+        await api.post(`/api/scraping-engine/leads/${id}/report`)
+      } catch {}
+      if (lead.email) {
+        try { await api.post('/api/outreach/email/send', { leadId: id }) } catch {}
+      }
+      if (lead.whatsapp || lead.phone) {
+        try { await api.post('/api/outreach/whatsapp/generate', { leadId: id }) } catch {}
+      }
+      handleMoveStage(id, 'CONTACTADO')
+    }
+    setSelectedIds(new Set())
+    setBulkLoading(false)
+  }
+
+  // ─── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
@@ -59,24 +921,151 @@ export default function PipelinePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-5">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
             <GitBranch className="w-6 h-6 text-emerald-600" /> Pipeline de Ventas
           </h1>
-          <p className="text-gray-500 mt-1">{opportunities.length} oportunidades en el pipeline</p>
+          <p className="text-gray-500 mt-0.5 text-sm">
+            Valor total: <span className="font-semibold text-gray-700">{formatCurrency(stats.totalValue)}</span>
+          </p>
         </div>
-        <button onClick={loadData} className="p-2.5 hover:bg-gray-100 rounded-xl transition-colors">
-          <RefreshCw className="w-5 h-5 text-gray-400" />
-        </button>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Stats pills */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-600">
+              <Users className="w-3 h-3" /> {stats.total} leads
+            </span>
+            {STAGES.slice(0, 6).map(s => {
+              const count = stageGroups[s.key]?.length || 0
+              if (count === 0) return null
+              return (
+                <span key={s.key} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${s.badge}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {count}
+                </span>
+              )
+            })}
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-xs font-medium text-emerald-700">
+              <TrendingUp className="w-3 h-3" /> {stats.conversion}% conv.
+            </span>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+            />
+          </div>
+
+          {/* View toggle */}
+          <div className="flex items-center bg-gray-100 rounded-xl p-0.5">
+            <button
+              onClick={() => setView('kanban')}
+              className={`p-1.5 rounded-lg transition-colors ${view === 'kanban' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Kanban"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setView('list')}
+              className={`p-1.5 rounded-lg transition-colors ${view === 'list' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Lista"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Refresh */}
+          <button onClick={loadLeads} className="p-2 hover:bg-gray-100 rounded-xl transition-colors" title="Refrescar">
+            <RefreshCw className="w-4 h-4 text-gray-400" />
+          </button>
+        </div>
       </div>
 
-      <PipelineTab
-        opportunities={opportunities}
-        onViewDetails={handleViewDetails}
-        onMoveStage={handleMoveStage}
-      />
+      {/* ── Bulk actions (list view) ───────────────────────────────────────── */}
+      {view === 'list' && selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
+          <span className="text-sm text-emerald-700 font-medium">{selectedIds.size} seleccionados</span>
+          <button
+            onClick={handleBulkContact}
+            disabled={bulkLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          >
+            {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+            Contactar Seleccionados
+          </button>
+          <button onClick={() => setSelectedIds(new Set())} className="text-xs text-emerald-600 hover:underline ml-auto">
+            Deseleccionar todo
+          </button>
+        </div>
+      )}
+
+      {/* ── Kanban View ────────────────────────────────────────────────────── */}
+      {view === 'kanban' && (
+        <div className="overflow-x-auto pb-4 -mx-2 px-2">
+          <div className="flex gap-4" style={{ minWidth: STAGES.length * 288 }}>
+            {STAGES.map(stage => (
+              <KanbanColumn
+                key={stage.key}
+                stage={stage}
+                leads={stageGroups[stage.key] || []}
+                onOpenDetail={setDetailLead}
+                onMoveStage={handleMoveStage}
+                onAutoContact={setAutoContactLead}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── List View ──────────────────────────────────────────────────────── */}
+      {view === 'list' && (
+        <ListView
+          leads={filtered}
+          onOpenDetail={setDetailLead}
+          onMoveStage={handleMoveStage}
+          onAutoContact={setAutoContactLead}
+          selectedIds={selectedIds}
+          onToggleSelect={handleToggleSelect}
+          onSelectAll={handleSelectAll}
+        />
+      )}
+
+      {/* ── Empty state ────────────────────────────────────────────────────── */}
+      {filtered.length === 0 && !loading && (
+        <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+          <Building2 className="w-12 h-12 mb-3" />
+          <p className="text-lg font-medium">Sin leads en el pipeline</p>
+          <p className="text-sm mt-1">Los leads apareceran aqui cuando se detecten.</p>
+        </div>
+      )}
+
+      {/* ── Detail Panel ───────────────────────────────────────────────────── */}
+      {detailLead && (
+        <DetailPanel
+          lead={detailLead}
+          onClose={() => setDetailLead(null)}
+          onMoveStage={(id, stage) => { handleMoveStage(id, stage); setDetailLead(prev => prev ? { ...prev, stage } : null) }}
+          onRefreshLead={loadLeads}
+        />
+      )}
+
+      {/* ── Auto Contact Modal ─────────────────────────────────────────────── */}
+      {autoContactLead && (
+        <AutoContactModal
+          lead={autoContactLead}
+          onClose={() => { setAutoContactLead(null); loadLeads() }}
+          onMoveStage={handleMoveStage}
+        />
+      )}
     </div>
   )
 }
