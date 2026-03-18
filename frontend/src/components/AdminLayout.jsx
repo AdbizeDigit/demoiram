@@ -9,10 +9,6 @@ import {
 
 const navItems = [
   { path: '/admin', icon: Radar, label: 'Motor de Deteccion', end: true },
-  { path: '/admin/radar', icon: Radio, label: 'Radar' },
-  { path: '/admin/fuentes', icon: Globe, label: 'Fuentes' },
-  { path: '/admin/oportunidades', icon: Target, label: 'Oportunidades' },
-  { path: '/admin/reglas', icon: Cpu, label: 'Reglas' },
   { path: '/admin/pipeline', icon: GitBranch, label: 'Pipeline' },
   { path: '/admin/leads', icon: Users, label: 'Leads' },
   { path: '/admin/email-outreach', icon: Mail, label: 'Email Outreach' },
