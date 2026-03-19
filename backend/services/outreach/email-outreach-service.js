@@ -404,26 +404,69 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
 </table>`;
   }
 
-  // Send a single email (with avatar branding)
+  // Send email via Brevo API (primary) or SMTP (fallback)
   async sendEmail(to, subject, htmlBody) {
-    const transporter = this.getTransporter();
     const avatar = await this.getActiveAvatar();
     const fromName = avatar?.name || process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
-    const fromEmail = avatar?.email || process.env.SMTP_FROM || process.env.SMTP_USER;
+    const fromEmail = avatar?.email || process.env.SMTP_FROM || process.env.SMTP_USER || 'giankoch@adbize.com';
 
-    const info = await transporter.sendMail({
-      from: `"${fromName}" <${fromEmail}>`,
-      to,
-      subject,
-      html: htmlBody,
-    });
+    let result;
 
+    // Try Brevo API first (works even when SMTP ports are blocked)
+    if (process.env.BREVO_API_KEY) {
+      try {
+        result = await this.sendViaBrevo(to, subject, htmlBody, fromName, fromEmail);
+        console.log(`[EmailOutreach] Email sent via Brevo to ${to} as ${fromName}`);
+      } catch (brevoErr) {
+        console.error('[EmailOutreach] Brevo failed:', brevoErr.message);
+        // Fall through to SMTP
+      }
+    }
+
+    // Fallback to SMTP
+    if (!result) {
+      try {
+        const transporter = this.getTransporter();
+        result = await transporter.sendMail({
+          from: `"${fromName}" <${fromEmail}>`,
+          to,
+          subject,
+          html: htmlBody,
+        });
+        console.log(`[EmailOutreach] Email sent via SMTP to ${to}: ${result.messageId}`);
+      } catch (smtpErr) {
+        console.error('[EmailOutreach] SMTP also failed:', smtpErr.message);
+        throw new Error(`No se pudo enviar el email. Brevo: ${process.env.BREVO_API_KEY ? 'configurado' : 'no configurado'}. SMTP: ${smtpErr.message}`);
+      }
+    }
+
+    // Track avatar stats
     if (avatar) {
       pool.query('UPDATE avatars SET emails_sent = emails_sent + 1, messages_sent = messages_sent + 1 WHERE id = $1', [avatar.id]).catch(() => {});
     }
 
-    console.log(`[EmailOutreach] Email sent to ${to} as ${fromName}: ${info.messageId}`);
-    return info;
+    return result;
+  }
+
+  // Send via Brevo (Sendinblue) API
+  async sendViaBrevo(to, subject, htmlBody, fromName, fromEmail) {
+    const axios = (await import('axios')).default;
+
+    const response = await axios.post('https://api.brevo.com/v3/smtp/email', {
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: to }],
+      subject,
+      htmlContent: htmlBody,
+    }, {
+      headers: {
+        'accept': 'application/json',
+        'api-key': process.env.BREVO_API_KEY,
+        'content-type': 'application/json',
+      },
+      timeout: 15000,
+    });
+
+    return { messageId: response.data?.messageId || 'brevo-' + Date.now(), provider: 'brevo' };
   }
 
   // Create email sequence for a lead
