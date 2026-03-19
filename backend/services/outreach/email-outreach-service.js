@@ -161,11 +161,13 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
     const baseUrl = process.env.APP_URL || 'https://adbize.com';
     const avatarPhotoUrl = avatar?.photo_url ? `${baseUrl}${avatar.photo_url}` : '';
 
-    if (config?.html_template && !config.html_template.includes('ADBIZE')) {
+    // Only use custom template if it's a real custom template (not the default placeholder)
+    if (config?.html_template && config.html_template.length > 500 && !config.html_template.includes('{{BODY}}')) {
       return config.html_template
         .replace('{{BODY}}', bodyHtml)
         .replace('{{SIGNATURE}}', signature);
     }
+    // Otherwise always use the Adbize branded template below
 
     return `<!DOCTYPE html>
 <html lang="es" xmlns="http://www.w3.org/1999/xhtml">
