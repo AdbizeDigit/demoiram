@@ -445,12 +445,18 @@ export default function AvatarsPage() {
                         src={avatar.photo_url}
                         alt={avatar.name}
                         className="w-14 h-14 rounded-full object-cover border-2 border-gray-100"
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                          e.target.nextSibling.style.display = 'flex'
+                        }}
                       />
-                    ) : (
-                      <div className={`w-14 h-14 rounded-full bg-gradient-to-br ${tone.gradient} flex items-center justify-center text-white font-bold text-lg`}>
-                        {getInitials(avatar.name)}
-                      </div>
-                    )}
+                    ) : null}
+                    <div
+                      className={`w-14 h-14 rounded-full bg-gradient-to-br ${tone.gradient} flex items-center justify-center text-white font-bold text-lg`}
+                      style={{ display: avatar.photo_url ? 'none' : 'flex' }}
+                    >
+                      {getInitials(avatar.name)}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <h3 className="font-semibold text-gray-900 truncate">{avatar.name}</h3>
