@@ -233,8 +233,12 @@ router.get('/lead/:id/messages', async (req, res) => {
   }
 });
 
-// POST /email/test - Send a test email to any address (playground)
+// POST /email/test - Generate preview or send test email
 router.post('/email/test', async (req, res) => {
+  // Set response timeout to 90s
+  req.setTimeout(90000);
+  res.setTimeout(90000);
+
   try {
     const { email, subject, body, companyName, sector, city, stepType, sendEmail: shouldSend } = req.body;
 
@@ -252,35 +256,27 @@ router.post('/email/test', async (req, res) => {
 
     let emailContent;
     if (subject && body) {
+      // Already have content, just use it
       emailContent = { subject, body };
     } else {
-      // Generate with AI, with a 25s timeout to avoid 504
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('AI_TIMEOUT')), 25000)
-      );
+      // Generate with AI - try with 45s timeout, fallback to template
       try {
         emailContent = await Promise.race([
           emailOutreachService.generateEmail(fakeLead, stepType || 'introduction', 1),
-          timeoutPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('AI_TIMEOUT')), 45000)),
         ]);
       } catch (aiErr) {
-        if (aiErr.message === 'AI_TIMEOUT') {
-          // Use fallback template immediately
-          console.log('[EmailTest] AI timeout, using fallback template');
-          emailContent = emailOutreachService.getTemplateEmail(fakeLead, stepType || 'introduction', 1);
-          const avatar = await emailOutreachService.getActiveAvatar();
-          emailContent.body = emailOutreachService.wrapInTemplate(emailContent.body, avatar, null);
-          emailContent._fallback = true;
-        } else {
-          throw aiErr;
-        }
+        console.log('[EmailTest] AI error/timeout, using fallback:', aiErr.message);
+        emailContent = emailOutreachService.getTemplateEmail(fakeLead, stepType || 'introduction', 1);
+        const avatar = await emailOutreachService.getActiveAvatar();
+        emailContent.body = emailOutreachService.wrapInTemplate(emailContent.body, avatar, null);
+        emailContent._fallback = true;
       }
     }
 
-    // Only send if explicitly requested
     if (shouldSend) {
       await emailOutreachService.sendEmail(email, emailContent.subject, emailContent.body);
-      res.json({ success: true, message: `Email de prueba enviado a ${email}`, email: emailContent, sent: true });
+      res.json({ success: true, message: `Email enviado a ${email}`, email: emailContent, sent: true });
     } else {
       res.json({ success: true, message: 'Preview generado', email: emailContent, sent: false, fallback: !!emailContent._fallback });
     }
