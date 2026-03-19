@@ -246,7 +246,7 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
                   <td style="vertical-align:top; font-family:'Nunito',Arial,sans-serif;">
                     <p style="margin:0; font-size:14px; font-weight:800; color:#1a1a2e;">${avatarName}</p>
                     ${avatarRole ? `<p style="margin:2px 0 0; font-size:12px; color:#6b7280;">${avatarRole}</p>` : ''}
-                    <p style="margin:2px 0 0; font-size:12px; font-weight:700; color:#8b5cf6;">Adbize</p>
+                    <p style="margin:2px 0 0; font-size:12px; font-weight:700;"><a href="https://adbize.com" style="color:#8b5cf6; text-decoration:none;">www.adbize.com</a></p>
                     ${avatarPhone ? `<p style="margin:4px 0 0; font-size:11px;"><a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="color:#25D366; font-weight:600; text-decoration:none;">📱 WhatsApp: ${avatarPhone}</a></p>` : ''}
                     ${avatarEmail ? `<p style="margin:2px 0 0; font-size:11px;"><a href="mailto:${avatarEmail}" style="color:#3a7bd5; font-weight:600; text-decoration:none;">✉️ ${avatarEmail}</a></p>` : ''}
                     <p style="margin:6px 0 0;">
