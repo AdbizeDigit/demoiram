@@ -152,22 +152,145 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
 
   wrapInTemplate(bodyHtml, avatar, config) {
     const signature = this.buildSignatureWithPhoto(avatar);
+    const avatarName = avatar?.name || 'Adbize';
+    const avatarRole = avatar?.role || '';
+    const avatarEmail = avatar?.email || process.env.SMTP_FROM || 'hola@adbize.com';
+    const avatarPhone = avatar?.phone || '';
+    const avatarLinkedin = avatar?.linkedin_url || '';
+    const avatarCalendar = avatar?.calendar_url || '';
+    const baseUrl = process.env.APP_URL || 'https://adbize.com';
+    const avatarPhotoUrl = avatar?.photo_url ? `${baseUrl}${avatar.photo_url}` : '';
 
-    if (config?.html_template) {
+    if (config?.html_template && !config.html_template.includes('ADBIZE')) {
       return config.html_template
         .replace('{{BODY}}', bodyHtml)
         .replace('{{SIGNATURE}}', signature);
     }
 
-    // Default wrapper - clean, anti-spam friendly
     return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>
-<body style="margin:0;padding:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#333333;background-color:#f9fafb;">
-<table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;">
-<tr><td style="padding:32px 28px 0;">${bodyHtml}</td></tr>
-<tr><td style="padding:16px 28px 32px;">${signature}</td></tr>
-</table>
-</body></html>`;
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="x-apple-disable-message-reformatting">
+  <title>Adbize</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap');
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { margin: 0; padding: 0; background-color: #f0f2f5; font-family: 'Nunito', Arial, sans-serif; }
+    table { border-collapse: collapse; }
+    img { border: 0; display: block; height: auto; }
+    a { text-decoration: none; }
+    @media only screen and (max-width: 600px) {
+      .email-wrapper { width: 100% !important; }
+      .email-body { padding: 24px 20px !important; }
+    }
+  </style>
+</head>
+<body style="margin:0; padding:0; background-color:#f0f2f5;">
+  <div style="display:none; max-height:0; overflow:hidden; color:#f0f2f5; font-size:1px;">
+    ${avatarName} de Adbize — Soluciones de IA para tu empresa
+    &zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;
+  </div>
+
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f2f5;">
+    <tr>
+      <td align="center" valign="top" style="padding: 40px 20px;">
+        <table class="email-wrapper" width="600" cellpadding="0" cellspacing="0" border="0"
+          style="max-width:600px; width:100%; border-radius:16px; overflow:hidden; box-shadow:0 4px 24px rgba(0,0,0,0.10);">
+
+          <!-- Gradient top bar -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #00d4f5 0%, #a259ff 35%, #00e676 65%, #ff6d00 100%); padding: 5px 0 0 0;"></td>
+          </tr>
+
+          <!-- Header with logo -->
+          <tr>
+            <td align="center" style="background-color: #ffffff; padding: 28px 40px 24px; border-bottom: 1px solid #f0f0f0;">
+              <div style="display:inline-block; font-family:'Nunito', Arial, sans-serif; font-size:32px; font-weight:800; letter-spacing:-1px; line-height:1;">
+                <span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span>
+              </div>
+              <p style="margin-top:4px; font-size:10px; font-weight:600; letter-spacing:3px; text-transform:uppercase; color:#aab0bb;">
+                Inteligencia Artificial para Empresas
+              </p>
+            </td>
+          </tr>
+
+          <!-- Email body content -->
+          <tr>
+            <td class="email-body" style="background:#ffffff; padding:32px 40px;">
+              ${bodyHtml}
+            </td>
+          </tr>
+
+          <!-- Separator -->
+          <tr>
+            <td style="background:#ffffff; padding: 0 40px;">
+              <div style="height:1px; background:linear-gradient(90deg, transparent, #e0e0e0, transparent);"></div>
+            </td>
+          </tr>
+
+          <!-- Avatar signature -->
+          <tr>
+            <td style="background:#ffffff; padding:24px 40px 32px;">
+              <table cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  ${avatarPhotoUrl ? `<td style="vertical-align:top; padding-right:16px;">
+                    <img src="${avatarPhotoUrl}" alt="${avatarName}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;" />
+                  </td>` : `<td style="vertical-align:top; padding-right:16px;">
+                    <div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#00d4f5,#a259ff);display:inline-block;text-align:center;line-height:56px;color:#fff;font-family:'Nunito',Arial,sans-serif;font-size:22px;font-weight:800;">${avatarName.charAt(0)}</div>
+                  </td>`}
+                  <td style="vertical-align:top; font-family:'Nunito',Arial,sans-serif;">
+                    <p style="margin:0; font-size:14px; font-weight:800; color:#1a1a2e;">${avatarName}</p>
+                    ${avatarRole ? `<p style="margin:2px 0 0; font-size:12px; color:#6b7280;">${avatarRole}</p>` : ''}
+                    <p style="margin:2px 0 0; font-size:12px; font-weight:700; color:#8b5cf6;">Adbize</p>
+                    ${avatarPhone ? `<p style="margin:4px 0 0; font-size:11px; color:#6b7280;">📱 ${avatarPhone}</p>` : ''}
+                    ${avatarEmail ? `<p style="margin:2px 0 0; font-size:11px; color:#6b7280;">✉️ ${avatarEmail}</p>` : ''}
+                    <p style="margin:6px 0 0;">
+                      ${avatarLinkedin ? `<a href="${avatarLinkedin}" style="font-size:11px; color:#0077b5; font-weight:600;">LinkedIn</a> &nbsp;` : ''}
+                      ${avatarCalendar ? `<a href="${avatarCalendar}" style="font-size:11px; color:#00d4f5; font-weight:600;">📅 Agendar reunion</a>` : ''}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #0f0c29 0%, #302b63 100%); padding: 28px 40px; text-align:center;">
+              <div style="margin-bottom:14px;">
+                <span style="font-family:'Nunito',Arial,sans-serif; font-size:20px; font-weight:800;">
+                  <span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span>
+                </span>
+              </div>
+              <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 16px;">
+                <tr>
+                  <td style="padding:0 10px;"><a href="https://linkedin.com/company/adbize" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00d4f5;">LinkedIn</a></td>
+                  <td style="color:#555; font-size:10px;">|</td>
+                  <td style="padding:0 10px;"><a href="https://instagram.com/adbize" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#a259ff;">Instagram</a></td>
+                  <td style="color:#555; font-size:10px;">|</td>
+                  <td style="padding:0 10px;"><a href="https://adbize.com" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00e676;">Web</a></td>
+                </tr>
+              </table>
+              <p style="font-family:'Nunito',Arial,sans-serif; font-size:10px; color:#5a6070; line-height:16px; margin:0;">
+                &copy; 2026 Adbize · Inteligencia Artificial para Empresas · Argentina
+              </p>
+            </td>
+          </tr>
+
+          <!-- Gradient bottom bar -->
+          <tr>
+            <td style="background: linear-gradient(90deg, #00d4f5 0%, #a259ff 35%, #00e676 65%, #ff6d00 100%); height: 5px;"></td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
   }
 
   getTemplateEmail(lead, stepType, stepNumber) {
