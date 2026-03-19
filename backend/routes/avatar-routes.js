@@ -184,4 +184,69 @@ router.post('/:id/upload-photo', upload.single('photo'), async (req, res) => {
   }
 });
 
+// POST /avatars/generate-personality - Generate avatar personality with AI
+router.post('/generate-personality', async (req, res) => {
+  try {
+    const { name, role, company, bio, tone } = req.body;
+    if (!name) return res.status(400).json({ success: false, error: 'Nombre requerido' });
+
+    let generated;
+    try {
+      const { analyzeWithDeepSeek } = await import('../services/deepseek.js');
+      const prompt = `Genera la personalidad completa para un avatar de ventas de una empresa de IA.
+
+DATOS DEL AVATAR:
+- Nombre: ${name}
+- Rol: ${role || 'Sales Representative'}
+- Empresa: ${company || 'Adbize'}
+- Bio actual: ${bio || 'ninguna'}
+- Tono preferido: ${tone || 'professional'}
+
+La empresa ${company || 'Adbize'} es una empresa argentina de tecnologia e inteligencia artificial que ofrece chatbots, automatizacion de procesos, scraping inteligente y analisis de datos.
+
+Genera TODOS estos campos en JSON:
+{
+  "personality": "descripcion de la personalidad en primera persona (2-3 oraciones, espanol argentino)",
+  "system_prompt": "instruccion detallada para la IA sobre como comportarse como este avatar. Incluir: quien es, que vende, como habla, que evitar, como cerrar ventas. Minimo 200 palabras.",
+  "tone": "professional|friendly|casual|authoritative|empathetic",
+  "formality": "very_formal|formal|casual|very_casual",
+  "emoji_usage": "none|minimal|moderate|heavy",
+  "greeting_style": "saludo tipico de este avatar",
+  "farewell_style": "despedida tipica de este avatar",
+  "specialties": ["especialidad1", "especialidad2", "especialidad3", "especialidad4"],
+  "bio": "bio profesional de 2-3 oraciones para mostrar en el perfil"
+}
+
+Responde SOLO con JSON valido.`;
+
+      const response = await analyzeWithDeepSeek(prompt);
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        generated = JSON.parse(jsonMatch[0]);
+      }
+    } catch (aiErr) {
+      console.error('[Avatar] AI personality generation failed:', aiErr.message);
+    }
+
+    // Fallback if AI fails
+    if (!generated) {
+      generated = {
+        personality: `Soy ${name}, ${role || 'representante comercial'} de ${company || 'Adbize'}. Me apasiona ayudar a empresas a crecer con tecnologia e inteligencia artificial. Mi enfoque es consultivo - primero entiendo las necesidades del cliente y luego propongo soluciones a medida.`,
+        system_prompt: `Eres ${name}, ${role || 'representante comercial'} de ${company || 'Adbize'}, una empresa argentina de tecnologia e inteligencia artificial.\n\nSOBRE LA EMPRESA:\n${company || 'Adbize'} ofrece soluciones de IA para negocios: chatbots inteligentes, automatizacion de procesos, scraping inteligente, analisis de datos e integracion de IA en sistemas existentes.\n\nTU PERSONALIDAD:\n- Sos profesional pero accesible\n- Usas espanol argentino natural\n- Tu enfoque es consultivo, no vendedor\n- Siempre personalizas segun el sector y empresa del prospecto\n- Sos directo y vas al grano\n- Ofreces valor antes de pedir algo\n\nREGLAS:\n- Maximo 120 palabras por email\n- No uses palabras spam (gratis, oferta, urgente)\n- Siempre incluye un CTA claro\n- Menciona la empresa del prospecto por nombre\n- Adapta el mensaje al sector especifico`,
+        tone: tone || 'professional',
+        formality: 'formal',
+        emoji_usage: 'minimal',
+        greeting_style: 'Hola!',
+        farewell_style: 'Saludos cordiales',
+        specialties: ['Inteligencia Artificial', 'Automatizacion', 'Chatbots', 'Analisis de Datos'],
+        bio: `${name} es ${role || 'representante comercial'} de ${company || 'Adbize'}, especializado en ayudar a empresas a implementar soluciones de inteligencia artificial para optimizar sus operaciones y aumentar sus ventas.`,
+      };
+    }
+
+    res.json({ success: true, generated });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;

@@ -4,7 +4,7 @@ import {
   ToggleLeft, ToggleRight, X, Save, Eye, Send, Loader2,
   User, Briefcase, Building, Phone, Link, FileText, Palette,
   Smile, Hash, ChevronRight, RefreshCw, Copy, Check, AlertCircle,
-  Calendar, Linkedin
+  Calendar, Linkedin, Zap
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -89,6 +89,7 @@ export default function AvatarsPage() {
   const [formData, setFormData] = useState({ ...EMPTY_AVATAR })
   const [activeTab, setActiveTab] = useState('identity')
   const [saving, setSaving] = useState(false)
+  const [generatingAI, setGeneratingAI] = useState(false)
   const [notification, setNotification] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [specialtyInput, setSpecialtyInput] = useState('')
@@ -864,6 +865,57 @@ export default function AvatarsPage() {
               {/* Tab 2: Personalidad */}
               {activeTab === 'personality' && (
                 <div className="space-y-4">
+                  {/* AI Auto-Generate Button */}
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 rounded-xl p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-indigo-700 flex items-center gap-1.5">
+                          <Star className="w-4 h-4" /> Generar Personalidad con IA
+                        </p>
+                        <p className="text-xs text-indigo-500 mt-0.5">Completa automaticamente personalidad, system prompt, tono, saludos y especialidades</p>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setGeneratingAI(true)
+                          try {
+                            const res = await api.post('/api/avatars/generate-personality', {
+                              name: formData.name,
+                              role: formData.role,
+                              company: formData.company,
+                              bio: formData.bio,
+                              tone: formData.tone,
+                            })
+                            if (res.data?.generated) {
+                              const g = res.data.generated
+                              setFormData(prev => ({
+                                ...prev,
+                                personality: g.personality || prev.personality,
+                                system_prompt: g.system_prompt || prev.system_prompt,
+                                tone: g.tone || prev.tone,
+                                formality: g.formality || prev.formality,
+                                emoji_usage: g.emoji_usage || prev.emoji_usage,
+                                greeting_style: g.greeting_style || prev.greeting_style,
+                                closing_style: g.closing_style || g.farewell_style || prev.closing_style,
+                                farewell_style: g.farewell_style || g.closing_style || prev.farewell_style,
+                                specialties: g.specialties || prev.specialties,
+                                bio: g.bio || prev.bio,
+                              }))
+                              showNotification('Personalidad generada con IA')
+                            }
+                          } catch (err) {
+                            showNotification(err.response?.data?.error || 'Error generando con IA', 'error')
+                          }
+                          setGeneratingAI(false)
+                        }}
+                        disabled={generatingAI || !formData.name}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                      >
+                        {generatingAI ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                        {generatingAI ? 'Generando...' : 'Generar con IA'}
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Personalidad</label>
                     <textarea
