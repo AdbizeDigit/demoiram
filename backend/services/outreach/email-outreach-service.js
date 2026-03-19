@@ -210,9 +210,7 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
           <!-- Header with logo -->
           <tr>
             <td align="center" style="background-color: #ffffff; padding: 28px 40px 24px; border-bottom: 1px solid #f0f0f0;">
-              <div style="display:inline-block; font-family:'Nunito', Arial, sans-serif; font-size:32px; font-weight:800; letter-spacing:-1px; line-height:1;">
-                <span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span>
-              </div>
+              <img src="${baseUrl}/email-logo.png" alt="ADBIZE" width="160" height="auto" style="width:160px;height:auto;max-width:100%;" />
               <p style="margin-top:4px; font-size:10px; font-weight:600; letter-spacing:3px; text-transform:uppercase; color:#aab0bb;">
                 Inteligencia Artificial para Empresas
               </p>
@@ -263,9 +261,7 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
           <tr>
             <td style="background: linear-gradient(135deg, #0f0c29 0%, #302b63 100%); padding: 28px 40px; text-align:center;">
               <div style="margin-bottom:14px;">
-                <span style="font-family:'Nunito',Arial,sans-serif; font-size:20px; font-weight:800;">
-                  <span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span>
-                </span>
+                <img src="${baseUrl}/email-logo.png" alt="ADBIZE" width="120" height="auto" style="width:120px;height:auto;display:inline-block;" />
               </div>
               <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 16px;">
                 <tr>

@@ -18,12 +18,11 @@ const UPLOADS_DEV_DIR = path.join(__dirname, '..', '..', 'frontend', 'public', '
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    // Save to both dist (production) and public (dev)
     cb(null, fs.existsSync(UPLOADS_DIR) ? UPLOADS_DIR : UPLOADS_DEV_DIR);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '.png';
-    cb(null, `avatar-${Date.now()}${ext}`);
+    // Always save as .webp after conversion
+    cb(null, `avatar-${Date.now()}.webp`);
   },
 });
 
@@ -161,18 +160,39 @@ router.get('/:id/stats', async (req, res) => {
   }
 });
 
-// POST /avatars/:id/upload-photo - Upload avatar profile photo
+// POST /avatars/:id/upload-photo - Upload avatar profile photo (converts to webp)
 router.post('/:id/upload-photo', upload.single('photo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'No se envio imagen' });
 
-    const photoUrl = `/uploads/avatars/${req.file.filename}`;
+    // Convert to webp using sharp
+    const webpFilename = `avatar-${Date.now()}.webp`;
+    const webpPath = path.join(path.dirname(req.file.path), webpFilename);
 
-    // Also copy to dev public dir
     try {
-      const devPath = path.join(UPLOADS_DEV_DIR, req.file.filename);
-      if (!fs.existsSync(devPath) && fs.existsSync(req.file.path)) {
-        fs.copyFileSync(req.file.path, devPath);
+      const sharp = (await import('sharp')).default;
+      await sharp(req.file.path)
+        .resize(200, 200, { fit: 'cover' })
+        .webp({ quality: 85 })
+        .toFile(webpPath);
+
+      // Remove original if different
+      if (req.file.path !== webpPath) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+    } catch (sharpErr) {
+      console.log('[Avatar] Sharp conversion failed, using original:', sharpErr.message);
+    }
+
+    const finalFilename = fs.existsSync(webpPath) ? webpFilename : req.file.filename;
+    const photoUrl = `/uploads/avatars/${finalFilename}`;
+
+    // Copy to dev public dir
+    try {
+      const srcPath = fs.existsSync(webpPath) ? webpPath : req.file.path;
+      const devPath = path.join(UPLOADS_DEV_DIR, finalFilename);
+      if (!fs.existsSync(devPath) && fs.existsSync(srcPath)) {
+        fs.copyFileSync(srcPath, devPath);
       }
     } catch {}
 
