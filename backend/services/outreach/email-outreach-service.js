@@ -247,11 +247,11 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
                     <p style="margin:0; font-size:14px; font-weight:800; color:#1a1a2e;">${avatarName}</p>
                     ${avatarRole ? `<p style="margin:2px 0 0; font-size:12px; color:#6b7280;">${avatarRole}</p>` : ''}
                     <p style="margin:2px 0 0; font-size:12px; font-weight:700; color:#8b5cf6;">Adbize</p>
-                    ${avatarPhone ? `<p style="margin:4px 0 0; font-size:11px; color:#6b7280;">📱 ${avatarPhone}</p>` : ''}
-                    ${avatarEmail ? `<p style="margin:2px 0 0; font-size:11px; color:#6b7280;">✉️ ${avatarEmail}</p>` : ''}
+                    ${avatarPhone ? `<p style="margin:4px 0 0; font-size:11px;"><a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="color:#25D366; font-weight:600; text-decoration:none;">📱 WhatsApp: ${avatarPhone}</a></p>` : ''}
+                    ${avatarEmail ? `<p style="margin:2px 0 0; font-size:11px;"><a href="mailto:${avatarEmail}" style="color:#3a7bd5; font-weight:600; text-decoration:none;">✉️ ${avatarEmail}</a></p>` : ''}
                     <p style="margin:6px 0 0;">
-                      ${avatarLinkedin ? `<a href="${avatarLinkedin}" style="font-size:11px; color:#0077b5; font-weight:600;">LinkedIn</a> &nbsp;` : ''}
-                      ${avatarCalendar ? `<a href="${avatarCalendar}" style="font-size:11px; color:#00d4f5; font-weight:600;">📅 Agendar reunion</a>` : ''}
+                      ${avatarLinkedin ? `<a href="${avatarLinkedin}" style="font-size:11px; color:#0077b5; font-weight:600; text-decoration:none;">LinkedIn</a> &nbsp;` : ''}
+                      ${avatarCalendar ? `<a href="${avatarCalendar}" style="font-size:11px; color:#00d4f5; font-weight:600; text-decoration:none;">📅 Agendar reunion</a>` : ''}
                     </p>
                   </td>
                 </tr>
@@ -267,11 +267,11 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
               </div>
               <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 16px;">
                 <tr>
-                  <td style="padding:0 10px;"><a href="https://linkedin.com/company/adbize" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00d4f5;">LinkedIn</a></td>
+                  <td style="padding:0 10px;"><a href="https://www.linkedin.com/company/adbizedigital" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00d4f5; text-decoration:none;">LinkedIn</a></td>
                   <td style="color:#555; font-size:10px;">|</td>
-                  <td style="padding:0 10px;"><a href="https://instagram.com/adbize" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#a259ff;">Instagram</a></td>
+                  <td style="padding:0 10px;"><a href="https://www.instagram.com/adbize.ia/" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#a259ff; text-decoration:none;">Instagram</a></td>
                   <td style="color:#555; font-size:10px;">|</td>
-                  <td style="padding:0 10px;"><a href="https://adbize.com" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00e676;">Web</a></td>
+                  <td style="padding:0 10px;"><a href="https://adbize.com/" style="font-family:'Nunito',Arial,sans-serif; font-size:11px; font-weight:700; color:#00e676; text-decoration:none;">Web</a></td>
                 </tr>
               </table>
               <p style="font-family:'Nunito',Arial,sans-serif; font-size:10px; color:#5a6070; line-height:16px; margin:0;">
