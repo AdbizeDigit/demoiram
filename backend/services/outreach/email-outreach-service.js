@@ -159,7 +159,9 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
     const avatarLinkedin = avatar?.linkedin_url || '';
     const avatarCalendar = avatar?.calendar_url || '';
     const baseUrl = process.env.APP_URL || 'https://adbize.com';
-    const avatarPhotoUrl = avatar?.photo_url ? `${baseUrl}${avatar.photo_url}` : '';
+    // Support both data URIs (base64) and regular URLs
+    const rawPhoto = avatar?.photo_url || '';
+    const avatarPhotoUrl = rawPhoto.startsWith('data:') ? rawPhoto : (rawPhoto ? `${baseUrl}${rawPhoto}` : '');
 
     // Only use custom template if it's a real custom template (not the default placeholder)
     if (config?.html_template && config.html_template.length > 500 && !config.html_template.includes('{{BODY}}')) {

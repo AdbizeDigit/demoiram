@@ -160,45 +160,36 @@ router.get('/:id/stats', async (req, res) => {
   }
 });
 
-// POST /avatars/:id/upload-photo - Upload avatar profile photo (converts to webp)
+// POST /avatars/:id/upload-photo - Upload avatar photo, save as base64 data URI in DB (persists across deploys)
 router.post('/:id/upload-photo', upload.single('photo'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, error: 'No se envio imagen' });
 
-    // Convert to webp using sharp
-    const webpFilename = `avatar-${Date.now()}.webp`;
-    const webpPath = path.join(path.dirname(req.file.path), webpFilename);
+    let base64DataUri;
 
     try {
       const sharp = (await import('sharp')).default;
-      await sharp(req.file.path)
+      // Convert to small webp and get as buffer
+      const buffer = await sharp(req.file.path)
         .resize(200, 200, { fit: 'cover' })
-        .webp({ quality: 85 })
-        .toFile(webpPath);
-
-      // Remove original if different
-      if (req.file.path !== webpPath) {
-        try { fs.unlinkSync(req.file.path); } catch {}
-      }
+        .webp({ quality: 80 })
+        .toBuffer();
+      base64DataUri = `data:image/webp;base64,${buffer.toString('base64')}`;
     } catch (sharpErr) {
-      console.log('[Avatar] Sharp conversion failed, using original:', sharpErr.message);
+      // Fallback: read original file as base64
+      console.log('[Avatar] Sharp failed, using original:', sharpErr.message);
+      const fileBuffer = fs.readFileSync(req.file.path);
+      const ext = path.extname(req.file.originalname).replace('.', '') || 'png';
+      base64DataUri = `data:image/${ext};base64,${fileBuffer.toString('base64')}`;
     }
 
-    const finalFilename = fs.existsSync(webpPath) ? webpFilename : req.file.filename;
-    const photoUrl = `/uploads/avatars/${finalFilename}`;
+    // Clean up temp file
+    try { fs.unlinkSync(req.file.path); } catch {}
 
-    // Copy to dev public dir
-    try {
-      const srcPath = fs.existsSync(webpPath) ? webpPath : req.file.path;
-      const devPath = path.join(UPLOADS_DEV_DIR, finalFilename);
-      if (!fs.existsSync(devPath) && fs.existsSync(srcPath)) {
-        fs.copyFileSync(srcPath, devPath);
-      }
-    } catch {}
+    // Save base64 data URI directly in DB - persists across Dokku deploys
+    const avatar = await avatarService.updateAvatar(req.params.id, { photo_url: base64DataUri });
 
-    const avatar = await avatarService.updateAvatar(req.params.id, { photo_url: photoUrl });
-
-    res.json({ success: true, avatar, photoUrl });
+    res.json({ success: true, avatar, photoUrl: base64DataUri });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
