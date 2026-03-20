@@ -129,7 +129,7 @@ export default function WhatsAppOutreachPage() {
       setStatusLoading(true)
       const { data } = await api.get('/api/outreach/whatsapp/status')
       setWhatsappStatus(data.status || 'disconnected')
-      if (data.qr) setQrCode(data.qr)
+      if (data.qrCode || data.qr) setQrCode(data.qrCode || data.qr)
     } catch {
       setWhatsappStatus('disconnected')
     } finally {
@@ -342,13 +342,31 @@ export default function WhatsAppOutreachPage() {
     setConnecting(true)
     try {
       const { data } = await api.post('/api/outreach/whatsapp/connect')
-      if (data.qr) setQrCode(data.qr)
+      const qr = data.qrCode || data.qr
+      if (qr) setQrCode(qr)
       if (data.status) setWhatsappStatus(data.status)
+      if (data.phone) setWhatsappStatus('connected')
+
+      // Start polling for status updates
+      const interval = setInterval(async () => {
+        try {
+          const res = await api.get('/api/outreach/whatsapp/status')
+          const s = res.data
+          if (s.qrCode) setQrCode(s.qrCode)
+          if (s.status) setWhatsappStatus(s.status)
+          if (s.status === 'connected') {
+            clearInterval(interval)
+            setConnecting(false)
+          }
+        } catch {}
+      }, 3000)
+      // Stop polling after 2 min
+      setTimeout(() => { clearInterval(interval); setConnecting(false) }, 120000)
+      return // don't setConnecting(false) yet
     } catch (err) {
       console.error('Error connecting WhatsApp:', err)
-    } finally {
-      setConnecting(false)
     }
+    setConnecting(false)
   }
 
   const handleKeyDown = (e) => {
