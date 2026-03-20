@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Search, Eye, ChevronLeft, ChevronRight, Loader2,
   AlertCircle, Building2, MapPin, RefreshCw, X,
@@ -20,6 +21,7 @@ const PRIORITY_OPTIONS = [
 ];
 
 export default function LeadsTab() {
+  const navigate = useNavigate();
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -207,8 +209,9 @@ export default function LeadsTab() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedLead(lead)}
+                  onClick={() => navigate(`/admin/lead/${lead.id}`)}
                   className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
+                  title="Ver detalle completo"
                 >
                   <Eye className="w-4 h-4" />
                 </button>
