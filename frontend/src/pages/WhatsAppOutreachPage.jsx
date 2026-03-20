@@ -1048,21 +1048,20 @@ export default function WhatsAppOutreachPage() {
                 onClick={() => {
                   if (!newPhone.trim()) return
                   const phone = newPhone.replace(/[^\d+]/g, '')
-                  // Add as a new conversation locally
-                  const newConv = {
-                    leadId: `manual-${Date.now()}`,
-                    leadName: newName || phone,
-                    leadPhone: phone,
-                    messages: [],
-                    aiEnabled: true,
+                  const manualId = `manual-${Date.now()}`
+                  // Add to leads list as a manual contact
+                  const manualLead = {
+                    id: manualId,
+                    name: newName || phone,
+                    phone: phone,
+                    social_whatsapp: phone,
                     isManual: true,
                   }
-                  setSelectedLeadId(newConv.leadId)
+                  setLeads(prev => [manualLead, ...prev])
+                  setSelectedLeadId(manualId)
                   setShowNewChat(false)
                   setNewPhone('')
                   setNewName('')
-                  // Open WhatsApp link directly
-                  window.open(`https://wa.me/${phone.replace('+', '')}`, '_blank')
                 }}
                 disabled={!newPhone.trim()}
                 style={{
