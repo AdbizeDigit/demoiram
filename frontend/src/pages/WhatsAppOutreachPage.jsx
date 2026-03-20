@@ -38,11 +38,11 @@ function truncate(str, len = 45) {
 }
 
 function getLeadPhone(lead) {
-  return lead.whatsapp || lead.phone || lead.telefono || ''
+  return lead.social_whatsapp || lead.whatsapp || lead.phone || lead.telefono || ''
 }
 
 function getLeadName(lead) {
-  return lead.name || lead.nombre || lead.business_name || lead.empresa || 'Sin nombre'
+  return lead.name || lead.nombre || lead.business_name || lead.empresa || lead.company || 'Sin nombre'
 }
 
 function getAIKey(leadId) {
@@ -209,20 +209,22 @@ export default function WhatsAppOutreachPage() {
       return getLeadName(a.lead).localeCompare(getLeadName(b.lead))
     })
 
-    // Deduplicate by normalized phone number
+    // Deduplicate by normalized phone number (keep manual and those with messages)
     const seenPhones = new Set()
     const deduped = result.filter(conv => {
+      if (conv.lead?.isManual) return true // always keep manual
+      if (conv.messages.length > 0) return true // always keep with messages
       const phone = getLeadPhone(conv.lead)?.replace(/\D/g, '')
-      if (!phone) return conv.messages.length > 0 // keep if has messages even without phone
+      if (!phone) return false
       if (seenPhones.has(phone)) return false
       seenPhones.add(phone)
       return true
     })
 
-    // Limit: show all with messages + max 30 without messages
-    const withMessages = deduped.filter(c => c.messages.length > 0)
-    const withoutMessages = deduped.filter(c => c.messages.length === 0).slice(0, 30)
-    return [...withMessages, ...withoutMessages]
+    // Limit: show all with messages + manual + max 30 without messages
+    const priority = deduped.filter(c => c.messages.length > 0 || c.lead?.isManual)
+    const rest = deduped.filter(c => c.messages.length === 0 && !c.lead?.isManual).slice(0, 30)
+    return [...priority, ...rest]
   }, [leads, messages])
 
   // ── Filtered conversations ────────────────────────────────────────────────
@@ -315,10 +317,23 @@ export default function WhatsAppOutreachPage() {
     setMessages(prev => [...prev, tempMsg])
 
     try {
-      await api.post('/api/outreach/whatsapp/generate', {
-        leadId: selectedLeadId,
-        message: text,
-      })
+      // For manual contacts or connected WhatsApp, send directly
+      const conv = conversations.find(c => c.leadId === String(selectedLeadId))
+      const phone = conv ? getLeadPhone(conv.lead) : null
+
+      if (phone && selectedLeadId.toString().startsWith('manual-')) {
+        // Manual contact - send via WhatsApp direct
+        await api.post('/api/outreach/whatsapp/send-direct', { phone, message: text })
+      } else if (phone) {
+        // Existing lead - try send direct, fallback to generate
+        try {
+          await api.post('/api/outreach/whatsapp/send-direct', { phone, message: text })
+        } catch {
+          await api.post('/api/outreach/whatsapp/generate', { leadId: selectedLeadId })
+        }
+      } else {
+        await api.post('/api/outreach/whatsapp/generate', { leadId: selectedLeadId })
+      }
       // Update the temp message status
       setMessages(prev =>
         prev.map(m => m.id === tempMsg.id ? { ...m, status: 'sent' } : m)
