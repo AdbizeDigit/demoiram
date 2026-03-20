@@ -220,38 +220,19 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
   <!-- Signature -->
   <tr>
     <td style="background:#ffffff;padding:0 44px 36px;">
-      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e5e7eb;padding-top:24px;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding-bottom:20px;"><div style="height:1px;background-color:#e5e7eb;"></div></td></tr>
         <tr>
-          ${avatarPhotoUrl ? `
-          <td width="64" style="vertical-align:top;padding-right:16px;">
-            <img src="${avatarPhotoUrl}" alt="${avatarName}" width="56" height="56" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:2px solid #f3f4f6;" />
-          </td>` : `
-          <td width="64" style="vertical-align:top;padding-right:16px;">
-            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#06d6a0);text-align:center;line-height:56px;color:#fff;font-size:22px;font-weight:800;font-family:Arial,sans-serif;">${avatarName.charAt(0)}</div>
-          </td>`}
-          <td style="vertical-align:top;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
-            <p style="margin:0;font-size:15px;font-weight:700;color:#111827;">${avatarName}</p>
-            ${avatarRole ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${avatarRole}</p>` : ''}
-            <p style="margin:3px 0 0;font-size:13px;">
-              <a href="https://adbize.com" style="color:#8b5cf6;text-decoration:none;font-weight:600;">adbize.com</a>
-            </p>
-            <table cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;">
-              <tr>
-                ${avatarPhone ? `
-                <td style="padding-right:16px;">
-                  <a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="font-size:12px;color:#059669;text-decoration:none;font-weight:600;">
-                    <span style="display:inline-block;width:18px;height:18px;background:#059669;color:#fff;border-radius:4px;text-align:center;line-height:18px;font-size:10px;margin-right:4px;vertical-align:middle;">W</span>
-                    ${avatarPhone}
-                  </a>
-                </td>` : ''}
-                ${avatarEmail ? `
-                <td>
-                  <a href="mailto:${avatarEmail}" style="font-size:12px;color:#6b7280;text-decoration:none;">
-                    ${avatarEmail}
-                  </a>
-                </td>` : ''}
-              </tr>
-            </table>
+          <td style="font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:0;">
+            <!--[if mso]><table cellpadding="0" cellspacing="0"><tr><td valign="top" style="padding-right:16px;"><![endif]-->
+            ${avatarPhotoUrl ? `<img src="${avatarPhotoUrl}" alt="${avatarName}" width="60" height="60" style="width:60px;height:60px;border-radius:50%;display:inline-block;vertical-align:top;margin-right:16px;" />` : ''}
+            <!--[if mso]></td><td valign="top"><![endif]-->
+            <div style="display:inline-block;vertical-align:top;font-size:14px;">
+              <p style="margin:0;font-size:15px;font-weight:700;color:#111827;line-height:1.3;">${avatarName}</p>
+              ${avatarRole ? `<p style="margin:0;font-size:12px;color:#6b7280;line-height:1.4;">${avatarRole} · <a href="https://adbize.com" style="color:#8b5cf6;text-decoration:none;font-weight:600;">adbize.com</a></p>` : `<p style="margin:0;font-size:12px;line-height:1.4;"><a href="https://adbize.com" style="color:#8b5cf6;text-decoration:none;font-weight:600;">adbize.com</a></p>`}
+              ${avatarPhone ? `<p style="margin:4px 0 0;font-size:12px;line-height:1.4;"><a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="color:#059669;text-decoration:none;">+${avatarPhone.replace(/[^0-9]/g, '')}</a> · <a href="mailto:${avatarEmail || ''}" style="color:#6b7280;text-decoration:none;">${avatarEmail || ''}</a></p>` : (avatarEmail ? `<p style="margin:4px 0 0;font-size:12px;line-height:1.4;"><a href="mailto:${avatarEmail}" style="color:#6b7280;text-decoration:none;">${avatarEmail}</a></p>` : '')}
+            </div>
+            <!--[if mso]></td></tr></table><![endif]-->
           </td>
         </tr>
       </table>
