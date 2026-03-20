@@ -256,8 +256,14 @@ router.post('/email/test', async (req, res) => {
 
     let emailContent;
     if (subject && body) {
-      // Already have content, just use it
-      emailContent = { subject, body };
+      // Already have content - wrap in template if not already wrapped
+      if (body.includes('linear-gradient') || body.includes('<!DOCTYPE')) {
+        emailContent = { subject, body };
+      } else {
+        const avatar = await emailOutreachService.getActiveAvatar();
+        const wrappedBody = await emailOutreachService.wrapInTemplate(body, avatar, null);
+        emailContent = { subject, body: wrappedBody };
+      }
     } else {
       // Generate with AI - try with 45s timeout, fallback to template
       try {

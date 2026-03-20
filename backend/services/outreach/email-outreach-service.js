@@ -138,7 +138,7 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
         const subject = parsed.subject || `${lead.name} - ${senderName} de Adbize`;
 
         // Wrap in HTML template
-        const finalHtml = this.wrapInTemplate(bodyHtml, avatar, config);
+        const finalHtml = await this.wrapInTemplate(bodyHtml, avatar, config);
         return { subject, body: finalHtml };
       }
     } catch (err) {
@@ -147,7 +147,7 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
 
     // Fallback to template (also wrap in HTML template with avatar signature)
     const fallback = this.getTemplateEmail(lead, stepType, stepNumber);
-    fallback.body = this.wrapInTemplate(fallback.body, avatar, config);
+    fallback.body = await this.wrapInTemplate(fallback.body, avatar, config);
     return fallback;
   }
 
@@ -157,7 +157,7 @@ Genera un email de prospeccion en espanol argentino profesional. Maximo 120 pala
 Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
   }
 
-  wrapInTemplate(bodyHtml, avatar, config) {
+  async wrapInTemplate(bodyHtml, avatar, config) {
     const signature = this.buildSignatureWithPhoto(avatar);
     const avatarName = avatar?.name || 'Adbize';
     const avatarRole = avatar?.role || '';
