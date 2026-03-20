@@ -75,18 +75,25 @@ export default function DetectionEnginePage() {
 
   useEffect(() => {
     api.get('/api/scraping-engine/countries')
-      .then(r => setCountries(r.data?.available || []))
+      .then(r => {
+        setCountries(r.data?.available || [])
+        const active = (r.data?.active || []).map(a => a.country).filter(Boolean)
+        setSeededCountries(active)
+      })
       .catch(() => {})
   }, [])
 
+  const [seededCountries, setSeededCountries] = useState([])
+
   const handleSeedCountry = async (country) => {
-    setSeedingCountry(true)
+    setSeedingCountry(country)
     try {
-      await api.post('/api/scraping-engine/zones/seed', { country })
-      addLog('auto', `Zonas creadas para ${country}`, 'success')
+      const res = await api.post('/api/scraping-engine/zones/seed', { country })
+      setSeededCountries(prev => [...prev, country])
+      addLog('auto', `${res.data?.message || 'Zonas creadas para ' + country}`, 'success')
       loadAll()
     } catch (err) {
-      addLog('auto', `Error creando zonas: ${err.message}`, 'error')
+      addLog('auto', `Error creando zonas para ${country}: ${err?.response?.data?.error || err.message}`, 'error')
     }
     setSeedingCountry(false)
   }
@@ -417,20 +424,30 @@ export default function DetectionEnginePage() {
   return (
     <div className="space-y-4">
       {/* Country Selector */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-4 flex-wrap">
-        <div className="flex items-center gap-2">
+      <div className="bg-white rounded-2xl border border-gray-100 p-4">
+        <div className="flex items-center gap-2 mb-3">
           <Globe className="w-5 h-5 text-emerald-600" />
           <span className="text-sm font-semibold text-gray-700">Paises de Scraping</span>
+          <span className="text-xs text-gray-400">Click para agregar zonas de un pais</span>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {countries.map(c => (
-            <button key={c} onClick={() => handleSeedCountry(c)} disabled={seedingCountry}
-              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors disabled:opacity-50">
-              {c}
-            </button>
-          ))}
+          {countries.map(c => {
+            const isSeeded = seededCountries.includes(c)
+            const isLoading = seedingCountry === c
+            return (
+              <button key={c} onClick={() => handleSeedCountry(c)} disabled={!!seedingCountry}
+                className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-all flex items-center gap-1.5 ${
+                  isSeeded
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'border-gray-200 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200'
+                } disabled:opacity-50`}>
+                {isLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+                {isSeeded && <span className="text-emerald-500">✓</span>}
+                {c}
+              </button>
+            )
+          })}
         </div>
-        {seedingCountry && <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />}
       </div>
 
       <DetectionHeader
