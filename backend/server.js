@@ -163,6 +163,19 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error iniciando detection scanner:', err.message);
   }
 
+  // Auto-reconnect WhatsApp if session exists
+  try {
+    const { pool } = await import('./config/database.js');
+    const authCheck = await pool.query("SELECT COUNT(*) FROM whatsapp_auth WHERE key = 'creds'");
+    if (parseInt(authCheck.rows[0].count) > 0) {
+      const { default: whatsappConnection } = await import('./services/outreach/whatsapp-connection-service.js');
+      whatsappConnection.connect().catch(() => {});
+      console.log('📱 WhatsApp auto-reconectando sesion existente');
+    }
+  } catch (err) {
+    // Table might not exist yet, ignore
+  }
+
   // Inicializar tablas de outreach
   try {
     const { emailOutreachService } = await import('./services/outreach/email-outreach-service.js');

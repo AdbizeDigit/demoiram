@@ -91,10 +91,11 @@ class WhatsAppConnectionService extends EventEmitter {
           this.qrCode = null;
           this.emit('status', { status: 'disconnected', reason: statusCode });
 
-          if (shouldReconnect && this.retryCount < this.maxRetries) {
+          if (shouldReconnect) {
             this.retryCount++;
-            console.log(`[WhatsApp] Reconnecting... attempt ${this.retryCount}`);
-            setTimeout(() => this.connect(), 5000);
+            const waitTime = Math.min(5000 * this.retryCount, 60000); // Max 60s between retries
+            console.log(`[WhatsApp] Reconnecting in ${waitTime/1000}s... attempt ${this.retryCount}`);
+            setTimeout(() => this.connect(), waitTime);
           } else if (statusCode === DisconnectReason.loggedOut) {
             console.log('[WhatsApp] Logged out. Need to re-scan QR.');
             // Clear auth from DB to force new QR

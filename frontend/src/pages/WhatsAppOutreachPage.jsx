@@ -201,7 +201,7 @@ export default function WhatsAppOutreachPage() {
       result.push(conv)
     })
 
-    // Sort: conversations with messages first (by last message time), then alphabetical
+    // Sort: conversations with messages first, then by name
     result.sort((a, b) => {
       if (a.lastTime && b.lastTime) return new Date(b.lastTime) - new Date(a.lastTime)
       if (a.lastTime) return -1
@@ -209,7 +209,20 @@ export default function WhatsAppOutreachPage() {
       return getLeadName(a.lead).localeCompare(getLeadName(b.lead))
     })
 
-    return result
+    // Deduplicate by normalized phone number
+    const seenPhones = new Set()
+    const deduped = result.filter(conv => {
+      const phone = getLeadPhone(conv.lead)?.replace(/\D/g, '')
+      if (!phone) return conv.messages.length > 0 // keep if has messages even without phone
+      if (seenPhones.has(phone)) return false
+      seenPhones.add(phone)
+      return true
+    })
+
+    // Limit: show all with messages + max 30 without messages
+    const withMessages = deduped.filter(c => c.messages.length > 0)
+    const withoutMessages = deduped.filter(c => c.messages.length === 0).slice(0, 30)
+    return [...withMessages, ...withoutMessages]
   }, [leads, messages])
 
   // ── Filtered conversations ────────────────────────────────────────────────
