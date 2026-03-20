@@ -85,6 +85,9 @@ export default function WhatsAppOutreachPage() {
   const [selectedLeadId, setSelectedLeadId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
   const [filterMode, setFilterMode] = useState('todos') // todos | con_ia | sin_ia
+  const [showNewChat, setShowNewChat] = useState(false)
+  const [newPhone, setNewPhone] = useState('')
+  const [newName, setNewName] = useState('')
   const [inputText, setInputText] = useState('')
   const [sending, setSending] = useState(false)
   const [generatingAI, setGeneratingAI] = useState(false)
@@ -390,7 +393,7 @@ export default function WhatsAppOutreachPage() {
   if (!isAdmin) return null
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#f0f2f5' }}>
+    <div style={{ height: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column', background: '#f0f2f5', margin: '-32px', borderRadius: 12, overflow: 'hidden' }}>
       {/* ── Stats Bar ─────────────────────────────────────────────────────── */}
       <div style={{
         display: 'flex',
@@ -532,11 +535,7 @@ export default function WhatsAppOutreachPage() {
                 />
               </div>
               <button
-                onClick={() => {
-                  // Select first lead without messages
-                  const fresh = conversations.find(c => c.messages.length === 0)
-                  if (fresh) handleSelectConversation(fresh.leadId)
-                }}
+                onClick={() => setShowNewChat(true)}
                 title="Nueva Conversacion"
                 style={{
                   display: 'flex',
@@ -967,6 +966,105 @@ export default function WhatsAppOutreachPage() {
           }
         }
       `}</style>
+
+      {/* ── New Chat Modal ──────────────────────────────────────────────── */}
+      {showNewChat && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }}
+            onClick={() => setShowNewChat(false)} />
+          <div style={{
+            position: 'relative', background: '#fff', borderRadius: 16,
+            width: 400, maxWidth: '90vw', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+          }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111', marginBottom: 4 }}>
+              Nueva Conversacion
+            </h3>
+            <p style={{ fontSize: 13, color: '#888', marginBottom: 20 }}>
+              Ingresa un numero de WhatsApp para iniciar una conversacion
+            </p>
+
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#333', display: 'block', marginBottom: 4 }}>
+                Nombre (opcional)
+              </label>
+              <input
+                type="text"
+                value={newName}
+                onChange={e => setNewName(e.target.value)}
+                placeholder="Nombre del contacto"
+                style={{
+                  width: '100%', padding: '10px 12px', border: '1px solid #ddd',
+                  borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#333', display: 'block', marginBottom: 4 }}>
+                Numero de WhatsApp *
+              </label>
+              <input
+                type="text"
+                value={newPhone}
+                onChange={e => setNewPhone(e.target.value)}
+                placeholder="+5491112345678"
+                style={{
+                  width: '100%', padding: '10px 12px', border: '1px solid #ddd',
+                  borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+              <p style={{ fontSize: 11, color: '#999', marginTop: 4 }}>
+                Incluir codigo de pais (ej: +54 para Argentina)
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowNewChat(false); setNewPhone(''); setNewName('') }}
+                style={{
+                  padding: '10px 20px', border: '1px solid #ddd', borderRadius: 8,
+                  background: '#fff', color: '#666', fontSize: 14, cursor: 'pointer',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (!newPhone.trim()) return
+                  const phone = newPhone.replace(/[^\d+]/g, '')
+                  // Add as a new conversation locally
+                  const newConv = {
+                    leadId: `manual-${Date.now()}`,
+                    leadName: newName || phone,
+                    leadPhone: phone,
+                    messages: [],
+                    aiEnabled: true,
+                    isManual: true,
+                  }
+                  setSelectedLeadId(newConv.leadId)
+                  setShowNewChat(false)
+                  setNewPhone('')
+                  setNewName('')
+                  // Open WhatsApp link directly
+                  window.open(`https://wa.me/${phone.replace('+', '')}`, '_blank')
+                }}
+                disabled={!newPhone.trim()}
+                style={{
+                  padding: '10px 20px', border: 'none', borderRadius: 8,
+                  background: newPhone.trim() ? '#25D366' : '#ccc',
+                  color: '#fff', fontSize: 14, fontWeight: 600,
+                  cursor: newPhone.trim() ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Iniciar Chat
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
