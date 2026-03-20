@@ -188,45 +188,70 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
     return `<!DOCTYPE html>
 <html lang="es">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-<body style="margin:0;padding:0;background-color:#f0f2f5;font-family:Arial,Helvetica,sans-serif;">
+<body style="margin:0;padding:0;background-color:#f8f9fa;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
 
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0f2f5;">
-<tr><td align="center" style="padding:32px 16px;">
-<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;border-radius:12px;overflow:hidden;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8f9fa;">
+<tr><td align="center" style="padding:40px 16px;">
+<table width="620" cellpadding="0" cellspacing="0" border="0" style="max-width:620px;width:100%;">
 
-  <!-- Gradient top bar -->
-  <tr><td style="background:linear-gradient(90deg,#00d4f5,#a259ff,#00e676,#ff6d00);height:4px;font-size:0;">&nbsp;</td></tr>
-
-  <!-- Header -->
+  <!-- Header card -->
   <tr>
-    <td align="center" style="background:#ffffff;padding:24px 32px 20px;border-bottom:1px solid #f0f0f0;">
-      ${logoSrc ? `<img src="${logoSrc}" alt="ADBIZE" width="140" style="width:140px;height:auto;" />` : `<span style="font-size:28px;font-weight:800;letter-spacing:-1px;"><span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span></span>`}
-      <p style="margin:4px 0 0;font-size:10px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:#aab0bb;">Inteligencia Artificial para Empresas</p>
+    <td style="background:#ffffff;border-radius:16px 16px 0 0;border-bottom:3px solid;border-image:linear-gradient(90deg,#00d4f5,#8b5cf6,#06d6a0) 1;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding:28px 40px;" valign="middle">
+            ${logoSrc ? `<img src="${logoSrc}" alt="ADBIZE" width="120" style="width:120px;height:auto;" />` : `<span style="font-size:26px;font-weight:800;letter-spacing:-0.5px;"><span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span></span>`}
+          </td>
+          <td style="padding:28px 40px;text-align:right;" valign="middle">
+            <span style="font-size:11px;color:#8b5cf6;font-weight:600;letter-spacing:1px;text-transform:uppercase;">IA para Empresas</span>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
 
   <!-- Body -->
   <tr>
-    <td style="background:#ffffff;padding:32px 36px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.7;color:#333333;">
+    <td style="background:#ffffff;padding:40px 44px;font-family:'Segoe UI',Arial,Helvetica,sans-serif;font-size:15px;line-height:1.75;color:#374151;">
       ${bodyHtml}
     </td>
   </tr>
 
-  <!-- Separator -->
-  <tr><td style="background:#ffffff;padding:0 36px;"><div style="height:1px;background:linear-gradient(90deg,transparent,#ddd,transparent);"></div></td></tr>
-
   <!-- Signature -->
   <tr>
-    <td style="background:#ffffff;padding:24px 36px 28px;">
-      <table cellpadding="0" cellspacing="0" border="0">
+    <td style="background:#ffffff;padding:0 44px 36px;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #e5e7eb;padding-top:24px;">
         <tr>
-          ${avatarPhotoUrl ? `<td style="vertical-align:top;padding-right:14px;"><img src="${avatarPhotoUrl}" alt="${avatarName}" width="52" height="52" style="width:52px;height:52px;border-radius:50%;object-fit:cover;" /></td>` : ''}
-          <td style="vertical-align:top;font-family:Arial,Helvetica,sans-serif;">
-            <p style="margin:0;font-size:14px;font-weight:bold;color:#1a1a2e;">${avatarName}</p>
-            ${avatarRole ? `<p style="margin:1px 0 0;font-size:12px;color:#6b7280;">${avatarRole}</p>` : ''}
-            <p style="margin:1px 0 0;font-size:12px;font-weight:bold;"><a href="https://adbize.com" style="color:#8b5cf6;text-decoration:none;">adbize.com</a></p>
-            ${avatarPhone ? `<p style="margin:5px 0 0;font-size:11px;"><a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="color:#25D366;text-decoration:none;">WhatsApp: ${avatarPhone}</a></p>` : ''}
-            ${avatarEmail ? `<p style="margin:1px 0 0;font-size:11px;"><a href="mailto:${avatarEmail}" style="color:#3a7bd5;text-decoration:none;">${avatarEmail}</a></p>` : ''}
+          ${avatarPhotoUrl ? `
+          <td width="64" style="vertical-align:top;padding-right:16px;">
+            <img src="${avatarPhotoUrl}" alt="${avatarName}" width="56" height="56" style="width:56px;height:56px;border-radius:14px;object-fit:cover;border:2px solid #f3f4f6;" />
+          </td>` : `
+          <td width="64" style="vertical-align:top;padding-right:16px;">
+            <div style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#06d6a0);text-align:center;line-height:56px;color:#fff;font-size:22px;font-weight:800;font-family:Arial,sans-serif;">${avatarName.charAt(0)}</div>
+          </td>`}
+          <td style="vertical-align:top;font-family:'Segoe UI',Arial,Helvetica,sans-serif;">
+            <p style="margin:0;font-size:15px;font-weight:700;color:#111827;">${avatarName}</p>
+            ${avatarRole ? `<p style="margin:2px 0 0;font-size:13px;color:#6b7280;">${avatarRole}</p>` : ''}
+            <p style="margin:3px 0 0;font-size:13px;">
+              <a href="https://adbize.com" style="color:#8b5cf6;text-decoration:none;font-weight:600;">adbize.com</a>
+            </p>
+            <table cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;">
+              <tr>
+                ${avatarPhone ? `
+                <td style="padding-right:16px;">
+                  <a href="https://wa.me/${avatarPhone.replace(/[^0-9]/g, '')}" style="font-size:12px;color:#059669;text-decoration:none;font-weight:600;">
+                    <span style="display:inline-block;width:18px;height:18px;background:#059669;color:#fff;border-radius:4px;text-align:center;line-height:18px;font-size:10px;margin-right:4px;vertical-align:middle;">W</span>
+                    ${avatarPhone}
+                  </a>
+                </td>` : ''}
+                ${avatarEmail ? `
+                <td>
+                  <a href="mailto:${avatarEmail}" style="font-size:12px;color:#6b7280;text-decoration:none;">
+                    ${avatarEmail}
+                  </a>
+                </td>` : ''}
+              </tr>
+            </table>
           </td>
         </tr>
       </table>
@@ -235,21 +260,36 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
 
   <!-- Footer -->
   <tr>
-    <td style="background:#1a1a2e;padding:22px 36px;text-align:center;">
-      ${logoSrc ? `<img src="${logoSrc}" alt="ADBIZE" width="100" style="width:100px;height:auto;margin:0 auto 12px;display:block;" />` : `<p style="margin:0 0 12px;font-size:18px;font-weight:800;"><span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span></p>`}
-      <p style="margin:0;font-size:11px;font-family:Arial,Helvetica,sans-serif;">
-        <a href="https://www.linkedin.com/company/adbizedigital" style="color:#00d4f5;text-decoration:none;">LinkedIn</a>
-        <span style="color:#555;"> · </span>
-        <a href="https://www.instagram.com/adbize.ia/" style="color:#a259ff;text-decoration:none;">Instagram</a>
-        <span style="color:#555;"> · </span>
-        <a href="https://adbize.com/" style="color:#00e676;text-decoration:none;">Web</a>
-      </p>
-      <p style="margin:8px 0 0;font-size:10px;color:#5a6070;font-family:Arial,Helvetica,sans-serif;">Adbize · IA para Empresas · Argentina</p>
+    <td style="background:#0f172a;border-radius:0 0 16px 16px;padding:28px 44px;text-align:center;">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td align="center" style="padding-bottom:16px;">
+            ${logoSrc ? `<img src="${logoSrc}" alt="ADBIZE" width="90" style="width:90px;height:auto;opacity:0.9;" />` : `<span style="font-size:20px;font-weight:800;"><span style="color:#00c6f7;">A</span><span style="color:#3a7bd5;">D</span><span style="color:#8b5cf6;">B</span><span style="color:#06d6a0;">I</span><span style="color:#ffd166;">Z</span><span style="color:#ef476f;">E</span></span>`}
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style="padding-bottom:12px;">
+            <table cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding:0 12px;"><a href="https://www.linkedin.com/company/adbizedigital" style="font-size:12px;color:#94a3b8;text-decoration:none;font-weight:600;">LinkedIn</a></td>
+                <td style="color:#334155;font-size:12px;">|</td>
+                <td style="padding:0 12px;"><a href="https://www.instagram.com/adbize.ia/" style="font-size:12px;color:#94a3b8;text-decoration:none;font-weight:600;">Instagram</a></td>
+                <td style="color:#334155;font-size:12px;">|</td>
+                <td style="padding:0 12px;"><a href="https://adbize.com/" style="font-size:12px;color:#94a3b8;text-decoration:none;font-weight:600;">adbize.com</a></td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td align="center">
+            <p style="margin:0;font-size:11px;color:#475569;font-family:Arial,sans-serif;">
+              Adbize &mdash; Inteligencia Artificial para Empresas &mdash; Argentina
+            </p>
+          </td>
+        </tr>
+      </table>
     </td>
   </tr>
-
-  <!-- Gradient bottom bar -->
-  <tr><td style="background:linear-gradient(90deg,#00d4f5,#a259ff,#00e676,#ff6d00);height:4px;font-size:0;">&nbsp;</td></tr>
 
 </table>
 </td></tr>
