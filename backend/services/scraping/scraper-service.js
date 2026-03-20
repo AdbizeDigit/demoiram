@@ -74,6 +74,7 @@ async function initScrapingTables() {
         name VARCHAR(255) NOT NULL,
         city VARCHAR(255),
         state VARCHAR(255),
+        country VARCHAR(100) DEFAULT 'Argentina',
         status VARCHAR(50) DEFAULT 'PENDING',
         total_leads INTEGER DEFAULT 0,
         created_at TIMESTAMPTZ DEFAULT NOW()
@@ -116,6 +117,7 @@ async function initScrapingTables() {
         enrichment_status VARCHAR(50) DEFAULT 'PENDING',
         enrichment_attempts INTEGER DEFAULT 0,
         source_url TEXT,
+        country VARCHAR(100) DEFAULT 'Argentina',
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
@@ -361,10 +363,10 @@ class ScraperService extends EventEmitter {
               `INSERT INTO leads
                 (name, phone, email, website, address, city, state, zone_id, sector, score, status,
                  social_facebook, social_instagram, social_linkedin, social_twitter, social_whatsapp,
-                 enrichment_status, source_url, created_at, updated_at)
+                 enrichment_status, source_url, country, created_at, updated_at)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'NEW',
                        $11,$12,$13,$14,$15,
-                       $16,$17,NOW(),NOW())
+                       $16,$17,$18,NOW(),NOW())
                RETURNING id, name, phone, email, website, sector, address`,
               [
                 parsedLead.company,
@@ -384,6 +386,7 @@ class ScraperService extends EventEmitter {
                 pageData.whatsapp || null,
                 enrichmentStatus,
                 result.url || null,
+                zone.country || 'Argentina',
               ]
             );
 
@@ -808,6 +811,7 @@ class ScraperService extends EventEmitter {
     if (!this.autoScrapingActive) {
       throw new Error('El scraping automatico no esta en ejecucion');
     }
+    this.permanentMode = false;
     this.autoScrapingAbortController?.abort();
     this.emit('auto-scraping:status', { status: 'stopped', ...this.autoScrapingStats });
   }
@@ -826,7 +830,86 @@ class ScraperService extends EventEmitter {
    * Alias kept for compatibility.
    */
   getAutoScrapingStatus() {
-    return this.getAutoStatus();
+    return {
+      ...this.getAutoStatus(),
+      permanentMode: this.permanentMode || false,
+    };
+  }
+
+  async startPermanentScraping(userId) {
+    if (this.autoScrapingActive) return { message: 'Ya esta activo' };
+    this.autoScrapingActive = true;
+    this.permanentMode = true;
+    console.log('[ScraperService] Permanent scraping mode ACTIVATED');
+
+    // Run in background
+    this._runPermanentLoop(userId).catch(err => {
+      console.error('[ScraperService] Permanent loop error:', err.message);
+    });
+
+    return { totalZones: 0, permanent: true };
+  }
+
+  async _runPermanentLoop(userId) {
+    while (this.autoScrapingActive && this.permanentMode) {
+      try {
+        // Get all pending zones
+        const zones = await pool.query(
+          "SELECT * FROM scraping_zones WHERE status IN ('PENDING', 'FAILED') ORDER BY created_at ASC"
+        );
+
+        if (zones.rows.length === 0) {
+          // Reset all zones to PENDING for next cycle
+          await pool.query("UPDATE scraping_zones SET status = 'PENDING'");
+          console.log('[ScraperService] All zones completed, resetting for next cycle');
+          await this._delay(30000); // Wait 30s before next cycle
+          continue;
+        }
+
+        this.autoScrapingStats.totalZones = zones.rows.length;
+        this.autoScrapingStats.completedZones = 0;
+        this.autoScrapingStats.startedAt = new Date();
+        this.autoScrapingStats.cycle = (this.autoScrapingStats.cycle || 0) + 1;
+
+        for (const zone of zones.rows) {
+          if (!this.autoScrapingActive) break;
+
+          this.autoScrapingStats.currentZone = `${zone.name}, ${zone.city}`;
+
+          try {
+            await this.startZoneScraping(zone.id, userId);
+            // Wait for job completion
+            const jobs = await pool.query(
+              "SELECT id FROM scraping_jobs WHERE zone_id = $1 AND status = 'RUNNING' ORDER BY started_at DESC LIMIT 1",
+              [zone.id]
+            );
+            if (jobs.rows.length > 0) {
+              await this._waitForJobCompletion(jobs.rows[0].id);
+            }
+            this.autoScrapingStats.completedZones++;
+          } catch (err) {
+            console.log(`[ScraperService] Zone ${zone.name} error:`, err.message);
+          }
+
+          // Count total leads
+          const leadsCount = await pool.query('SELECT COUNT(*) FROM leads');
+          this.autoScrapingStats.totalLeadsFound = parseInt(leadsCount.rows[0].count);
+
+          await this._delay(5000); // 5s between zones
+        }
+
+        // Wait before next cycle
+        console.log('[ScraperService] Cycle completed, waiting 60s for next cycle');
+        await this._delay(60000);
+
+      } catch (err) {
+        console.error('[ScraperService] Permanent loop error:', err.message);
+        await this._delay(30000);
+      }
+    }
+
+    this.permanentMode = false;
+    console.log('[ScraperService] Permanent scraping mode STOPPED');
   }
 
   isAutoScrapingActive() {
@@ -836,22 +919,28 @@ class ScraperService extends EventEmitter {
   // ── CRUD methods for routes ──
 
   async createZone(data) {
-    const { name, city, state } = data
+    const { name, city, state, country } = data
     const result = await pool.query(
-      `INSERT INTO scraping_zones (name, city, state) VALUES ($1, $2, $3) RETURNING *`,
-      [name, city || '', state || '']
+      'INSERT INTO scraping_zones (name, city, state, country) VALUES ($1, $2, $3, $4) RETURNING *',
+      [name, city || '', state || '', country || 'Argentina']
     )
     return result.rows[0]
   }
 
-  async getZones({ city } = {}) {
-    let query = 'SELECT * FROM scraping_zones ORDER BY created_at DESC'
+  async getZones({ city, country } = {}) {
+    const conditions = []
     const params = []
+    let idx = 1
     if (city) {
-      query = 'SELECT * FROM scraping_zones WHERE city ILIKE $1 ORDER BY created_at DESC'
+      conditions.push(`city ILIKE $${idx++}`)
       params.push(`%${city}%`)
     }
-    const result = await pool.query(query, params)
+    if (country) {
+      conditions.push(`country = $${idx++}`)
+      params.push(country)
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const result = await pool.query(`SELECT * FROM scraping_zones ${where} ORDER BY created_at DESC`, params)
     return result.rows
   }
 

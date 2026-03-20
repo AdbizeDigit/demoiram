@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Loader2, RefreshCw, Globe } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 import api from '../services/api'
 
@@ -60,6 +60,11 @@ export default function DetectionEnginePage() {
   // ── Leads count ──
   const [leadsCount, setLeadsCount] = useState(0)
 
+  // ── Country selector ──
+  const [countries, setCountries] = useState([])
+  const [selectedCountry, setSelectedCountry] = useState('')
+  const [seedingCountry, setSeedingCountry] = useState(false)
+
   // ── Redirect non-admin ──
   const isAdmin = user?.role === 'admin' || user?.email === 'contacto@adbize.com'
   useEffect(() => {
@@ -67,6 +72,24 @@ export default function DetectionEnginePage() {
       navigate('/dashboard')
     }
   }, [isAdmin, navigate])
+
+  useEffect(() => {
+    api.get('/api/scraping-engine/countries')
+      .then(r => setCountries(r.data?.available || []))
+      .catch(() => {})
+  }, [])
+
+  const handleSeedCountry = async (country) => {
+    setSeedingCountry(true)
+    try {
+      await api.post('/api/scraping-engine/zones/seed', { country })
+      addLog('auto', `Zonas creadas para ${country}`, 'success')
+      loadAll()
+    } catch (err) {
+      addLog('auto', `Error creando zonas: ${err.message}`, 'error')
+    }
+    setSeedingCountry(false)
+  }
 
   const addLog = useCallback((type, message, severity = 'info') => {
     setLogs(prev => [
@@ -393,6 +416,23 @@ export default function DetectionEnginePage() {
 
   return (
     <div className="space-y-4">
+      {/* Country Selector */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Globe className="w-5 h-5 text-emerald-600" />
+          <span className="text-sm font-semibold text-gray-700">Paises de Scraping</span>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {countries.map(c => (
+            <button key={c} onClick={() => handleSeedCountry(c)} disabled={seedingCountry}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 transition-colors disabled:opacity-50">
+              {c}
+            </button>
+          ))}
+        </div>
+        {seedingCountry && <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />}
+      </div>
+
       <DetectionHeader
         mode={mode}
         onModeChange={setMode}

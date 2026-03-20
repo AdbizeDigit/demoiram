@@ -144,6 +144,25 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error inicializando tablas de scraping:', err.message)
   }
 
+  // Auto-start permanent scraping
+  try {
+    const { default: scraperService } = await import('./services/scraping/scraper-service.js');
+    scraperService.startPermanentScraping(null);
+    console.log('🔄 Scraping permanente iniciado');
+  } catch (err) {
+    console.error('⚠️ Error iniciando scraping permanente:', err.message);
+  }
+
+  // Auto-start detection scanning
+  try {
+    const OpportunityScannerService = (await import('./services/detection-scanner.js')).default;
+    const scanner = OpportunityScannerService.getInstance();
+    scanner.startAutoScan(60); // Every 60 minutes
+    console.log('🔍 Detection auto-scan iniciado (cada 60min)');
+  } catch (err) {
+    console.error('⚠️ Error iniciando detection scanner:', err.message);
+  }
+
   // Inicializar tablas de outreach
   try {
     const { emailOutreachService } = await import('./services/outreach/email-outreach-service.js');
