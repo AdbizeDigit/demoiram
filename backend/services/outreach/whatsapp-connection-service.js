@@ -1,16 +1,11 @@
 import * as baileys from '@whiskeysockets/baileys';
 const makeWASocket = baileys.makeWASocket || baileys.default;
-const { DisconnectReason, useMultiFileAuthState, delay, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = baileys;
+const { DisconnectReason, delay, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = baileys;
 import { Boom } from '@hapi/boom';
 import QRCode from 'qrcode';
 import { EventEmitter } from 'events';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
 import pino from 'pino';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const AUTH_DIR = path.join(__dirname, '..', '..', 'whatsapp-auth');
+import { usePgAuthState } from './whatsapp-pg-auth.js';
 
 class WhatsAppConnectionService extends EventEmitter {
   constructor() {
@@ -35,12 +30,9 @@ class WhatsAppConnectionService extends EventEmitter {
     this.emit('status', { status: 'connecting' });
 
     try {
-      // Ensure auth directory exists
-      if (!fs.existsSync(AUTH_DIR)) {
-        fs.mkdirSync(AUTH_DIR, { recursive: true });
-      }
-
-      const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
+      // Use PostgreSQL auth state (persists across Dokku deploys)
+      const { state, saveCreds, clearAll } = await usePgAuthState();
+      this._clearAuth = clearAll;
       const logger = pino({ level: 'silent' });
 
       // Fetch latest version to avoid 405 errors
@@ -105,9 +97,10 @@ class WhatsAppConnectionService extends EventEmitter {
             setTimeout(() => this.connect(), 5000);
           } else if (statusCode === DisconnectReason.loggedOut) {
             console.log('[WhatsApp] Logged out. Need to re-scan QR.');
-            // Clean auth to force new QR
-            const fs = await import('fs');
-            try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
+            // Clear auth from DB to force new QR
+            if (this._clearAuth) {
+              try { await this._clearAuth(); } catch {}
+            }
           }
         }
 
@@ -185,9 +178,10 @@ class WhatsAppConnectionService extends EventEmitter {
     this.qrCode = null;
     this.emit('status', { status: 'disconnected' });
 
-    // Clean auth
-    const fs = await import('fs');
-    try { fs.rmSync(AUTH_DIR, { recursive: true, force: true }); } catch {}
+    // Clear auth from DB
+    if (this._clearAuth) {
+      try { await this._clearAuth(); } catch {}
+    }
 
     return { status: 'disconnected' };
   }
