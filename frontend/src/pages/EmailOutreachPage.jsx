@@ -1,74 +1,47 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Mail, Send, Clock, AlertCircle, CheckCircle, XCircle,
-  Play, Square, Settings, ChevronDown, ChevronUp,
-  Eye, RefreshCw, Filter, Users, BarChart3, Zap,
-  Edit3, Loader2, FlaskConical, Beaker, Copy, RotateCcw
+  Search, Plus, ChevronDown, ChevronUp, ExternalLink,
+  Settings, Loader2, FlaskConical, Beaker, Copy, RotateCcw,
+  Zap, Filter, BarChart3, CalendarClock, Bot,
+  Inbox, MessageSquare, RefreshCw
 } from 'lucide-react'
 import api from '../services/api'
 
 const STATUS_CONFIG = {
-  SENT: { label: 'Enviado', color: 'bg-green-100 text-green-700 border-green-200' },
-  SCHEDULED: { label: 'Programado', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  FAILED: { label: 'Fallido', color: 'bg-red-100 text-red-700 border-red-200' },
-  PENDING: { label: 'Pendiente', color: 'bg-gray-100 text-gray-600 border-gray-200' },
-  OPENED: { label: 'Abierto', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-  REPLIED: { label: 'Respondido', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  SENT: { label: 'Enviado', color: 'bg-green-100 text-green-700 border-green-200', dot: 'bg-green-500' },
+  SCHEDULED: { label: 'Programado', color: 'bg-blue-100 text-blue-700 border-blue-200', dot: 'bg-blue-500' },
+  FAILED: { label: 'Fallido', color: 'bg-red-100 text-red-700 border-red-200', dot: 'bg-red-500' },
+  PENDING: { label: 'Pendiente', color: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400' },
+  OPENED: { label: 'Abierto', color: 'bg-emerald-100 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
+  REPLIED: { label: 'Respondido', color: 'bg-purple-100 text-purple-700 border-purple-200', dot: 'bg-purple-500' },
 }
 
-const INTERVAL_OPTIONS = [
-  { value: '1h', label: 'Cada 1 hora' },
-  { value: '2h', label: 'Cada 2 horas' },
-  { value: '4h', label: 'Cada 4 horas' },
-  { value: '8h', label: 'Cada 8 horas' },
-  { value: '24h', label: 'Cada 24 horas' },
-]
+const STEP_TYPES = ['introduction', 'value', 'case_study', 'urgency', 'last_chance']
 
 export default function EmailOutreachPage() {
-  // Mode
-  const [mode, setMode] = useState('auto') // 'auto' | 'manual'
-
-  // Stats
-  const [stats, setStats] = useState({
-    total_sent: 0,
-    scheduled: 0,
-    failed: 0,
-    open_rate: 0,
-  })
-
-  // Auto mode settings
-  const [autoSettings, setAutoSettings] = useState({
-    interval: '4h',
-    max_per_day: 20,
-    sequence_length: 3,
-  })
-  const [autoRunning, setAutoRunning] = useState(false)
-  const [startingAuto, setStartingAuto] = useState(false)
-
-  // Manual mode
+  // ── Core state ──
   const [leads, setLeads] = useState([])
-  const [selectedLeadId, setSelectedLeadId] = useState('')
-  const [previewLoading, setPreviewLoading] = useState(false)
-  const [emailPreview, setEmailPreview] = useState(null)
-  const [editSubject, setEditSubject] = useState('')
-  const [editBody, setEditBody] = useState('')
-  const [sending, setSending] = useState(false)
-
-  // Email history
   const [messages, setMessages] = useState([])
-  const [messagesLoading, setMessagesLoading] = useState(true)
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [page, setPage] = useState(1)
-  const [totalPages, setTotalPages] = useState(1)
-  const [expandedRow, setExpandedRow] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [stats, setStats] = useState({ total_sent: 0, scheduled: 0, failed: 0, open_rate: 0 })
 
-  // Bulk send
-  const [bulkSending, setBulkSending] = useState(false)
+  // ── Thread state ──
+  const [selectedLeadId, setSelectedLeadId] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [threadFilter, setThreadFilter] = useState('all') // all | sent | scheduled | failed | ai
+  const [expandedEmails, setExpandedEmails] = useState({})
 
-  // Notification
+  // ── Compose state ──
+  const [composeSubject, setComposeSubject] = useState('')
+  const [composeBody, setComposeBody] = useState('')
+  const [sending, setSending] = useState(false)
+  const [generating, setGenerating] = useState(false)
+
+  // ── Notification ──
   const [notification, setNotification] = useState(null)
 
-  // Playground
+  // ── Playground state ──
   const [playgroundOpen, setPlaygroundOpen] = useState(false)
   const [pgTestEmail, setPgTestEmail] = useState('')
   const [pgCompanyName, setPgCompanyName] = useState('Empresa Test SA')
@@ -81,103 +54,208 @@ export default function EmailOutreachPage() {
   const [pgGenerating, setPgGenerating] = useState(false)
   const [pgStatus, setPgStatus] = useState(null)
   const [pgLogs, setPgLogs] = useState([])
-  // Email config state
   const [emailConfig, setEmailConfig] = useState(null)
   const [configLoading, setConfigLoading] = useState(false)
   const [configSaving, setConfigSaving] = useState(false)
   const [activeAvatar, setActiveAvatar] = useState(null)
 
+  const threadListRef = useRef(null)
+  const emailThreadRef = useRef(null)
+
+  // ── Notification helper ──
   const showNotification = useCallback((message, type = 'success') => {
     setNotification({ message, type })
     setTimeout(() => setNotification(null), 4000)
   }, [])
 
-  // ── Load data ──
+  // ── AI toggle per lead (localStorage) ──
+  const getAiEnabled = (leadId) => {
+    const stored = localStorage.getItem(`email_ai_${leadId}`)
+    return stored === null ? true : stored === 'true'
+  }
 
+  const setAiEnabled = (leadId, enabled) => {
+    localStorage.setItem(`email_ai_${leadId}`, String(enabled))
+  }
+
+  // ── Load data ──
   const loadStats = useCallback(async () => {
     try {
       const res = await api.get('/api/outreach/email/stats')
-      setStats(res.data?.stats || res.data || {
-        total_sent: 0, scheduled: 0, failed: 0, open_rate: 0
-      })
+      setStats(res.data?.stats || res.data || { total_sent: 0, scheduled: 0, failed: 0, open_rate: 0 })
     } catch (err) {
       console.error('Error loading email stats:', err)
     }
   }, [])
 
   const loadMessages = useCallback(async () => {
-    setMessagesLoading(true)
     try {
-      const params = { channel: 'EMAIL', page, limit: 15 }
-      if (statusFilter !== 'all') params.status = statusFilter
-      const res = await api.get('/api/outreach/messages', { params })
+      const res = await api.get('/api/outreach/messages', { params: { channel: 'EMAIL', limit: 500 } })
       const data = res.data
       setMessages(data.messages || data.data || [])
-      setTotalPages(data.totalPages || data.total_pages || Math.ceil((data.total || 0) / 15) || 1)
     } catch (err) {
       console.error('Error loading messages:', err)
       setMessages([])
-    } finally {
-      setMessagesLoading(false)
     }
-  }, [page, statusFilter])
+  }, [])
 
   const loadLeads = useCallback(async () => {
     try {
-      const res = await api.get('/api/crm/leads')
+      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
       const allLeads = res.data?.leads || res.data || []
       setLeads(allLeads.filter(l => l.lead_data?.email))
     } catch (err) {
-      console.error('Error loading leads:', err)
+      // Fallback to CRM endpoint
+      try {
+        const res = await api.get('/api/crm/leads')
+        const allLeads = res.data?.leads || res.data || []
+        setLeads(allLeads.filter(l => l.lead_data?.email))
+      } catch {
+        console.error('Error loading leads:', err)
+      }
     }
   }, [])
 
   useEffect(() => {
-    loadStats()
-    loadMessages()
-    loadLeads()
+    const init = async () => {
+      setLoading(true)
+      await Promise.all([loadStats(), loadMessages(), loadLeads()])
+      setLoading(false)
+    }
+    init()
   }, [loadStats, loadMessages, loadLeads])
 
-  useEffect(() => {
-    loadMessages()
-  }, [page, statusFilter, loadMessages])
+  // ── Derived data: threads grouped by lead ──
+  const threads = useMemo(() => {
+    const threadMap = new Map()
 
-  // ── Preview email ──
+    // Create thread entries for leads that have emails in messages
+    messages.forEach(msg => {
+      const leadId = msg.lead_id || msg.lead?.id
+      if (!leadId) return
 
-  const handlePreview = async () => {
-    if (!selectedLeadId) return
-    setPreviewLoading(true)
-    try {
-      const res = await api.post('/api/outreach/email/preview', { lead_id: selectedLeadId })
-      const data = res.data
-      setEmailPreview(data)
-      setEditSubject(data.subject || '')
-      setEditBody(data.body || data.html || '')
-    } catch (err) {
-      showNotification('Error generando preview del email', 'error')
-    } finally {
-      setPreviewLoading(false)
+      if (!threadMap.has(leadId)) {
+        threadMap.set(leadId, {
+          leadId,
+          leadName: msg.lead_name || msg.lead?.lead_data?.company || msg.lead?.lead_data?.contact_name || 'Sin nombre',
+          leadEmail: msg.to_email || msg.lead?.lead_data?.email || msg.email || '',
+          leadCompany: msg.lead?.lead_data?.company || '',
+          emails: [],
+          lastDate: null,
+          lastStatus: 'PENDING',
+          maxStep: 0,
+          totalSteps: 5,
+        })
+      }
+
+      const thread = threadMap.get(leadId)
+      thread.emails.push(msg)
+      const msgDate = new Date(msg.sent_at || msg.created_at || 0)
+      if (!thread.lastDate || msgDate > thread.lastDate) {
+        thread.lastDate = msgDate
+        thread.lastStatus = msg.status || 'SENT'
+        thread.lastSubject = msg.subject || ''
+        thread.lastBody = msg.body || msg.html || msg.content || ''
+      }
+      const step = msg.step || msg.sequence_step || 1
+      if (step > thread.maxStep) thread.maxStep = step
+    })
+
+    // Add leads without messages
+    leads.forEach(lead => {
+      const id = lead.id || lead._id
+      if (!threadMap.has(id)) {
+        threadMap.set(id, {
+          leadId: id,
+          leadName: lead.lead_data?.company || lead.lead_data?.contact_name || 'Sin nombre',
+          leadEmail: lead.lead_data?.email || '',
+          leadCompany: lead.lead_data?.company || '',
+          emails: [],
+          lastDate: null,
+          lastStatus: null,
+          lastSubject: '',
+          lastBody: '',
+          maxStep: 0,
+          totalSteps: 5,
+        })
+      }
+    })
+
+    // Sort by last date descending, threads without emails at end
+    const arr = Array.from(threadMap.values())
+    arr.sort((a, b) => {
+      if (!a.lastDate && !b.lastDate) return 0
+      if (!a.lastDate) return 1
+      if (!b.lastDate) return -1
+      return b.lastDate - a.lastDate
+    })
+
+    // Sort emails within each thread chronologically
+    arr.forEach(t => {
+      t.emails.sort((a, b) => new Date(a.sent_at || a.created_at || 0) - new Date(b.sent_at || b.created_at || 0))
+    })
+
+    return arr
+  }, [messages, leads])
+
+  // ── Filtered threads ──
+  const filteredThreads = useMemo(() => {
+    let result = threads
+
+    // Text search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(t =>
+        t.leadName.toLowerCase().includes(q) ||
+        t.leadEmail.toLowerCase().includes(q) ||
+        t.leadCompany.toLowerCase().includes(q) ||
+        (t.lastSubject && t.lastSubject.toLowerCase().includes(q))
+      )
     }
-  }
 
-  // ── Send single email ──
+    // Status filter
+    if (threadFilter === 'sent') {
+      result = result.filter(t => t.emails.some(e => e.status === 'SENT'))
+    } else if (threadFilter === 'scheduled') {
+      result = result.filter(t => t.emails.some(e => e.status === 'SCHEDULED'))
+    } else if (threadFilter === 'failed') {
+      result = result.filter(t => t.emails.some(e => e.status === 'FAILED'))
+    } else if (threadFilter === 'ai') {
+      result = result.filter(t => getAiEnabled(t.leadId))
+    }
 
+    return result
+  }, [threads, searchQuery, threadFilter])
+
+  // ── Selected thread ──
+  const selectedThread = useMemo(() => {
+    return threads.find(t => t.leadId === selectedLeadId) || null
+  }, [threads, selectedLeadId])
+
+  // ── Computed stats ──
+  const computedStats = useMemo(() => {
+    const totalThreads = threads.length
+    const sentCount = messages.filter(m => m.status === 'SENT').length
+    const scheduledCount = messages.filter(m => m.status === 'SCHEDULED').length
+    const responseRate = stats.open_rate || 0
+    const aiActiveCount = threads.filter(t => getAiEnabled(t.leadId)).length
+    return { totalThreads, sentCount, scheduledCount, responseRate, aiActiveCount }
+  }, [threads, messages, stats])
+
+  // ── Actions ──
   const handleSendEmail = async () => {
-    if (!selectedLeadId) return
+    if (!selectedLeadId || !composeSubject.trim() || !composeBody.trim()) return
     setSending(true)
     try {
       await api.post('/api/outreach/email/send', {
         lead_id: selectedLeadId,
-        subject: editSubject,
-        body: editBody,
+        subject: composeSubject,
+        body: composeBody,
       })
       showNotification('Email enviado correctamente')
-      setEmailPreview(null)
-      setEditSubject('')
-      setEditBody('')
-      setSelectedLeadId('')
-      loadStats()
-      loadMessages()
+      setComposeSubject('')
+      setComposeBody('')
+      await Promise.all([loadMessages(), loadStats()])
     } catch (err) {
       showNotification(err.response?.data?.error || 'Error enviando email', 'error')
     } finally {
@@ -185,50 +263,80 @@ export default function EmailOutreachPage() {
     }
   }
 
-  // ── Bulk send all leads ──
-
-  const handleBulkSend = async () => {
-    setBulkSending(true)
+  const handleGenerateAI = async () => {
+    if (!selectedLeadId) return
+    setGenerating(true)
     try {
-      await api.post('/api/outreach/email/sequence', {
-        mode: 'auto',
-        ...autoSettings,
+      const nextStep = selectedThread ? STEP_TYPES[Math.min(selectedThread.maxStep, STEP_TYPES.length - 1)] : 'introduction'
+      const res = await api.post('/api/outreach/email/preview', {
+        lead_id: selectedLeadId,
+        stepType: nextStep,
       })
-      showNotification('Secuencia de emails iniciada para todos los leads')
-      loadStats()
-      loadMessages()
+      const data = res.data
+      setComposeSubject(data.subject || '')
+      setComposeBody(data.body || data.html || '')
+      showNotification('Email generado con IA')
     } catch (err) {
-      showNotification(err.response?.data?.error || 'Error enviando emails masivos', 'error')
+      showNotification('Error generando email con IA', 'error')
     } finally {
-      setBulkSending(false)
+      setGenerating(false)
     }
   }
 
-  // ── Auto mode start/stop ──
-
-  const toggleAutoMode = async () => {
-    setStartingAuto(true)
+  const handleCreateSequence = async (leadId) => {
     try {
-      if (autoRunning) {
-        await api.post('/api/outreach/email/sequence', { action: 'stop' })
-        setAutoRunning(false)
-        showNotification('Envio automatico detenido')
-      } else {
-        await api.post('/api/outreach/email/sequence', {
-          action: 'start',
-          ...autoSettings,
-        })
-        setAutoRunning(true)
-        showNotification('Envio automatico iniciado')
-      }
+      await api.post('/api/outreach/email/sequence', { leadId })
+      showNotification('Secuencia IA creada')
+      await Promise.all([loadMessages(), loadStats()])
     } catch (err) {
-      showNotification('Error al cambiar estado automatico', 'error')
-    } finally {
-      setStartingAuto(false)
+      showNotification('Error creando secuencia', 'error')
     }
   }
 
-  // ── Playground helpers ──
+  const toggleEmailExpand = (emailId) => {
+    setExpandedEmails(prev => ({ ...prev, [emailId]: !prev[emailId] }))
+  }
+
+  // ── Date formatting ──
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-'
+    const d = new Date(dateStr)
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const formatRelative = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now - d
+    const diffMins = Math.floor(diffMs / 60000)
+    if (diffMins < 1) return 'ahora'
+    if (diffMins < 60) return `${diffMins}m`
+    const diffHours = Math.floor(diffMins / 60)
+    if (diffHours < 24) return `${diffHours}h`
+    const diffDays = Math.floor(diffHours / 24)
+    if (diffDays < 7) return `${diffDays}d`
+    return d.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
+  }
+
+  const truncate = (text, max = 60) => {
+    if (!text) return ''
+    const clean = text.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+    return clean.length > max ? clean.slice(0, max) + '...' : clean
+  }
+
+  // ── Scroll to bottom of email thread when selecting ──
+  useEffect(() => {
+    if (emailThreadRef.current) {
+      setTimeout(() => {
+        emailThreadRef.current.scrollTop = emailThreadRef.current.scrollHeight
+      }, 100)
+    }
+  }, [selectedLeadId])
+
+  // ══════════════════════════════════════════════════════
+  // ── Playground helpers (preserved from original) ──
+  // ══════════════════════════════════════════════════════
 
   const PG_SECTORS = ['tecnologia', 'fabricas', 'consultora', 'software', 'alimentos', 'logistica', 'retail', 'construccion']
   const PG_CITIES = ['Buenos Aires', 'Cordoba', 'Rosario', 'Mendoza', 'Tucuman', 'Salta']
@@ -389,29 +497,23 @@ export default function EmailOutreachPage() {
     setEmailConfig(prev => prev ? { ...prev, [field]: value } : null)
   }
 
-  // ── Helpers ──
+  // ══════════════════════════════════════════════════════
+  // ── RENDER ──
+  // ══════════════════════════════════════════════════════
 
-  const formatDate = (dateStr) => {
-    if (!dateStr) return '-'
-    const d = new Date(dateStr)
-    return d.toLocaleDateString('es-ES', {
-      day: '2-digit', month: '2-digit', year: '2-digit',
-      hour: '2-digit', minute: '2-digit'
-    })
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+          <span className="text-gray-500">Cargando bandeja de emails...</span>
+        </div>
+      </div>
+    )
   }
-
-  const getLeadName = (msg) => {
-    return msg.lead_name || msg.lead?.lead_data?.company || msg.lead?.lead_data?.contact_name || 'Sin nombre'
-  }
-
-  const getLeadEmail = (msg) => {
-    return msg.to_email || msg.lead?.lead_data?.email || msg.email || '-'
-  }
-
-  // ── Render ──
 
   return (
-    <div className="min-h-screen bg-gray-50/50 p-4 md:p-6 space-y-6">
+    <div className="min-h-screen bg-gray-50/50 flex flex-col">
       {/* Notification */}
       {notification && (
         <div className={`fixed top-4 right-4 z-50 px-5 py-3 rounded-xl shadow-lg border text-sm font-medium flex items-center gap-2 transition-all ${
@@ -424,314 +526,45 @@ export default function EmailOutreachPage() {
         </div>
       )}
 
-      {/* ═══ HEADER ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          {/* Title + toggle */}
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
-              <Mail className="w-6 h-6 text-emerald-600" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Email Outreach</h1>
-              <p className="text-sm text-gray-500">Gestiona y automatiza el envio de emails a tus leads</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Mode Toggle */}
-            <div className="flex items-center gap-2 bg-gray-100 rounded-xl p-1">
-              <button
-                onClick={() => setMode('auto')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === 'auto'
-                    ? 'bg-emerald-500 text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Zap className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-                Modo Automatico
-              </button>
-              <button
-                onClick={() => setMode('manual')}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === 'manual'
-                    ? 'bg-blue-500 text-white shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Edit3 className="w-4 h-4 inline mr-1.5 -mt-0.5" />
-                Modo Manual
-              </button>
-            </div>
-
-            {/* Bulk send button (auto only) */}
-            {mode === 'auto' && (
-              <button
-                onClick={handleBulkSend}
-                disabled={bulkSending}
-                className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
-              >
-                {bulkSending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                Enviar a Todos los Leads con Email
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Stats bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-            <div className="flex items-center gap-2 text-gray-500 text-xs font-medium mb-1">
-              <Send className="w-3.5 h-3.5" />
-              Total Enviados
-            </div>
-            <p className="text-2xl font-bold text-gray-900">{stats.total_sent || 0}</p>
-          </div>
-          <div className="bg-blue-50/50 rounded-xl p-4 border border-blue-100">
-            <div className="flex items-center gap-2 text-blue-600 text-xs font-medium mb-1">
-              <Clock className="w-3.5 h-3.5" />
-              Programados
-            </div>
-            <p className="text-2xl font-bold text-blue-700">{stats.scheduled || 0}</p>
-          </div>
-          <div className="bg-red-50/50 rounded-xl p-4 border border-red-100">
-            <div className="flex items-center gap-2 text-red-500 text-xs font-medium mb-1">
-              <AlertCircle className="w-3.5 h-3.5" />
-              Fallidos
-            </div>
-            <p className="text-2xl font-bold text-red-600">{stats.failed || 0}</p>
-          </div>
-          <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100">
-            <div className="flex items-center gap-2 text-emerald-600 text-xs font-medium mb-1">
-              <BarChart3 className="w-3.5 h-3.5" />
-              Tasa Apertura
-            </div>
-            <p className="text-2xl font-bold text-emerald-700">{stats.open_rate || 0}%</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══ AUTO MODE SECTION ═══ */}
-      {mode === 'auto' && (
-        <div className="space-y-4">
-          {/* Banner */}
-          <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-start gap-3">
-            <Zap className="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-emerald-800">Modo Automatico IA activo</p>
-              <p className="text-sm text-emerald-700 mt-0.5">
-                Los emails se generan y envian automaticamente a cada lead con email detectado.
-                La IA personaliza el contenido segun el perfil del lead y tu propuesta de valor.
-              </p>
-            </div>
-          </div>
-
-          {/* Settings card */}
-          <div className="bg-white rounded-2xl border border-gray-100 p-6">
-            <div className="flex items-center gap-2 mb-5">
-              <Settings className="w-5 h-5 text-gray-500" />
-              <h2 className="text-lg font-semibold text-gray-900">Configuracion de Envio Automatico</h2>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Interval */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Intervalo entre emails
-                </label>
-                <select
-                  value={autoSettings.interval}
-                  onChange={(e) => setAutoSettings(prev => ({ ...prev, interval: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  {INTERVAL_OPTIONS.map(opt => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Max per day */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Max emails por dia
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={autoSettings.max_per_day}
-                  onChange={(e) => setAutoSettings(prev => ({ ...prev, max_per_day: parseInt(e.target.value) || 1 }))}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Sequence length */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Longitud de secuencia (emails)
-                </label>
-                <select
-                  value={autoSettings.sequence_length}
-                  onChange={(e) => setAutoSettings(prev => ({ ...prev, sequence_length: parseInt(e.target.value) }))}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                >
-                  {[1, 2, 3, 4, 5].map(n => (
-                    <option key={n} value={n}>{n} email{n > 1 ? 's' : ''}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Start/Stop button */}
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                onClick={toggleAutoMode}
-                disabled={startingAuto}
-                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm ${
-                  autoRunning
-                    ? 'bg-red-500 hover:bg-red-600 text-white'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                } disabled:opacity-50`}
-              >
-                {startingAuto ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : autoRunning ? (
-                  <Square className="w-4 h-4" />
-                ) : (
-                  <Play className="w-4 h-4" />
-                )}
-                {autoRunning ? 'Detener Envio Automatico' : 'Iniciar Envio Automatico'}
-              </button>
-
-              {autoRunning && (
-                <span className="flex items-center gap-1.5 text-sm text-emerald-600">
-                  <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse" />
-                  Enviando automaticamente...
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ═══ MANUAL MODE SECTION ═══ */}
-      {mode === 'manual' && (
-        <div className="bg-white rounded-2xl border border-gray-100 p-6">
-          <div className="flex items-center gap-2 mb-5">
-            <Edit3 className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Componer Email Manual</h2>
-          </div>
-
-          {/* Select lead */}
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Seleccionar Lead
-            </label>
-            <div className="flex gap-3">
-              <select
-                value={selectedLeadId}
-                onChange={(e) => {
-                  setSelectedLeadId(e.target.value)
-                  setEmailPreview(null)
-                  setEditSubject('')
-                  setEditBody('')
-                }}
-                className="flex-1 px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="">-- Selecciona un lead --</option>
-                {leads.map(lead => (
-                  <option key={lead.id} value={lead.id}>
-                    {lead.lead_data?.company || lead.lead_data?.contact_name || 'Sin nombre'} - {lead.lead_data?.email}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handlePreview}
-                disabled={!selectedLeadId || previewLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium rounded-xl transition-colors"
-              >
-                {previewLoading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-                Generar Preview
-              </button>
-            </div>
-          </div>
-
-          {/* Email compose form */}
-          {(emailPreview || editSubject) && (
-            <div className="space-y-4 mt-5 pt-5 border-t border-gray-100">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Asunto</label>
-                <input
-                  type="text"
-                  value={editSubject}
-                  onChange={(e) => setEditSubject(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Asunto del email..."
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Cuerpo del Email</label>
-                <textarea
-                  value={editBody}
-                  onChange={(e) => setEditBody(e.target.value)}
-                  rows={10}
-                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
-                  placeholder="Escribe o edita el cuerpo del email..."
-                />
-              </div>
-              <div className="flex justify-end">
-                <button
-                  onClick={handleSendEmail}
-                  disabled={sending || !editSubject.trim() || !editBody.trim()}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium rounded-xl transition-colors shadow-sm"
-                >
-                  {sending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                  Enviar Email
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══ EMAIL HISTORY TABLE ═══ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-5">
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-gray-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Historial de Emails</h2>
-            <span className="text-xs text-gray-400 ml-1">({messages.length} en esta pagina)</span>
-          </div>
-
+      {/* ═══ STATS BAR ═══ */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            {/* Status filter */}
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
-              <select
-                value={statusFilter}
-                onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              >
-                <option value="all">Todos los estados</option>
-                {Object.entries(STATUS_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>{val.label}</option>
-                ))}
-              </select>
+            <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
+              <Mail className="w-5 h-5 text-blue-600" />
             </div>
+            <div>
+              <h1 className="text-lg font-bold text-gray-900">Email Outreach</h1>
+              <p className="text-xs text-gray-400">Bandeja de emails y secuencias IA</p>
+            </div>
+          </div>
 
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-1.5 text-sm">
+              <MessageSquare className="w-4 h-4 text-gray-400" />
+              <span className="text-gray-500">Hilos:</span>
+              <span className="font-semibold text-gray-800">{computedStats.totalThreads}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Send className="w-4 h-4 text-green-500" />
+              <span className="text-gray-500">Enviados:</span>
+              <span className="font-semibold text-gray-800">{computedStats.sentCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Clock className="w-4 h-4 text-blue-500" />
+              <span className="text-gray-500">Programados:</span>
+              <span className="font-semibold text-gray-800">{computedStats.scheduledCount}</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <BarChart3 className="w-4 h-4 text-purple-500" />
+              <span className="text-gray-500">Tasa resp:</span>
+              <span className="font-semibold text-gray-800">{computedStats.responseRate}%</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <Bot className="w-4 h-4 text-indigo-500" />
+              <span className="text-gray-500">Con IA:</span>
+              <span className="font-semibold text-gray-800">{computedStats.aiActiveCount}</span>
+            </div>
             <button
               onClick={() => { loadMessages(); loadStats() }}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -741,137 +574,410 @@ export default function EmailOutreachPage() {
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Table */}
-        {messagesLoading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-6 h-6 animate-spin text-emerald-500" />
-            <span className="ml-2 text-sm text-gray-500">Cargando emails...</span>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="text-center py-16">
-            <Mail className="w-10 h-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 text-sm">No hay emails registrados</p>
-            <p className="text-gray-400 text-xs mt-1">Los emails enviados apareceran aqui</p>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-100">
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Lead</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Asunto</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Canal</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Paso</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Enviado</th>
-                    <th className="text-left py-3 px-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {messages.map((msg) => {
-                    const statusCfg = STATUS_CONFIG[msg.status] || STATUS_CONFIG.PENDING
-                    const msgId = msg.id || msg._id
-                    const isExpanded = expandedRow === msgId
+      {/* ═══ MAIN CONTENT: SIDEBAR + PANEL ═══ */}
+      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 120px)' }}>
 
-                    return (
-                      <tr key={msgId} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors group">
-                        <td className="py-3 px-3 font-medium text-gray-900 max-w-[160px] truncate">
-                          {getLeadName(msg)}
-                        </td>
-                        <td className="py-3 px-3 text-gray-600 max-w-[180px] truncate">
-                          {getLeadEmail(msg)}
-                        </td>
-                        <td className="py-3 px-3 text-gray-700 max-w-[200px]">
-                          <div className="truncate">{msg.subject || '-'}</div>
-                          {isExpanded && (
-                            <div className="mt-3 max-w-3xl">
-                              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Contenido del Email</p>
-                              <div className="bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                                {msg.body || msg.html || msg.content || 'Sin contenido disponible'}
-                              </div>
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 align-top">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium border ${statusCfg.color}`}>
+        {/* ── LEFT SIDEBAR: Thread List (35%) ── */}
+        <div className="w-[35%] min-w-[320px] bg-white border-r border-gray-200 flex flex-col">
+
+          {/* Nuevo Email button */}
+          <div className="p-3 border-b border-gray-100">
+            <button
+              onClick={() => {
+                setSelectedLeadId(null)
+                setComposeSubject('')
+                setComposeBody('')
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nuevo Email
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="px-3 pt-3 pb-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar lead, empresa, email..."
+                className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="px-3 pb-2 flex items-center gap-1 flex-wrap">
+            {[
+              { key: 'all', label: 'Todos' },
+              { key: 'sent', label: 'Enviados' },
+              { key: 'scheduled', label: 'Programados' },
+              { key: 'failed', label: 'Fallidos' },
+              { key: 'ai', label: 'Con IA' },
+            ].map(f => (
+              <button
+                key={f.key}
+                onClick={() => setThreadFilter(f.key)}
+                className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
+                  threadFilter === f.key
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-50 text-gray-500 hover:bg-gray-100'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Thread list */}
+          <div ref={threadListRef} className="flex-1 overflow-y-auto">
+            {filteredThreads.length === 0 ? (
+              <div className="text-center py-12 px-4">
+                <Inbox className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                <p className="text-sm text-gray-400">No se encontraron hilos</p>
+              </div>
+            ) : (
+              filteredThreads.map(thread => {
+                const isActive = selectedLeadId === thread.leadId
+                const statusCfg = STATUS_CONFIG[thread.lastStatus] || STATUS_CONFIG.PENDING
+                const aiOn = getAiEnabled(thread.leadId)
+
+                return (
+                  <div
+                    key={thread.leadId}
+                    onClick={() => {
+                      setSelectedLeadId(thread.leadId)
+                      setComposeSubject('')
+                      setComposeBody('')
+                    }}
+                    className={`px-4 py-3 border-b border-gray-50 cursor-pointer transition-colors ${
+                      isActive
+                        ? 'bg-blue-50 border-l-[3px] border-l-blue-500'
+                        : 'hover:bg-gray-50 border-l-[3px] border-l-transparent'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900 truncate">{thread.leadName}</span>
+                          {aiOn && <Bot className="w-3.5 h-3.5 text-indigo-400 flex-shrink-0" />}
+                        </div>
+                        {thread.leadCompany && thread.leadCompany !== thread.leadName && (
+                          <p className="text-xs text-gray-400 truncate">{thread.leadCompany}</p>
+                        )}
+                        {thread.lastSubject ? (
+                          <p className="text-xs text-gray-600 mt-1 truncate font-medium">{thread.lastSubject}</p>
+                        ) : null}
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">
+                          {thread.emails.length > 0
+                            ? truncate(thread.lastBody, 50)
+                            : 'Sin emails enviados'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                        {thread.lastDate && (
+                          <span className="text-[10px] text-gray-400">
+                            {formatRelative(thread.lastDate)}
+                          </span>
+                        )}
+                        {thread.lastStatus && (
+                          <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusCfg.color}`}>
                             {statusCfg.label}
                           </span>
-                        </td>
-                        <td className="py-3 px-3 text-gray-500 align-top">
-                          {msg.channel || 'EMAIL'}
-                        </td>
-                        <td className="py-3 px-3 text-gray-500 align-top">
-                          {msg.step || msg.sequence_step || 1}
-                        </td>
-                        <td className="py-3 px-3 text-gray-500 text-xs align-top">
-                          {formatDate(msg.sent_at || msg.created_at)}
-                        </td>
-                        <td className="py-3 px-3 align-top">
-                          <button
-                            onClick={() => setExpandedRow(isExpanded ? null : msgId)}
-                            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                            title="Ver contenido"
-                          >
-                            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        )}
+                        {thread.emails.length > 0 && (
+                          <span className="text-[10px] text-gray-400 font-medium">
+                            {thread.maxStep}/{thread.totalSteps}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-5 pt-4 border-t border-gray-100">
-                <p className="text-sm text-gray-500">
-                  Pagina {page} de {totalPages}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Anterior
-                  </button>
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                    const pageNum = page <= 3 ? i + 1 : page + i - 2
-                    if (pageNum < 1 || pageNum > totalPages) return null
-                    return (
+        {/* ── RIGHT PANEL (65%) ── */}
+        <div className="flex-1 flex flex-col bg-gray-50 min-w-0">
+          {!selectedLeadId ? (
+            /* Empty state */
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <Mail className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500 font-medium">Selecciona un hilo de email o inicia uno nuevo</p>
+                <p className="text-sm text-gray-400 mt-1">Elige un lead de la lista para ver su conversacion</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* ── Thread Header ── */}
+              <div className="bg-white border-b border-gray-200 px-6 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-bold text-gray-900 truncate">{selectedThread?.leadName || 'Lead'}</h2>
+                      {selectedThread && selectedThread.maxStep > 0 && (
+                        <span className="flex-shrink-0 px-2 py-0.5 bg-blue-50 text-blue-600 text-xs font-medium rounded-full">
+                          Paso {selectedThread.maxStep} de {selectedThread.totalSteps}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-400 truncate">{selectedThread?.leadEmail}</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    {/* AI Sequence toggle */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Secuencia IA</span>
                       <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                          pageNum === page
-                            ? 'bg-emerald-600 text-white'
-                            : 'border border-gray-200 hover:bg-gray-50'
+                        onClick={() => {
+                          const current = getAiEnabled(selectedLeadId)
+                          setAiEnabled(selectedLeadId, !current)
+                          // Force re-render
+                          setSelectedLeadId(prev => prev)
+                          if (!current) {
+                            handleCreateSequence(selectedLeadId)
+                          }
+                        }}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                          getAiEnabled(selectedLeadId) ? 'bg-blue-600' : 'bg-gray-300'
                         }`}
                       >
-                        {pageNum}
+                        <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                          getAiEnabled(selectedLeadId) ? 'translate-x-6' : 'translate-x-1'
+                        }`} />
                       </button>
-                    )
-                  })}
-                  <button
-                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                    disabled={page === totalPages}
-                    className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Siguiente
-                  </button>
+                    </div>
+                    {/* Ver Lead button */}
+                    <a
+                      href={`/admin/lead/${selectedLeadId}`}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      Ver Lead
+                    </a>
+                  </div>
                 </div>
               </div>
-            )}
-          </>
-        )}
+
+              {/* ── Email Thread View ── */}
+              <div ref={emailThreadRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+                {selectedThread?.emails.length === 0 ? (
+                  <div className="text-center py-16">
+                    <Mail className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500 text-sm">No hay emails en este hilo</p>
+                    <p className="text-gray-400 text-xs mt-1">
+                      {getAiEnabled(selectedLeadId)
+                        ? 'La secuencia IA enviara el primer email automaticamente'
+                        : 'Compone un email o activa la secuencia IA'}
+                    </p>
+                  </div>
+                ) : (
+                  selectedThread?.emails.map((email, idx) => {
+                    const emailId = email.id || email._id || idx
+                    const isExpanded = expandedEmails[emailId] !== false // default expanded
+                    const status = email.status || 'SENT'
+                    const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.PENDING
+                    const step = email.step || email.sequence_step || (idx + 1)
+                    const isScheduled = status === 'SCHEDULED'
+                    const isFailed = status === 'FAILED'
+
+                    return (
+                      <div
+                        key={emailId}
+                        className={`rounded-xl border overflow-hidden transition-all ${
+                          isFailed
+                            ? 'bg-red-50/50 border-red-200'
+                            : isScheduled
+                              ? 'bg-gray-50 border-gray-200 border-dashed'
+                              : 'bg-white border-gray-200 border-l-[3px] border-l-blue-400'
+                        }`}
+                      >
+                        {/* Email header - always visible */}
+                        <div
+                          onClick={() => toggleEmailExpand(emailId)}
+                          className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50/50 transition-colors"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {isScheduled && <Clock className="w-4 h-4 text-blue-400 flex-shrink-0" />}
+                            {isFailed && <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />}
+                            {!isScheduled && !isFailed && <Mail className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">
+                                {email.subject || 'Sin asunto'}
+                              </p>
+                              {!isExpanded && (
+                                <p className="text-xs text-gray-400 truncate mt-0.5">
+                                  {truncate(email.body || email.html || email.content || '', 80)}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                            <span className="text-[10px] text-gray-400 font-medium">Paso {step}</span>
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium border ${statusCfg.color}`}>
+                              {statusCfg.label}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {formatDate(email.sent_at || email.created_at)}
+                            </span>
+                            {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                          </div>
+                        </div>
+
+                        {/* Email body - expandable */}
+                        {isExpanded && (
+                          <div className="px-4 pb-4 border-t border-gray-100">
+                            <div
+                              className="mt-3 text-sm text-gray-700 leading-relaxed prose prose-sm max-w-none"
+                              dangerouslySetInnerHTML={{ __html: email.body || email.html || email.content || '<p class="text-gray-400">Sin contenido disponible</p>' }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+
+              {/* ── Compose Area ── */}
+              <div className="bg-white border-t border-gray-200 px-6 py-4">
+                {getAiEnabled(selectedLeadId) ? (
+                  /* AI Sequence Active */
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 text-xs font-medium rounded-full">
+                          <Bot className="w-3.5 h-3.5" />
+                          Secuencia IA activa - emails se envian automaticamente
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
+                        {selectedThread && (
+                          <span>Paso actual: {selectedThread.maxStep}/{selectedThread.totalSteps}</span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <CalendarClock className="w-3.5 h-3.5" />
+                          Proximo envio automatico
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Even with AI on, allow manual compose */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={handleGenerateAI}
+                          disabled={generating}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-medium rounded-lg transition-colors"
+                        >
+                          {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                          Generar Email con IA
+                        </button>
+                        <span className="text-[10px] text-gray-400">o compone manualmente debajo</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={composeSubject}
+                        onChange={(e) => setComposeSubject(e.target.value)}
+                        placeholder="Asunto del email..."
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <textarea
+                        value={composeBody}
+                        onChange={(e) => setComposeBody(e.target.value)}
+                        rows={3}
+                        placeholder="Cuerpo del email..."
+                        className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          onClick={handleSendEmail}
+                          disabled={sending || !composeSubject.trim() || !composeBody.trim()}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg transition-colors"
+                        >
+                          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          Enviar
+                        </button>
+                        <button
+                          onClick={() => {
+                            // Schedule for later - same as send but with scheduled flag
+                            showNotification('Funcionalidad de programar en desarrollo')
+                          }}
+                          disabled={!composeSubject.trim() || !composeBody.trim()}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-300 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                        >
+                          <CalendarClock className="w-4 h-4" />
+                          Programar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Manual Compose */
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <Bot className="w-4 h-4 text-gray-400" />
+                        <span className="text-xs text-gray-500">Modo manual - compone y envia emails individualmente</span>
+                      </div>
+                      <button
+                        onClick={handleGenerateAI}
+                        disabled={generating}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-medium rounded-lg transition-colors"
+                      >
+                        {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                        Generar Email con IA
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={composeSubject}
+                      onChange={(e) => setComposeSubject(e.target.value)}
+                      placeholder="Asunto del email..."
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <textarea
+                      value={composeBody}
+                      onChange={(e) => setComposeBody(e.target.value)}
+                      rows={4}
+                      placeholder="Escribe el cuerpo del email..."
+                      className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-y"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleSendEmail}
+                        disabled={sending || !composeSubject.trim() || !composeBody.trim()}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white text-sm font-medium rounded-lg transition-colors"
+                      >
+                        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        Enviar
+                      </button>
+                      <button
+                        onClick={() => showNotification('Funcionalidad de programar en desarrollo')}
+                        disabled={!composeSubject.trim() || !composeBody.trim()}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 hover:bg-gray-200 disabled:bg-gray-50 disabled:text-gray-300 text-gray-700 text-sm font-medium rounded-lg transition-colors"
+                      >
+                        <CalendarClock className="w-4 h-4" />
+                        Programar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ═══ PLAYGROUND SECTION ═══ */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
+      <div className="mx-4 mb-4 mt-4 bg-gray-900 rounded-2xl border border-gray-700 overflow-hidden">
         {/* Playground Header */}
         <button
           onClick={() => {
@@ -928,7 +1034,7 @@ export default function EmailOutreachPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                {/* ══ LEFT: Configuration ══ */}
+                {/* LEFT: Configuration */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-1">
                     <Settings className="w-4 h-4 text-blue-400" />
@@ -1093,7 +1199,7 @@ export default function EmailOutreachPage() {
                   </button>
                 </div>
 
-                {/* ══ RIGHT: Test Area ══ */}
+                {/* RIGHT: Test Area */}
                 <div className="space-y-4">
                   <div className="flex items-center gap-2 mb-1">
                     <Beaker className="w-4 h-4 text-emerald-400" />

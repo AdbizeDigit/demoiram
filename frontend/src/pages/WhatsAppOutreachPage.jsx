@@ -1,162 +1,110 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import api from '../services/api'
 import {
-  MessageCircle, Phone, Send, Copy, ExternalLink, CheckCircle,
-  Loader2, RefreshCw, ChevronDown, ChevronUp, Filter,
-  ChevronLeft, ChevronRight, Zap, AlertCircle, Users, Clock,
-  ToggleLeft, ToggleRight, Sparkles, X, Search, Eye,
-  FlaskConical, RotateCcw, QrCode,
+  MessageCircle, Send, Search, Phone, Loader2, Bot, User,
+  ToggleLeft, ToggleRight, Sparkles, QrCode, Wifi, WifiOff,
+  Eye, Paperclip, Check, CheckCheck, Plus, Filter,
+  MessageSquare, Zap, Users, ArrowLeft,
 } from 'lucide-react'
 
-const PAGE_SIZE = 10
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatTime(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now - d
+  const diffDays = Math.floor(diffMs / 86400000)
+  if (diffDays === 0) {
+    return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+  }
+  if (diffDays === 1) return 'Ayer'
+  if (diffDays < 7) {
+    return d.toLocaleDateString('es-AR', { weekday: 'short' })
+  }
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+}
+
+function formatMessageTime(dateStr) {
+  if (!dateStr) return ''
+  return new Date(dateStr).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function truncate(str, len = 45) {
+  if (!str) return ''
+  return str.length > len ? str.slice(0, len) + '...' : str
+}
+
+function getLeadPhone(lead) {
+  return lead.whatsapp || lead.phone || lead.telefono || ''
+}
+
+function getLeadName(lead) {
+  return lead.name || lead.nombre || lead.business_name || lead.empresa || 'Sin nombre'
+}
+
+function getAIKey(leadId) {
+  return `whatsapp_ai_${leadId}`
+}
+
+function getAIState(leadId) {
+  try {
+    const val = localStorage.getItem(getAIKey(leadId))
+    if (val === null) return true // default ON
+    return val === 'true'
+  } catch { return true }
+}
+
+function setAIState(leadId, value) {
+  try {
+    localStorage.setItem(getAIKey(leadId), String(value))
+  } catch { /* ignore */ }
+}
+
+// ── Main Component ───────────────────────────────────────────────────────────
 
 export default function WhatsAppOutreachPage() {
   const { user } = useAuthStore()
   const navigate = useNavigate()
+  const messagesEndRef = useRef(null)
+  const inputRef = useRef(null)
 
-  // ── Admin guard ──
+  // Admin guard
   const isAdmin = user?.role === 'admin' || user?.email === 'contacto@adbize.com'
   useEffect(() => {
     if (!isAdmin) navigate('/dashboard')
   }, [isAdmin, navigate])
 
-  // ── Mode ──
-  const [mode, setMode] = useState('auto') // 'auto' | 'manual'
-
-  // ── Leads ──
+  // ── State ──
   const [leads, setLeads] = useState([])
-  const [leadsLoading, setLeadsLoading] = useState(true)
-
-  // ── Messages ──
   const [messages, setMessages] = useState([])
+  const [leadsLoading, setLeadsLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(true)
-
-  // ── Auto mode state ──
-  const [generatingLeadId, setGeneratingLeadId] = useState(null)
-  const [bulkGenerating, setBulkGenerating] = useState(false)
-  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 })
-
-  // ── Manual mode state ──
-  const [selectedLeadId, setSelectedLeadId] = useState('')
-  const [manualMessage, setManualMessage] = useState('')
-  const [manualGenerating, setManualGenerating] = useState(false)
-
-  // ── Table state ──
-  const [expandedRow, setExpandedRow] = useState(null)
-  const [statusFilter, setStatusFilter] = useState('ALL')
-  const [page, setPage] = useState(1)
+  const [selectedLeadId, setSelectedLeadId] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [filterMode, setFilterMode] = useState('todos') // todos | con_ia | sin_ia
+  const [inputText, setInputText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [generatingAI, setGeneratingAI] = useState(false)
+  const [whatsappStatus, setWhatsappStatus] = useState('disconnected')
+  const [statusLoading, setStatusLoading] = useState(true)
+  const [qrCode, setQrCode] = useState(null)
+  const [connecting, setConnecting] = useState(false)
+  const [showMobileChat, setShowMobileChat] = useState(false)
 
-  // ── Playground state ──
-  const [playgroundOpen, setPlaygroundOpen] = useState(false)
-  const [pgPhone, setPgPhone] = useState('')
-  const [pgName, setPgName] = useState('Empresa Test SA')
-  const [pgSector, setPgSector] = useState('tecnologia')
-  const [pgCity, setPgCity] = useState('Buenos Aires')
-  const [pgWebsite, setPgWebsite] = useState('www.empresatest.com.ar')
-  const [pgContext, setPgContext] = useState('')
-  const [pgMessage, setPgMessage] = useState('')
-  const [pgVariations, setPgVariations] = useState([])
-  const [pgLog, setPgLog] = useState([])
-  const [pgApiLoading, setPgApiLoading] = useState(false)
+  // ── Data Loading ───────────────────────────────────────────────────────────
 
-  // ── WhatsApp Connection ──
-  const [waStatus, setWaStatus] = useState('disconnected') // disconnected, connecting, qr_ready, connected
-  const [waQR, setWaQR] = useState(null) // base64 QR image
-  const [waPhone, setWaPhone] = useState(null)
-  const [waName, setWaName] = useState(null)
-  const [waMessages, setWaMessages] = useState([])
-  const [waConnecting, setWaConnecting] = useState(false)
-
-  // ── Notifications ──
-  const [toast, setToast] = useState(null)
-
-  const showToast = (text, type = 'success') => {
-    setToast({ text, type })
-    setTimeout(() => setToast(null), 3000)
-  }
-
-  // ── WhatsApp Connection handlers ──
-  const handleConnectWA = async () => {
-    setWaConnecting(true);
-    try {
-      await api.post('/api/outreach/whatsapp/connect');
-      // Start polling for status
-      pollWAStatus();
-    } catch (err) {
-      console.error(err);
-      setWaConnecting(false);
-    }
-  };
-
-  const pollWAStatus = () => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await api.get('/api/outreach/whatsapp/status');
-        const data = res.data;
-        setWaStatus(data.status);
-        if (data.qrCode) setWaQR(data.qrCode);
-        if (data.phone) setWaPhone(data.phone);
-        if (data.name) setWaName(data.name);
-        if (data.status === 'connected') {
-          clearInterval(interval);
-          setWaConnecting(false);
-          // Load messages
-          const msgRes = await api.get('/api/outreach/whatsapp/messages');
-          if (msgRes.data?.messages) setWaMessages(msgRes.data.messages);
-        }
-      } catch {}
-    }, 3000);
-    // Stop polling after 2 minutes
-    setTimeout(() => clearInterval(interval), 120000);
-  };
-
-  const handleDisconnectWA = async () => {
-    try {
-      await api.post('/api/outreach/whatsapp/disconnect');
-      setWaStatus('disconnected');
-      setWaQR(null);
-      setWaPhone(null);
-      setWaName(null);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleSendDirectWA = async (phone, message) => {
-    try {
-      await api.post('/api/outreach/whatsapp/send-direct', { phone, message });
-      return true;
-    } catch (err) {
-      console.error(err);
-      return false;
-    }
-  };
-
-  // ── Check WA status on mount ──
-  useEffect(() => {
-    api.get('/api/outreach/whatsapp/status')
-      .then(res => {
-        const data = res.data;
-        setWaStatus(data.status || 'disconnected');
-        if (data.phone) setWaPhone(data.phone);
-        if (data.name) setWaName(data.name);
-        if (data.qrCode) setWaQR(data.qrCode);
-      })
-      .catch(() => {});
-  }, []);
-
-  // ── Data loading ──
   const loadLeads = useCallback(async () => {
-    setLeadsLoading(true)
     try {
-      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 100 } })
-      const data = res.data?.data || res.data?.leads || res.data || []
-      const list = Array.isArray(data) ? data : []
-      setLeads(list)
-    } catch {
+      setLeadsLoading(true)
+      const { data } = await api.get('/api/scraping-engine/leads?limit=200')
+      const allLeads = data.leads || data.data || data || []
+      const withPhone = allLeads.filter(l => getLeadPhone(l))
+      setLeads(withPhone)
+    } catch (err) {
+      console.error('Error loading leads:', err)
       setLeads([])
     } finally {
       setLeadsLoading(false)
@@ -164,1163 +112,1054 @@ export default function WhatsAppOutreachPage() {
   }, [])
 
   const loadMessages = useCallback(async () => {
-    setMessagesLoading(true)
     try {
-      const res = await api.get('/api/outreach/messages', { params: { channel: 'WHATSAPP' } })
-      const data = res.data?.data || res.data?.messages || res.data || []
-      setMessages(Array.isArray(data) ? data : [])
-    } catch {
+      setMessagesLoading(true)
+      const { data } = await api.get('/api/outreach/messages?channel=WHATSAPP')
+      setMessages(data.messages || data.data || data || [])
+    } catch (err) {
+      console.error('Error loading messages:', err)
       setMessages([])
     } finally {
       setMessagesLoading(false)
     }
   }, [])
 
+  const checkWhatsappStatus = useCallback(async () => {
+    try {
+      setStatusLoading(true)
+      const { data } = await api.get('/api/outreach/whatsapp/status')
+      setWhatsappStatus(data.status || 'disconnected')
+      if (data.qr) setQrCode(data.qr)
+    } catch {
+      setWhatsappStatus('disconnected')
+    } finally {
+      setStatusLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     loadLeads()
     loadMessages()
-  }, [loadLeads, loadMessages])
+    checkWhatsappStatus()
+  }, [loadLeads, loadMessages, checkWhatsappStatus])
 
-  // ── Derived data ──
-  const leadsWithPhone = leads.filter(l => l.phone || l.whatsapp || l.telefono)
-  const leadsWithoutPhone = leads.filter(l => !l.phone && !l.whatsapp && !l.telefono)
+  // ── Conversations (grouped messages by lead) ──────────────────────────────
 
-  const getLeadPhone = (lead) => lead.whatsapp || lead.phone || lead.telefono || ''
-  const getLeadName = (lead) => lead.name || lead.nombre || lead.business_name || lead.empresa || 'Sin nombre'
-  const getLeadMessage = (leadId) => messages.find(m => (m.lead_id || m.leadId) === leadId)
+  const conversations = useMemo(() => {
+    const convMap = new Map()
 
-  const totalGenerated = messages.length
-  const totalSent = messages.filter(m => m.status === 'SENT' || m.status === 'ENVIADO').length
-  const totalPending = messages.filter(m => m.status === 'PENDING' || m.status === 'PENDIENTE' || !m.status).length
+    // Initialize from leads
+    leads.forEach(lead => {
+      const id = lead.id || lead._id
+      if (!id) return
+      convMap.set(String(id), {
+        leadId: String(id),
+        lead,
+        messages: [],
+        lastMessage: null,
+        lastTime: null,
+        unreadCount: 0,
+        aiEnabled: getAIState(id),
+      })
+    })
 
-  // ── Generate message for a single lead ──
-  const generateMessage = async (leadId) => {
-    setGeneratingLeadId(leadId)
-    try {
-      const res = await api.post('/api/outreach/whatsapp/generate', { leadId })
-      const msg = res.data?.data || res.data?.message || res.data
-      if (msg) {
-        setMessages(prev => {
-          const exists = prev.findIndex(m => (m.lead_id || m.leadId) === leadId)
-          if (exists >= 0) {
-            const updated = [...prev]
-            updated[exists] = { ...updated[exists], ...msg }
-            return updated
-          }
-          return [msg, ...prev]
+    // Add messages to conversations
+    messages.forEach(msg => {
+      const leadId = String(msg.lead_id || msg.leadId)
+      if (convMap.has(leadId)) {
+        const conv = convMap.get(leadId)
+        conv.messages.push(msg)
+      } else {
+        // Message for lead not in current list, create placeholder
+        convMap.set(leadId, {
+          leadId,
+          lead: { id: leadId, name: msg.lead_name || 'Desconocido', phone: msg.to || msg.phone },
+          messages: [msg],
+          lastMessage: null,
+          lastTime: null,
+          unreadCount: 0,
+          aiEnabled: getAIState(leadId),
         })
-        showToast('Mensaje generado con IA')
-        return msg
       }
-    } catch {
-      showToast('Error al generar mensaje', 'error')
-    } finally {
-      setGeneratingLeadId(null)
-    }
-    return null
-  }
-
-  // ── Mark as sent ──
-  const markAsSent = async (messageId) => {
-    try {
-      await api.patch(`/api/outreach/messages/${messageId}`, { status: 'SENT' })
-      setMessages(prev => prev.map(m => (m.id || m._id) === messageId ? { ...m, status: 'SENT' } : m))
-      showToast('Marcado como enviado')
-    } catch {
-      // Optimistic update anyway
-      setMessages(prev => prev.map(m => (m.id || m._id) === messageId ? { ...m, status: 'SENT' } : m))
-      showToast('Marcado como enviado')
-    }
-  }
-
-  // ── Open WhatsApp ──
-  const openWhatsApp = (phone, text) => {
-    const cleanPhone = phone.replace(/[^0-9+]/g, '')
-    const encoded = encodeURIComponent(text || '')
-    window.open(`https://wa.me/${cleanPhone}?text=${encoded}`, '_blank')
-  }
-
-  // ── Copy to clipboard ──
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text).then(() => {
-      showToast('Copiado al portapapeles')
-    }).catch(() => {
-      showToast('Error al copiar', 'error')
     })
-  }
 
-  // ── Playground: generate test message ──
-  const generateTestMessage = (data, style = 'professional') => {
-    const senderName = 'Gian Koch'
-    const templates = {
-      professional: `Hola! Soy ${senderName} de Adbize. Encontre a ${data.name} investigando empresas de ${data.sector} en ${data.city}. En Adbize ayudamos a empresas a automatizar procesos con inteligencia artificial. ¿Les interesaria saber como la IA puede ayudarles a crecer?`,
-      casual: `Hola! 👋 Soy ${senderName} de Adbize. Vi que ${data.name} trabaja en ${data.sector} en ${data.city} y me parecio interesante. Nosotros hacemos soluciones de IA para empresas. ¿Te copa que charlemos 5 min?`,
-      direct: `Hola, soy ${senderName} de Adbize. Tenemos soluciones de IA para empresas de ${data.sector}. ¿Tienen 15 min esta semana para una demo rapida?`,
-    }
-    return templates[style] || templates.professional
-  }
-
-  const pgData = { name: pgName, sector: pgSector, city: pgCity, website: pgWebsite, context: pgContext }
-
-  const handlePgGenerate = () => {
-    const msg = generateTestMessage(pgData, 'professional')
-    setPgMessage(msg)
-    setPgLog(prev => [{ text: msg, style: 'professional', timestamp: new Date().toISOString() }, ...prev])
-    showToast('Mensaje generado localmente')
-  }
-
-  const handlePgGenerateApi = async () => {
-    setPgApiLoading(true)
-    try {
-      const res = await api.post('/api/outreach/whatsapp/generate', { leadId: 'playground-test' })
-      const msg = res.data?.data?.text || res.data?.data?.message || res.data?.data?.content || res.data?.message || ''
-      if (msg) {
-        setPgMessage(msg)
-        setPgLog(prev => [{ text: msg, style: 'api', timestamp: new Date().toISOString() }, ...prev])
-        showToast('Mensaje generado via API')
+    // Sort messages within each conversation, compute last message
+    const result = []
+    convMap.forEach(conv => {
+      conv.messages.sort((a, b) => new Date(a.created_at || a.createdAt || 0) - new Date(b.created_at || b.createdAt || 0))
+      const last = conv.messages[conv.messages.length - 1]
+      if (last) {
+        conv.lastMessage = last.message || last.content || last.body || ''
+        conv.lastTime = last.created_at || last.createdAt || last.sent_at
       }
-    } catch {
-      // Fallback to client-side generation
-      const msg = generateTestMessage(pgData, 'professional')
-      setPgMessage(msg)
-      setPgLog(prev => [{ text: msg, style: 'fallback', timestamp: new Date().toISOString() }, ...prev])
-      showToast('API no disponible, generado localmente', 'info')
-    } finally {
-      setPgApiLoading(false)
-    }
-  }
-
-  const handlePgVariations = () => {
-    const styles = [
-      { key: 'professional', label: 'Formal' },
-      { key: 'casual', label: 'Casual / Amigable' },
-      { key: 'direct', label: 'Directo / Corto' },
-    ]
-    const variations = styles.map(s => ({
-      label: s.label,
-      style: s.key,
-      text: generateTestMessage(pgData, s.key),
-    }))
-    setPgVariations(variations)
-    variations.forEach(v => {
-      setPgLog(prev => [{ text: v.text, style: v.style, timestamp: new Date().toISOString() }, ...prev])
+      conv.unreadCount = conv.messages.filter(m =>
+        (m.direction === 'incoming' || m.direction === 'INCOMING') && !m.read
+      ).length
+      result.push(conv)
     })
-    showToast('3 variaciones generadas')
-  }
 
-  const handlePgUseVariation = (text) => {
-    setPgMessage(text)
-    showToast('Variacion seleccionada')
-  }
+    // Sort: conversations with messages first (by last message time), then alphabetical
+    result.sort((a, b) => {
+      if (a.lastTime && b.lastTime) return new Date(b.lastTime) - new Date(a.lastTime)
+      if (a.lastTime) return -1
+      if (b.lastTime) return 1
+      return getLeadName(a.lead).localeCompare(getLeadName(b.lead))
+    })
 
-  // ── Bulk generate ──
-  const handleBulkGenerate = async () => {
-    const eligibleLeads = leadsWithPhone.filter(l => !getLeadMessage(l.id || l._id))
-    if (eligibleLeads.length === 0) {
-      showToast('Todos los leads ya tienen mensajes generados', 'info')
-      return
-    }
-    setBulkGenerating(true)
-    setBulkProgress({ current: 0, total: eligibleLeads.length })
+    return result
+  }, [leads, messages])
 
-    for (let i = 0; i < eligibleLeads.length; i++) {
-      const lead = eligibleLeads[i]
-      try {
-        const res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id || lead._id })
-        const msg = res.data?.data || res.data?.message || res.data
-        if (msg) {
-          setMessages(prev => [msg, ...prev])
-        }
-      } catch { /* continue */ }
-      setBulkProgress({ current: i + 1, total: eligibleLeads.length })
+  // ── Filtered conversations ────────────────────────────────────────────────
+
+  const filteredConversations = useMemo(() => {
+    let filtered = conversations
+
+    // Filter by AI mode
+    if (filterMode === 'con_ia') {
+      filtered = filtered.filter(c => c.aiEnabled)
+    } else if (filterMode === 'sin_ia') {
+      filtered = filtered.filter(c => !c.aiEnabled)
     }
 
-    setBulkGenerating(false)
-    showToast(`Mensajes generados para ${eligibleLeads.length} leads`)
-    loadMessages()
-  }
-
-  // ── Manual mode: generate ──
-  const handleManualGenerate = async () => {
-    if (!selectedLeadId) return
-    setManualGenerating(true)
-    const msg = await generateMessage(selectedLeadId)
-    if (msg) {
-      setManualMessage(msg.text || msg.message || msg.content || '')
-    }
-    setManualGenerating(false)
-  }
-
-  // ── Filter & paginate messages ──
-  const filteredMessages = messages.filter(m => {
-    if (statusFilter !== 'ALL') {
-      const mStatus = m.status || 'PENDING'
-      if (statusFilter === 'SENT' && mStatus !== 'SENT' && mStatus !== 'ENVIADO') return false
-      if (statusFilter === 'PENDING' && mStatus !== 'PENDING' && mStatus !== 'PENDIENTE' && mStatus) return false
-    }
-    if (searchTerm) {
+    // Filter by search
+    if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase()
-      const lead = leads.find(l => (l.id || l._id) === (m.lead_id || m.leadId))
-      const leadName = lead ? getLeadName(lead).toLowerCase() : ''
-      const msgText = (m.text || m.message || m.content || '').toLowerCase()
-      return leadName.includes(term) || msgText.includes(term)
+      filtered = filtered.filter(c => {
+        const name = getLeadName(c.lead).toLowerCase()
+        const phone = getLeadPhone(c.lead).toLowerCase()
+        return name.includes(term) || phone.includes(term)
+      })
     }
-    return true
-  })
 
-  const totalPages = Math.max(1, Math.ceil(filteredMessages.length / PAGE_SIZE))
-  const paginatedMessages = filteredMessages.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+    return filtered
+  }, [conversations, filterMode, searchTerm])
 
-  // Reset page when filter changes
-  useEffect(() => { setPage(1) }, [statusFilter, searchTerm])
+  // ── Selected conversation ─────────────────────────────────────────────────
 
-  // ── Loading state ──
-  if (leadsLoading && messagesLoading) {
+  const selectedConv = useMemo(() => {
+    if (!selectedLeadId) return null
+    return conversations.find(c => c.leadId === String(selectedLeadId)) || null
+  }, [conversations, selectedLeadId])
+
+  // ── Scroll to bottom when messages change ─────────────────────────────────
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [selectedConv?.messages?.length])
+
+  // ── Focus input when conversation selected ────────────────────────────────
+
+  useEffect(() => {
+    if (selectedLeadId && inputRef.current) {
+      inputRef.current.focus()
+    }
+  }, [selectedLeadId])
+
+  // ── Actions ────────────────────────────────────────────────────────────────
+
+  const handleSelectConversation = (leadId) => {
+    setSelectedLeadId(leadId)
+    setInputText('')
+    setShowMobileChat(true)
+  }
+
+  const handleToggleAI = (leadId) => {
+    const current = getAIState(leadId)
+    setAIState(leadId, !current)
+
+    // Add a system message locally
+    const systemMsg = {
+      id: `sys_${Date.now()}`,
+      lead_id: leadId,
+      message: current ? 'IA desactivada para esta conversacion' : 'IA activada para esta conversacion',
+      direction: 'system',
+      created_at: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, systemMsg])
+  }
+
+  const handleSendMessage = async () => {
+    if (!inputText.trim() || !selectedLeadId || sending) return
+
+    const text = inputText.trim()
+    setInputText('')
+    setSending(true)
+
+    // Optimistic local message
+    const tempMsg = {
+      id: `temp_${Date.now()}`,
+      lead_id: selectedLeadId,
+      message: text,
+      direction: 'outgoing',
+      status: 'sending',
+      created_at: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, tempMsg])
+
+    try {
+      await api.post('/api/outreach/whatsapp/generate', {
+        leadId: selectedLeadId,
+        message: text,
+      })
+      // Update the temp message status
+      setMessages(prev =>
+        prev.map(m => m.id === tempMsg.id ? { ...m, status: 'sent' } : m)
+      )
+    } catch (err) {
+      console.error('Error sending:', err)
+      setMessages(prev =>
+        prev.map(m => m.id === tempMsg.id ? { ...m, status: 'failed' } : m)
+      )
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const handleGenerateAI = async () => {
+    if (!selectedLeadId || generatingAI) return
+    setGeneratingAI(true)
+
+    try {
+      const { data } = await api.post('/api/outreach/whatsapp/generate', {
+        leadId: selectedLeadId,
+      })
+      const generated = data.message || data.content || data.text || ''
+      if (generated) {
+        setInputText(generated)
+        inputRef.current?.focus()
+      }
+    } catch (err) {
+      console.error('Error generating AI message:', err)
+    } finally {
+      setGeneratingAI(false)
+    }
+  }
+
+  const handleConnectWhatsApp = async () => {
+    if (connecting) return
+    setConnecting(true)
+    try {
+      const { data } = await api.post('/api/outreach/whatsapp/connect')
+      if (data.qr) setQrCode(data.qr)
+      if (data.status) setWhatsappStatus(data.status)
+    } catch (err) {
+      console.error('Error connecting WhatsApp:', err)
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSendMessage()
+    }
+  }
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+
+  const stats = useMemo(() => {
+    const totalConversaciones = conversations.filter(c => c.messages.length > 0).length
+    const totalMensajes = messages.filter(m => m.direction !== 'system').length
+    const conIA = conversations.filter(c => c.aiEnabled).length
+    return { totalConversaciones, totalMensajes, conIA }
+  }, [conversations, messages])
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  if (!isAdmin) return null
+
+  return (
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: '#f0f2f5' }}>
+      {/* ── Stats Bar ─────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+        padding: '12px 20px',
+        background: '#075E54',
+        color: '#fff',
+        flexWrap: 'wrap',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: 18, marginRight: 'auto' }}>
+          <MessageCircle size={22} />
+          WhatsApp Inbox
+        </div>
+        <StatPill icon={<MessageSquare size={14} />} label="Conversaciones" value={stats.totalConversaciones} />
+        <StatPill icon={<Send size={14} />} label="Mensajes" value={stats.totalMensajes} />
+        <StatPill icon={<Bot size={14} />} label="Con IA" value={stats.conIA} />
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 12px',
+          borderRadius: 20,
+          background: whatsappStatus === 'connected' ? 'rgba(37,211,102,0.25)' : 'rgba(255,255,255,0.15)',
+          fontSize: 13,
+          fontWeight: 500,
+        }}>
+          {whatsappStatus === 'connected'
+            ? <><Wifi size={14} /> Conectado</>
+            : <><WifiOff size={14} /> Desconectado</>
+          }
+        </div>
+      </div>
+
+      {/* ── WhatsApp Connection Banner ────────────────────────────────────── */}
+      {whatsappStatus !== 'connected' && (
+        <div style={{
+          padding: '16px 20px',
+          background: '#fff3cd',
+          borderBottom: '1px solid #ffc107',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          flexWrap: 'wrap',
+          flexShrink: 0,
+        }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontWeight: 600, color: '#856404', marginBottom: 4 }}>
+              WhatsApp no conectado
+            </div>
+            <div style={{ fontSize: 13, color: '#856404' }}>
+              Conecta tu WhatsApp para enviar y recibir mensajes en tiempo real.
+              Mientras tanto, puedes generar mensajes con IA.
+            </div>
+          </div>
+          <button
+            onClick={handleConnectWhatsApp}
+            disabled={connecting}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '10px 20px',
+              background: '#25D366',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              fontWeight: 600,
+              cursor: connecting ? 'not-allowed' : 'pointer',
+              fontSize: 14,
+            }}
+          >
+            {connecting ? <Loader2 size={16} className="spin" /> : <QrCode size={16} />}
+            {connecting ? 'Conectando...' : 'Conectar WhatsApp'}
+          </button>
+          {qrCode && (
+            <div style={{
+              padding: 12,
+              background: '#fff',
+              borderRadius: 8,
+              border: '1px solid #ddd',
+            }}>
+              <img src={qrCode} alt="QR Code" style={{ width: 150, height: 150 }} />
+              <div style={{ fontSize: 11, color: '#666', textAlign: 'center', marginTop: 4 }}>
+                Escanea con WhatsApp
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Main Layout ───────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex',
+        flex: 1,
+        overflow: 'hidden',
+        minHeight: 0,
+      }}>
+        {/* ── Left Sidebar ──────────────────────────────────────────────── */}
+        <div style={{
+          width: '35%',
+          minWidth: 280,
+          maxWidth: 420,
+          borderRight: '1px solid #e0e0e0',
+          background: '#fff',
+          display: 'flex',
+          flexDirection: 'column',
+          ...(showMobileChat ? { display: 'none' } : {}),
+        }}
+          className="inbox-sidebar"
+        >
+          {/* Search + New */}
+          <div style={{ padding: '10px 12px', borderBottom: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 12px',
+                background: '#f0f2f5',
+                borderRadius: 8,
+              }}>
+                <Search size={16} color="#999" />
+                <input
+                  type="text"
+                  placeholder="Buscar conversacion..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    outline: 'none',
+                    flex: 1,
+                    fontSize: 14,
+                    color: '#333',
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  // Select first lead without messages
+                  const fresh = conversations.find(c => c.messages.length === 0)
+                  if (fresh) handleSelectConversation(fresh.leadId)
+                }}
+                title="Nueva Conversacion"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 38,
+                  height: 38,
+                  background: '#25D366',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                }}
+              >
+                <Plus size={18} />
+              </button>
+            </div>
+
+            {/* Filter tabs */}
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[
+                { key: 'todos', label: 'Todos' },
+                { key: 'con_ia', label: 'Con IA' },
+                { key: 'sin_ia', label: 'Sin IA' },
+              ].map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setFilterMode(f.key)}
+                  style={{
+                    flex: 1,
+                    padding: '6px 8px',
+                    fontSize: 12,
+                    fontWeight: filterMode === f.key ? 600 : 400,
+                    background: filterMode === f.key ? '#e7fce9' : '#f5f5f5',
+                    color: filterMode === f.key ? '#075E54' : '#666',
+                    border: filterMode === f.key ? '1px solid #25D366' : '1px solid transparent',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Conversation list */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {leadsLoading ? (
+              <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+                <Loader2 size={24} color="#25D366" className="spin" />
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div style={{ padding: 30, textAlign: 'center', color: '#999', fontSize: 14 }}>
+                {searchTerm ? 'Sin resultados' : 'No hay conversaciones'}
+              </div>
+            ) : (
+              filteredConversations.map(conv => (
+                <ConversationItem
+                  key={conv.leadId}
+                  conv={conv}
+                  isActive={selectedLeadId === conv.leadId}
+                  onClick={() => handleSelectConversation(conv.leadId)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* ── Right Panel (Chat) ────────────────────────────────────────── */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          background: '#efeae2',
+          minWidth: 0,
+          ...((!showMobileChat && !selectedLeadId) ? {} : {}),
+        }}
+          className="inbox-chat"
+        >
+          {!selectedConv ? (
+            /* Empty state */
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 16,
+              color: '#8696a0',
+            }}>
+              <div style={{
+                width: 80,
+                height: 80,
+                borderRadius: '50%',
+                background: '#f0f2f5',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <MessageCircle size={36} color="#bfc8d0" />
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 300, color: '#41525d' }}>
+                WhatsApp Inbox
+              </div>
+              <div style={{ fontSize: 14, textAlign: 'center', maxWidth: 400, lineHeight: 1.5 }}>
+                Selecciona una conversacion del panel izquierdo o inicia una nueva para comenzar a enviar mensajes.
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* ── Chat Header ──────────────────────────────────────────── */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '10px 16px',
+                background: '#075E54',
+                color: '#fff',
+                flexShrink: 0,
+              }}>
+                {/* Back button (mobile) */}
+                <button
+                  onClick={() => { setShowMobileChat(false); setSelectedLeadId(null) }}
+                  className="mobile-back-btn"
+                  style={{
+                    display: 'none',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'none',
+                    border: 'none',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    padding: 0,
+                    marginRight: 4,
+                  }}
+                >
+                  <ArrowLeft size={20} />
+                </button>
+
+                {/* Avatar */}
+                <div style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: '50%',
+                  background: '#25D366',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 16,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}>
+                  {getLeadName(selectedConv.lead).charAt(0).toUpperCase()}
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {getLeadName(selectedConv.lead)}
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.8 }}>
+                    {getLeadPhone(selectedConv.lead)}
+                  </div>
+                </div>
+
+                {/* AI Toggle */}
+                <button
+                  onClick={() => handleToggleAI(selectedConv.leadId)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background: getAIState(selectedConv.leadId) ? 'rgba(37,211,102,0.3)' : 'rgba(255,255,255,0.15)',
+                    color: '#fff',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title={getAIState(selectedConv.leadId) ? 'Desactivar IA' : 'Activar IA'}
+                >
+                  {getAIState(selectedConv.leadId)
+                    ? <><ToggleRight size={16} /> IA Auto</>
+                    : <><ToggleLeft size={16} /> IA Off</>
+                  }
+                </button>
+
+                {/* View Lead */}
+                <button
+                  onClick={() => navigate(`/admin/lead/${selectedConv.leadId}`)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '6px 12px',
+                    borderRadius: 20,
+                    border: '1px solid rgba(255,255,255,0.3)',
+                    background: 'transparent',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    fontWeight: 500,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  <Eye size={14} />
+                  Ver Lead
+                </button>
+              </div>
+
+              {/* ── Messages Area ─────────────────────────────────────────── */}
+              <div style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '16px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+                backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'200\' height=\'200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cdefs%3E%3Cpattern id=\'p\' width=\'40\' height=\'40\' patternUnits=\'userSpaceOnUse\'%3E%3Ccircle cx=\'20\' cy=\'20\' r=\'1\' fill=\'%23d4ccbb\' opacity=\'0.3\'/%3E%3C/pattern%3E%3C/defs%3E%3Crect fill=\'url(%23p)\' width=\'200\' height=\'200\'/%3E%3C/svg%3E")',
+              }}>
+                {selectedConv.messages.length === 0 ? (
+                  <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    <div style={{
+                      background: 'rgba(255,255,255,0.9)',
+                      padding: '12px 20px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      color: '#667781',
+                      textAlign: 'center',
+                    }}>
+                      No hay mensajes aun. Escribe un mensaje o genera uno con IA.
+                    </div>
+                  </div>
+                ) : (
+                  selectedConv.messages.map(msg => (
+                    <ChatBubble key={msg.id} msg={msg} />
+                  ))
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* ── AI Badge (when AI is ON) ──────────────────────────────── */}
+              {getAIState(selectedConv.leadId) && (
+                <div style={{
+                  padding: '6px 16px',
+                  background: '#e7fce9',
+                  borderTop: '1px solid #c8eacc',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 12,
+                  color: '#075E54',
+                  flexShrink: 0,
+                }}>
+                  <Bot size={14} />
+                  <span style={{ fontWeight: 500 }}>La IA responde automaticamente</span>
+                  <span style={{ opacity: 0.6 }}>| Puedes enviar mensajes manuales tambien</span>
+                </div>
+              )}
+
+              {/* ── Input Area ────────────────────────────────────────────── */}
+              <div style={{
+                padding: '10px 16px',
+                background: '#f0f2f5',
+                borderTop: '1px solid #e0e0e0',
+                display: 'flex',
+                alignItems: 'flex-end',
+                gap: 8,
+                flexShrink: 0,
+              }}>
+                {/* Attach (future) */}
+                <button
+                  disabled
+                  title="Adjuntar (proximamente)"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#8696a0',
+                    cursor: 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    opacity: 0.5,
+                  }}
+                >
+                  <Paperclip size={18} />
+                </button>
+
+                {/* Generate AI */}
+                <button
+                  onClick={handleGenerateAI}
+                  disabled={generatingAI}
+                  title="Generar mensaje con IA"
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    border: 'none',
+                    background: generatingAI ? '#ccc' : '#25D366',
+                    color: '#fff',
+                    cursor: generatingAI ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  {generatingAI ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}
+                </button>
+
+                {/* Text input */}
+                <div style={{
+                  flex: 1,
+                  background: '#fff',
+                  borderRadius: 20,
+                  padding: '8px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  minHeight: 36,
+                }}>
+                  <textarea
+                    ref={inputRef}
+                    value={inputText}
+                    onChange={e => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Escribe un mensaje..."
+                    rows={1}
+                    style={{
+                      border: 'none',
+                      outline: 'none',
+                      resize: 'none',
+                      flex: 1,
+                      fontSize: 14,
+                      lineHeight: '20px',
+                      maxHeight: 100,
+                      overflow: 'auto',
+                      fontFamily: 'inherit',
+                      background: 'transparent',
+                    }}
+                  />
+                </div>
+
+                {/* Send */}
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!inputText.trim() || sending}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: '50%',
+                    border: 'none',
+                    background: inputText.trim() ? '#25D366' : '#ccc',
+                    color: '#fff',
+                    cursor: inputText.trim() && !sending ? 'pointer' : 'not-allowed',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {sending ? <Loader2 size={18} className="spin" /> : <Send size={18} />}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Inline Styles ─────────────────────────────────────────────────── */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .spin {
+          animation: spin 1s linear infinite;
+        }
+        .inbox-sidebar {
+          display: flex !important;
+        }
+
+        /* Scrollbar styling */
+        .inbox-sidebar > div:last-child::-webkit-scrollbar,
+        .inbox-chat > div:nth-child(2)::-webkit-scrollbar {
+          width: 6px;
+        }
+        .inbox-sidebar > div:last-child::-webkit-scrollbar-thumb,
+        .inbox-chat > div:nth-child(2)::-webkit-scrollbar-thumb {
+          background: #c5c5c5;
+          border-radius: 3px;
+        }
+        .inbox-sidebar > div:last-child::-webkit-scrollbar-track,
+        .inbox-chat > div:nth-child(2)::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        /* Mobile responsive */
+        @media (max-width: 768px) {
+          .inbox-sidebar {
+            width: 100% !important;
+            max-width: 100% !important;
+            border-right: none !important;
+          }
+          .inbox-chat {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 10;
+          }
+          .mobile-back-btn {
+            display: flex !important;
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Sub-components ───────────────────────────────────────────────────────────
+
+function StatPill({ icon, label, value }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      padding: '4px 12px',
+      background: 'rgba(255,255,255,0.12)',
+      borderRadius: 20,
+      fontSize: 13,
+    }}>
+      {icon}
+      <span style={{ opacity: 0.8 }}>{label}</span>
+      <span style={{ fontWeight: 700 }}>{value}</span>
+    </div>
+  )
+}
+
+function ConversationItem({ conv, isActive, onClick }) {
+  const name = getLeadName(conv.lead)
+  const phone = getLeadPhone(conv.lead)
+  const aiOn = getAIState(conv.leadId)
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 14px',
+        cursor: 'pointer',
+        background: isActive ? '#e7fce9' : '#fff',
+        borderBottom: '1px solid #f5f5f5',
+        borderLeft: isActive ? '3px solid #25D366' : '3px solid transparent',
+        transition: 'background 0.15s',
+      }}
+      onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = '#f5f6f6' }}
+      onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = '#fff' }}
+    >
+      {/* Avatar */}
+      <div style={{
+        width: 44,
+        height: 44,
+        borderRadius: '50%',
+        background: isActive ? '#25D366' : '#dfe5e7',
+        color: isActive ? '#fff' : '#8696a0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: 17,
+        fontWeight: 700,
+        flexShrink: 0,
+      }}>
+        {name.charAt(0).toUpperCase()}
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+          <div style={{
+            fontWeight: 600,
+            fontSize: 14,
+            color: '#111b21',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flex: 1,
+            marginRight: 8,
+          }}>
+            {name}
+          </div>
+          <div style={{ fontSize: 11, color: conv.unreadCount > 0 ? '#25D366' : '#8696a0', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {conv.lastTime ? formatTime(conv.lastTime) : ''}
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{
+            fontSize: 13,
+            color: '#667781',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            flex: 1,
+            marginRight: 8,
+          }}>
+            {conv.lastMessage
+              ? truncate(conv.lastMessage)
+              : <span style={{ fontStyle: 'italic', opacity: 0.6 }}>{phone}</span>
+            }
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            {aiOn && (
+              <div style={{
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: '#25D366',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <Bot size={10} color="#fff" />
+              </div>
+            )}
+            {conv.unreadCount > 0 && (
+              <div style={{
+                minWidth: 20,
+                height: 20,
+                borderRadius: 10,
+                background: '#25D366',
+                color: '#fff',
+                fontSize: 11,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 5px',
+              }}>
+                {conv.unreadCount}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ChatBubble({ msg }) {
+  const direction = msg.direction || 'outgoing'
+  const text = msg.message || msg.content || msg.body || ''
+  const time = formatMessageTime(msg.created_at || msg.createdAt || msg.sent_at)
+  const status = msg.status
+
+  // System message
+  if (direction === 'system') {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-green-500" />
-        <p className="text-sm text-gray-400">Cargando WhatsApp Outreach...</p>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        margin: '8px 0',
+      }}>
+        <div style={{
+          background: 'rgba(225,218,208,0.88)',
+          color: '#54656f',
+          fontSize: 12,
+          padding: '5px 12px',
+          borderRadius: 8,
+          maxWidth: '80%',
+          textAlign: 'center',
+          boxShadow: '0 1px 1px rgba(0,0,0,0.08)',
+        }}>
+          {text}
+        </div>
       </div>
     )
   }
 
+  const isOutgoing = direction === 'outgoing' || direction === 'OUTGOING' || direction === 'sent'
+  const isIncoming = !isOutgoing
+
   return (
-    <div className="space-y-6">
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-6 right-6 z-50 flex items-center gap-2 px-5 py-3 rounded-xl shadow-lg text-sm font-medium transition-all ${
-          toast.type === 'error' ? 'bg-red-500 text-white' :
-          toast.type === 'info' ? 'bg-blue-500 text-white' :
-          'bg-green-500 text-white'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
-          {toast.text}
-          <button onClick={() => setToast(null)} className="ml-2 hover:opacity-70"><X className="w-3.5 h-3.5" /></button>
+    <div style={{
+      display: 'flex',
+      justifyContent: isOutgoing ? 'flex-end' : 'flex-start',
+      marginBottom: 2,
+    }}>
+      <div style={{
+        maxWidth: '65%',
+        minWidth: 80,
+        padding: '6px 8px 4px 9px',
+        borderRadius: isOutgoing ? '8px 0 8px 8px' : '0 8px 8px 8px',
+        background: isOutgoing ? '#dcf8c6' : '#fff',
+        boxShadow: '0 1px 1px rgba(0,0,0,0.08)',
+        position: 'relative',
+      }}>
+        <div style={{
+          fontSize: 14,
+          color: '#111b21',
+          lineHeight: 1.45,
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}>
+          {text}
         </div>
-      )}
-
-      {/* ═══════════════════ HEADER ═══════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* Title + mode toggle */}
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-green-500 rounded-2xl flex items-center justify-center">
-              <MessageCircle className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-800">WhatsApp Outreach</h1>
-              <p className="text-sm text-gray-400">Genera y envia mensajes personalizados por WhatsApp</p>
-            </div>
-          </div>
-
-          {/* Mode Toggle */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setMode(mode === 'auto' ? 'manual' : 'auto')}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                mode === 'auto'
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-              }`}
-            >
-              {mode === 'auto' ? (
-                <>
-                  <ToggleRight className="w-5 h-5" />
-                  Modo Automatico
-                </>
-              ) : (
-                <>
-                  <ToggleLeft className="w-5 h-5" />
-                  Modo Manual
-                </>
-              )}
-            </button>
-            <button
-              onClick={() => { loadLeads(); loadMessages() }}
-              className="p-2.5 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition-colors"
-              title="Refrescar datos"
-            >
-              <RefreshCw className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Stats bar */}
-        <div className="grid grid-cols-3 gap-4 mt-5">
-          <div className="bg-gray-50 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-gray-800">{totalGenerated}</p>
-            <p className="text-xs text-gray-500 mt-1">Total Generados</p>
-          </div>
-          <div className="bg-green-50 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{totalSent}</p>
-            <p className="text-xs text-green-600 mt-1">Enviados</p>
-          </div>
-          <div className="bg-yellow-50 rounded-xl p-4 text-center">
-            <p className="text-2xl font-bold text-yellow-600">{totalPending}</p>
-            <p className="text-xs text-yellow-600 mt-1">Pendientes</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ═══════════════════ WHATSAPP CONNECTION ═══════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div className={`w-3 h-3 rounded-full ${waStatus === 'connected' ? 'bg-green-500' : waStatus === 'qr_ready' ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
-            <h3 className="text-sm font-semibold text-gray-700">
-              {waStatus === 'connected' ? 'WhatsApp Conectado' : waStatus === 'qr_ready' ? 'Escanea el QR' : 'WhatsApp no vinculado'}
-            </h3>
-          </div>
-          {waStatus === 'connected' ? (
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-500">{waName} ({waPhone})</span>
-              <button onClick={handleDisconnectWA} className="text-xs text-red-500 hover:text-red-700 font-medium">Desconectar</button>
-            </div>
-          ) : waStatus !== 'qr_ready' ? (
-            <button onClick={handleConnectWA} disabled={waConnecting}
-              className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-xl text-sm font-medium hover:bg-green-600 transition-colors disabled:opacity-50">
-              {waConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <QrCode className="w-4 h-4" />}
-              Vincular WhatsApp
-            </button>
-          ) : null}
-        </div>
-
-        {/* QR Code */}
-        {waStatus === 'qr_ready' && waQR && (
-          <div className="flex flex-col items-center py-6 bg-gray-50 rounded-xl">
-            <img src={waQR} alt="QR WhatsApp" className="w-64 h-64 rounded-xl border-4 border-white shadow-lg" />
-            <p className="text-sm text-gray-500 mt-4">Abri WhatsApp en tu telefono → Dispositivos vinculados → Vincular dispositivo</p>
-            <div className="flex items-center gap-2 mt-2 text-xs text-blue-500">
-              <Loader2 className="w-3 h-3 animate-spin" /> Esperando escaneo...
-            </div>
-          </div>
-        )}
-
-        {/* Connected - show inbox */}
-        {waStatus === 'connected' && waMessages.length > 0 && (
-          <div className="mt-4">
-            <p className="text-xs text-gray-400 font-semibold uppercase mb-2">Mensajes Recientes</p>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {waMessages.slice(0, 10).map((msg, i) => (
-                <div key={i} className={`flex ${msg.isFromMe ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[70%] rounded-xl px-3 py-2 text-xs ${msg.isFromMe ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-700'}`}>
-                    {!msg.isFromMe && <p className="font-semibold text-[10px] mb-0.5">{msg.fromName}</p>}
-                    <p>{msg.text}</p>
-                    <p className="text-[9px] text-gray-400 mt-0.5 text-right">{new Date(msg.timestamp).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'})}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════════════════ AUTO MODE ═══════════════════ */}
-      {mode === 'auto' && (
-        <div className="space-y-4">
-          {/* Auto banner */}
-          <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-start gap-3">
-            <Sparkles className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-green-800">Modo Automatico IA activo</p>
-              <p className="text-xs text-green-600 mt-0.5">
-                Los mensajes se generan automaticamente para cada lead con WhatsApp/telefono
-              </p>
-            </div>
-          </div>
-
-          {/* Lead cards with generated messages */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-            <div className="p-5 border-b border-gray-100">
-              <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <Users className="w-5 h-5 text-green-600" />
-                Leads con WhatsApp / Telefono
-                <span className="text-sm font-normal text-gray-400 ml-1">({leadsWithPhone.length})</span>
-              </h2>
-            </div>
-
-            {leadsWithPhone.length === 0 ? (
-              <div className="p-8 text-center text-gray-400">
-                <Phone className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p className="text-sm">No se encontraron leads con datos de telefono/WhatsApp</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-gray-50">
-                {leadsWithPhone.slice(0, 20).map(lead => {
-                  const leadId = lead.id || lead._id
-                  const phone = getLeadPhone(lead)
-                  const existingMsg = getLeadMessage(leadId)
-                  const msgText = existingMsg?.text || existingMsg?.message || existingMsg?.content || ''
-                  const msgStatus = existingMsg?.status || 'PENDING'
-                  const isSent = msgStatus === 'SENT' || msgStatus === 'ENVIADO'
-
-                  return (
-                    <div key={leadId} className="p-5 hover:bg-gray-50/50 transition-colors">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <h3 className="text-sm font-semibold text-gray-800 truncate">{getLeadName(lead)}</h3>
-                            {isSent && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                                <CheckCircle className="w-3 h-3" /> Enviado
-                              </span>
-                            )}
-                            {existingMsg && !isSent && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">
-                                <Clock className="w-3 h-3" /> Pendiente
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 flex items-center gap-1">
-                            <Phone className="w-3 h-3" /> {phone}
-                          </p>
-
-                          {/* Message preview */}
-                          {existingMsg && msgText && (
-                            <div className="mt-3 bg-green-50 border border-green-100 rounded-xl p-3">
-                              <p className="text-xs text-gray-600 leading-relaxed line-clamp-3">{msgText}</p>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {!existingMsg ? (
-                            <button
-                              onClick={() => generateMessage(leadId)}
-                              disabled={generatingLeadId === leadId}
-                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 transition-colors"
-                            >
-                              {generatingLeadId === leadId ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Sparkles className="w-3.5 h-3.5" />
-                              )}
-                              Generar
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => openWhatsApp(phone, msgText)}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-green-500 text-white hover:bg-green-600 transition-colors"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" />
-                                Abrir WhatsApp
-                              </button>
-                              {!isSent && (
-                                <button
-                                  onClick={() => markAsSent(existingMsg.id || existingMsg._id)}
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
-                                >
-                                  <CheckCircle className="w-3.5 h-3.5" />
-                                  Marcar como Enviado
-                                </button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════ MANUAL MODE ═══════════════════ */}
-      {mode === 'manual' && (
-        <div className="space-y-4">
-          {/* Manual banner */}
-          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
-            <Zap className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-blue-800">Modo Manual</p>
-              <p className="text-xs text-blue-600 mt-0.5">
-                Selecciona un lead, genera el mensaje con IA, editalo y envialo por WhatsApp
-              </p>
-            </div>
-          </div>
-
-          {/* Compose form */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <Send className="w-5 h-5 text-blue-600" />
-              Componer Mensaje
-            </h2>
-
-            {/* Lead selector */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Seleccionar Lead</label>
-              <select
-                value={selectedLeadId}
-                onChange={(e) => {
-                  setSelectedLeadId(e.target.value)
-                  setManualMessage('')
-                }}
-                className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              >
-                <option value="">-- Seleccionar lead --</option>
-                {leadsWithPhone.map(lead => {
-                  const id = lead.id || lead._id
-                  return (
-                    <option key={id} value={id}>
-                      {getLeadName(lead)} - {getLeadPhone(lead)}
-                    </option>
-                  )
-                })}
-              </select>
-            </div>
-
-            {/* Generate button */}
-            <div className="mb-4">
-              <button
-                onClick={handleManualGenerate}
-                disabled={!selectedLeadId || manualGenerating}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {manualGenerating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4" />
-                )}
-                Generar mensaje con IA
-              </button>
-            </div>
-
-            {/* Message textarea */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Mensaje</label>
-              <textarea
-                value={manualMessage}
-                onChange={(e) => setManualMessage(e.target.value)}
-                rows={5}
-                placeholder="El mensaje generado aparecera aqui. Puedes editarlo antes de enviar..."
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-              />
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => copyToClipboard(manualMessage)}
-                disabled={!manualMessage}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <Copy className="w-4 h-4" />
-                Copiar
-              </button>
-              <button
-                onClick={() => {
-                  const lead = leadsWithPhone.find(l => (l.id || l._id) === selectedLeadId)
-                  if (lead) openWhatsApp(getLeadPhone(lead), manualMessage)
-                }}
-                disabled={!selectedLeadId || !manualMessage}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <ExternalLink className="w-4 h-4" />
-                Abrir WhatsApp
-              </button>
-            </div>
-
-            {/* WhatsApp bubble preview */}
-            {manualMessage && (
-              <div className="mt-6">
-                <p className="text-xs font-medium text-gray-500 mb-2 flex items-center gap-1">
-                  <Eye className="w-3.5 h-3.5" /> Vista previa
-                </p>
-                <div className="max-w-md">
-                  <div className="bg-[#dcf8c6] rounded-2xl rounded-bl-md p-4 shadow-sm relative">
-                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{manualMessage}</p>
-                    <div className="flex items-center justify-end gap-1 mt-2">
-                      <span className="text-[10px] text-gray-500">
-                        {new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                      <CheckCircle className="w-3 h-3 text-blue-400" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════ BULK ACTIONS ═══════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-        <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-          <Zap className="w-5 h-5 text-green-600" />
-          Acciones Masivas
-        </h2>
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <button
-            onClick={handleBulkGenerate}
-            disabled={bulkGenerating || leadsWithPhone.length === 0}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-green-500 text-white hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {bulkGenerating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4" />
-            )}
-            Generar mensajes para todos los leads con WhatsApp
-          </button>
-
-          <div className="flex items-center gap-4 text-sm text-gray-500">
-            <span className="flex items-center gap-1">
-              <Phone className="w-4 h-4 text-green-500" />
-              <strong className="text-gray-800">{leadsWithPhone.length}</strong> con telefono
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: 3,
+          marginTop: 2,
+        }}>
+          <span style={{ fontSize: 11, color: '#8696a0' }}>{time}</span>
+          {isOutgoing && (
+            <span style={{ display: 'inline-flex', alignItems: 'center' }}>
+              {status === 'sending' && <Loader2 size={12} color="#8696a0" className="spin" />}
+              {status === 'sent' && <Check size={13} color="#8696a0" />}
+              {status === 'delivered' && <CheckCheck size={13} color="#8696a0" />}
+              {status === 'read' && <CheckCheck size={13} color="#53bdeb" />}
+              {status === 'failed' && <span style={{ color: '#e74c3c', fontSize: 11 }}>Error</span>}
+              {!status && <Check size={13} color="#8696a0" />}
             </span>
-            <span className="flex items-center gap-1">
-              <Users className="w-4 h-4 text-gray-400" />
-              <strong className="text-gray-800">{leadsWithoutPhone.length}</strong> sin telefono
-            </span>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        {bulkGenerating && (
-          <div className="mt-4">
-            <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-              <span>Generando mensajes...</span>
-              <span>{bulkProgress.current} / {bulkProgress.total}</span>
-            </div>
-            <div className="w-full bg-gray-100 rounded-full h-2">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${bulkProgress.total ? (bulkProgress.current / bulkProgress.total) * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════════════════ MESSAGE HISTORY TABLE ═══════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
-        <div className="p-5 border-b border-gray-100">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-gray-500" />
-              Historial de Mensajes
-              <span className="text-sm font-normal text-gray-400">({filteredMessages.length})</span>
-            </h2>
-
-            <div className="flex items-center gap-2">
-              {/* Search */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Buscar..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent w-48"
-                />
-              </div>
-
-              {/* Status filter */}
-              <div className="relative">
-                <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="pl-9 pr-8 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none bg-white"
-                >
-                  <option value="ALL">Todos</option>
-                  <option value="SENT">Enviados</option>
-                  <option value="PENDING">Pendientes</option>
-                </select>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Table */}
-        {messagesLoading ? (
-          <div className="p-8 text-center">
-            <Loader2 className="w-6 h-6 animate-spin text-green-500 mx-auto" />
-          </div>
-        ) : paginatedMessages.length === 0 ? (
-          <div className="p-8 text-center text-gray-400">
-            <MessageCircle className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="text-sm">No hay mensajes que mostrar</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50/80">
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Lead</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Telefono</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Mensaje</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Estado</th>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Generado</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {paginatedMessages.map(msg => {
-                  const msgId = msg.id || msg._id || Math.random().toString()
-                  const leadId = msg.lead_id || msg.leadId
-                  const lead = leads.find(l => (l.id || l._id) === leadId)
-                  const leadName = lead ? getLeadName(lead) : msg.lead_name || msg.leadName || 'Desconocido'
-                  const phone = lead ? getLeadPhone(lead) : msg.phone || msg.telefono || '-'
-                  const msgText = msg.text || msg.message || msg.content || ''
-                  const status = msg.status || 'PENDING'
-                  const isSent = status === 'SENT' || status === 'ENVIADO'
-                  const createdAt = msg.created_at || msg.createdAt || msg.generatedAt
-                  const isExpanded = expandedRow === msgId
-
-                  return (
-                    <tr key={msgId} className="hover:bg-gray-50/50 transition-colors group">
-                      <td className="px-5 py-3.5">
-                        <span className="font-medium text-gray-800">{leadName}</span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className="text-gray-500 flex items-center gap-1">
-                          <Phone className="w-3 h-3" /> {phone}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 max-w-xs">
-                        {isExpanded ? (
-                          <div className="text-gray-600 whitespace-pre-wrap text-xs leading-relaxed">{msgText}</div>
-                        ) : (
-                          <p className="text-gray-600 truncate">{msgText || '-'}</p>
-                        )}
-                        {msgText && (
-                          <button
-                            onClick={() => setExpandedRow(isExpanded ? null : msgId)}
-                            className="text-xs text-green-600 hover:text-green-700 mt-1 inline-flex items-center gap-0.5"
-                          >
-                            {isExpanded ? (
-                              <><ChevronUp className="w-3 h-3" /> Colapsar</>
-                            ) : (
-                              <><ChevronDown className="w-3 h-3" /> Ver todo</>
-                            )}
-                          </button>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${
-                          isSent
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {isSent ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          {isSent ? 'Enviado' : 'Pendiente'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-gray-400 text-xs whitespace-nowrap">
-                        {createdAt ? new Date(createdAt).toLocaleDateString('es-AR', {
-                          day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit'
-                        }) : '-'}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {msgText && (
-                            <button
-                              onClick={() => copyToClipboard(msgText)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-                              title="Copiar mensaje"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </button>
-                          )}
-                          {phone && phone !== '-' && (
-                            <button
-                              onClick={() => openWhatsApp(phone, msgText)}
-                              className="p-1.5 rounded-lg text-green-500 hover:text-green-700 hover:bg-green-50 transition-colors"
-                              title="Abrir WhatsApp"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                            </button>
-                          )}
-                          {!isSent && (
-                            <button
-                              onClick={() => markAsSent(msgId)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-                              title="Marcar como enviado"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex items-center justify-between px-5 py-4 border-t border-gray-100">
-            <p className="text-xs text-gray-400">
-              Mostrando {(page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, filteredMessages.length)} de {filteredMessages.length}
-            </p>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                let pageNum
-                if (totalPages <= 5) {
-                  pageNum = i + 1
-                } else if (page <= 3) {
-                  pageNum = i + 1
-                } else if (page >= totalPages - 2) {
-                  pageNum = totalPages - 4 + i
-                } else {
-                  pageNum = page - 2 + i
-                }
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${
-                      page === pageNum
-                        ? 'bg-green-500 text-white'
-                        : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                )
-              })}
-              <button
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                disabled={page === totalPages}
-                className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ═══════════════════ PLAYGROUND ═══════════════════ */}
-      <div className="bg-gray-900 rounded-2xl border border-gray-700 shadow-lg overflow-hidden">
-        {/* Playground Header */}
-        <button
-          onClick={() => setPlaygroundOpen(!playgroundOpen)}
-          className="w-full flex items-center justify-between p-5 hover:bg-gray-800/50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-500/20 rounded-xl flex items-center justify-center">
-              <FlaskConical className="w-5 h-5 text-green-400" />
-            </div>
-            <div className="text-left">
-              <h2 className="text-lg font-bold text-white">Playground WhatsApp</h2>
-              <p className="text-xs text-gray-500">Genera y previsualiza mensajes de prueba sin enviar</p>
-            </div>
-          </div>
-          {playgroundOpen ? (
-            <ChevronUp className="w-5 h-5 text-gray-400" />
-          ) : (
-            <ChevronDown className="w-5 h-5 text-gray-400" />
           )}
-        </button>
-
-        {/* Playground Content */}
-        {playgroundOpen && (
-          <div className="border-t border-gray-700 p-5 space-y-6">
-
-            {/* ── Config + Preview Row ── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-              {/* Left: Test Configuration */}
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Configuracion de prueba</h3>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Numero WhatsApp de prueba</label>
-                  <input
-                    type="text"
-                    value={pgPhone}
-                    onChange={(e) => setPgPhone(e.target.value)}
-                    placeholder="+5491112345678"
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Nombre empresa ficticia</label>
-                  <input
-                    type="text"
-                    value={pgName}
-                    onChange={(e) => setPgName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Sector</label>
-                    <select
-                      value={pgSector}
-                      onChange={(e) => setPgSector(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    >
-                      <option value="tecnologia">Tecnologia</option>
-                      <option value="fabricas">Fabricas</option>
-                      <option value="consultora">Consultora</option>
-                      <option value="software">Software</option>
-                      <option value="alimentos">Alimentos</option>
-                      <option value="logistica">Logistica</option>
-                      <option value="retail">Retail</option>
-                      <option value="construccion">Construccion</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-400 mb-1">Ciudad</label>
-                    <select
-                      value={pgCity}
-                      onChange={(e) => setPgCity(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    >
-                      <option value="Buenos Aires">Buenos Aires</option>
-                      <option value="Cordoba">Cordoba</option>
-                      <option value="Rosario">Rosario</option>
-                      <option value="Mendoza">Mendoza</option>
-                      <option value="Tucuman">Tucuman</option>
-                      <option value="Salta">Salta</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Website ficticio</label>
-                  <input
-                    type="text"
-                    value={pgWebsite}
-                    onChange={(e) => setPgWebsite(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1">Contexto adicional <span className="text-gray-600">(opcional)</span></label>
-                  <textarea
-                    value={pgContext}
-                    onChange={(e) => setPgContext(e.target.value)}
-                    rows={2}
-                    placeholder="Ej: empresa familiar, 50 empleados, buscan automatizar..."
-                    className="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-600 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
-                  />
-                </div>
-
-                {/* Action buttons */}
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <button
-                    onClick={handlePgGenerate}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    Generar Mensaje IA
-                  </button>
-                  <button
-                    onClick={handlePgGenerateApi}
-                    disabled={pgApiLoading}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                  >
-                    {pgApiLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                    Generar con API
-                  </button>
-                  {pgMessage && (
-                    <>
-                      <button
-                        onClick={() => openWhatsApp(pgPhone || '+5491100000000', pgMessage)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Abrir WhatsApp
-                      </button>
-                      <button
-                        onClick={() => copyToClipboard(pgMessage)}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-gray-600 text-white hover:bg-gray-500 transition-colors"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                        Copiar Mensaje
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* Right: WhatsApp Phone Preview */}
-              <div className="flex flex-col items-center">
-                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide mb-3 self-start">Vista previa</h3>
-
-                {/* Phone mockup */}
-                <div className="w-full max-w-xs">
-                  <div className="bg-gray-800 rounded-3xl border-2 border-gray-600 overflow-hidden shadow-2xl">
-                    {/* Notch */}
-                    <div className="flex justify-center py-2 bg-gray-800">
-                      <div className="w-20 h-1.5 bg-gray-600 rounded-full" />
-                    </div>
-
-                    {/* Chat header */}
-                    <div className="bg-[#075e54] px-4 py-3 flex items-center gap-3">
-                      <div className="w-8 h-8 bg-gray-400 rounded-full flex items-center justify-center text-xs font-bold text-white">
-                        {pgName.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-white truncate">{pgName}</p>
-                        <div className="flex items-center gap-1">
-                          <div className="w-2 h-2 bg-green-400 rounded-full" />
-                          <span className="text-[10px] text-green-200">en linea</span>
-                        </div>
-                      </div>
-                      <Phone className="w-4 h-4 text-white/70" />
-                    </div>
-
-                    {/* Chat body */}
-                    <div className="bg-[#0b141a] min-h-[200px] p-4 flex flex-col justify-end" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'0.03\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")' }}>
-                      {pgMessage ? (
-                        <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm p-3 max-w-[90%] self-end shadow-sm">
-                          <p className="text-xs text-gray-800 whitespace-pre-wrap leading-relaxed">{pgMessage}</p>
-                          <div className="flex items-center justify-end gap-1 mt-1.5">
-                            <span className="text-[9px] text-gray-500">11:30</span>
-                            <span className="text-[9px] text-blue-500">✓✓</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-center text-gray-500 text-xs py-8">
-                          <MessageCircle className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                          Genera un mensaje para ver la vista previa
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Input bar (decorative) */}
-                    <div className="bg-[#1f2c34] px-3 py-2.5 flex items-center gap-2">
-                      <div className="flex-1 bg-[#2a3942] rounded-full px-4 py-2">
-                        <span className="text-xs text-gray-500">Escribe un mensaje...</span>
-                      </div>
-                      <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center">
-                        <Send className="w-3.5 h-3.5 text-white" />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Counters */}
-                {pgMessage && (
-                  <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-                    <span>{pgMessage.length} caracteres</span>
-                    <span>{pgMessage.split(/\s+/).filter(Boolean).length} palabras</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* ── Variations Generator ── */}
-            <div className="border-t border-gray-700 pt-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Variaciones</h3>
-                <button
-                  onClick={handlePgVariations}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-gray-700 text-green-400 hover:bg-gray-600 border border-gray-600 transition-colors"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  Generar 3 Variaciones
-                </button>
-              </div>
-
-              {pgVariations.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {pgVariations.map((v, idx) => (
-                    <div key={idx} className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                      <div className="px-3 py-2 bg-gray-750 border-b border-gray-700 flex items-center justify-between">
-                        <span className="text-xs font-semibold text-green-400">{v.label}</span>
-                        <span className="text-[10px] text-gray-500">{v.text.length} chars</span>
-                      </div>
-                      <div className="p-3">
-                        <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm p-3 shadow-sm">
-                          <p className="text-[11px] text-gray-800 whitespace-pre-wrap leading-relaxed">{v.text}</p>
-                          <div className="flex items-center justify-end gap-1 mt-1.5">
-                            <span className="text-[9px] text-gray-500">11:30</span>
-                            <span className="text-[9px] text-blue-500">✓✓</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="px-3 pb-3 flex gap-2">
-                        <button
-                          onClick={() => handlePgUseVariation(v.text)}
-                          className="flex-1 inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-green-600 text-white hover:bg-green-700 transition-colors"
-                        >
-                          <CheckCircle className="w-3 h-3" />
-                          Usar esta
-                        </button>
-                        <button
-                          onClick={() => copyToClipboard(v.text)}
-                          className="px-2.5 py-1.5 rounded-lg text-xs bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
-                        >
-                          <Copy className="w-3 h-3" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* ── Test Log ── */}
-            {pgLog.length > 0 && (
-              <div className="border-t border-gray-700 pt-5">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-green-400 uppercase tracking-wide">Log de generacion</h3>
-                  <button
-                    onClick={() => setPgLog([])}
-                    className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                  >
-                    Limpiar
-                  </button>
-                </div>
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {pgLog.map((entry, idx) => (
-                    <div key={idx} className="flex items-start gap-3 bg-gray-800 rounded-lg p-3 border border-gray-700">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`inline-flex px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            entry.style === 'professional' ? 'bg-blue-500/20 text-blue-400' :
-                            entry.style === 'casual' ? 'bg-yellow-500/20 text-yellow-400' :
-                            entry.style === 'direct' ? 'bg-red-500/20 text-red-400' :
-                            entry.style === 'api' ? 'bg-purple-500/20 text-purple-400' :
-                            'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {entry.style}
-                          </span>
-                          <span className="text-[10px] text-gray-600">
-                            {new Date(entry.timestamp).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-400 line-clamp-2">{entry.text}</p>
-                      </div>
-                      <button
-                        onClick={() => copyToClipboard(entry.text)}
-                        className="flex-shrink-0 p-1.5 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors"
-                        title="Copiar"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )
