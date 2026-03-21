@@ -155,6 +155,24 @@ class WhatsAppConnectionService extends EventEmitter {
 
             this.emit('message', entry);
             console.log(`[WhatsApp] Message from ${pushName} (${from}): ${text.slice(0, 50)}`);
+
+            // Save incoming message to DB
+            try {
+              const { pool } = await import('../../config/database.js');
+              // Find lead by phone
+              const leadRes = await pool.query(
+                "SELECT id FROM leads WHERE phone LIKE $1 OR social_whatsapp LIKE $1 LIMIT 1",
+                [`%${from.slice(-8)}%`]
+              );
+              const leadId = leadRes.rows[0]?.id || null;
+              await pool.query(
+                `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
+                 VALUES ($1, 'WHATSAPP', 0, $2, $3, false, 'REPLIED', NOW())`,
+                [leadId, `De: ${pushName}`, text]
+              );
+            } catch (dbErr) {
+              console.error('[WhatsApp] Error saving incoming msg:', dbErr.message);
+            }
           }
         }
       });

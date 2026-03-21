@@ -140,6 +140,45 @@ export default function WhatsAppOutreachPage() {
     }
   }, [])
 
+  // Poll for new messages every 5 seconds when connected
+  useEffect(() => {
+    if (whatsappStatus !== 'connected') return
+    const interval = setInterval(async () => {
+      try {
+        // Load WhatsApp real-time messages
+        const { data } = await api.get('/api/outreach/whatsapp/messages?limit=50')
+        const waMessages = (data.messages || []).map(m => ({
+          id: m.id || `wa-${Date.now()}-${Math.random()}`,
+          lead_id: selectedLeadId,
+          message: m.text || m.message || '',
+          direction: m.isFromMe ? 'outgoing' : 'incoming',
+          status: 'delivered',
+          created_at: m.timestamp || new Date().toISOString(),
+          from: m.from || m.fromName || '',
+          fromName: m.fromName || m.from || '',
+        }))
+        if (waMessages.length > 0) {
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id))
+            const newMsgs = waMessages.filter(m => !existingIds.has(m.id))
+            return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
+          })
+        }
+        // Also reload outreach messages
+        const { data: outData } = await api.get('/api/outreach/messages?channel=WHATSAPP')
+        const outMsgs = outData.messages || []
+        if (outMsgs.length > 0) {
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id))
+            const newMsgs = outMsgs.filter(m => !existingIds.has(m.id))
+            return newMsgs.length > 0 ? [...prev, ...newMsgs] : prev
+          })
+        }
+      } catch {}
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [whatsappStatus, selectedLeadId])
+
   useEffect(() => {
     loadLeads()
     loadMessages()
