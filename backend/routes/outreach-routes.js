@@ -233,6 +233,33 @@ router.get('/lead/:id/messages', async (req, res) => {
   }
 });
 
+// POST /email/send-direct - Send email to any address and save in outreach history
+router.post('/email/send-direct', async (req, res) => {
+  try {
+    const { email, subject, body, leadId } = req.body;
+    if (!email) return res.status(400).json({ success: false, error: 'Email requerido' });
+    if (!subject || !body) return res.status(400).json({ success: false, error: 'Subject y body requeridos' });
+
+    // Wrap in template
+    const avatar = await emailOutreachService.getActiveAvatar();
+    const wrappedBody = await emailOutreachService.wrapInTemplate(body, avatar, null);
+
+    // Send
+    await emailOutreachService.sendEmail(email, subject, wrappedBody);
+
+    // Save to outreach_messages for history
+    await pool.query(
+      `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
+       VALUES ($1, 'EMAIL', 1, $2, $3, false, 'SENT', NOW())`,
+      [leadId || null, subject, wrappedBody]
+    );
+
+    res.json({ success: true, message: `Email enviado a ${email}` });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // POST /email/test - Generate preview or send test email
 router.post('/email/test', async (req, res) => {
   // Set response timeout to 90s

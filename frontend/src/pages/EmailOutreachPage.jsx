@@ -776,11 +776,13 @@ export default function EmailOutreachPage() {
                       const body = document.getElementById('directBodyInput')?.value
                       if (!email || !subject || !body) { alert('Completa todos los campos'); return }
                       try {
-                        await api.post('/api/outreach/email/test', { email, subject, body, sendEmail: true })
+                        await api.post('/api/outreach/email/send-direct', { email, subject, body })
                         showNotification('Email enviado correctamente')
                         document.getElementById('directEmailInput').value = ''
                         document.getElementById('directSubjectInput').value = ''
                         document.getElementById('directBodyInput').value = ''
+                        // Reload messages to show the new thread
+                        await Promise.all([loadMessages(), loadStats()])
                       } catch (err) {
                         showNotification(err.response?.data?.error || 'Error enviando', 'error')
                       }
