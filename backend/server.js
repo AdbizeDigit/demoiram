@@ -93,6 +93,39 @@ app.use('/api/pac-3.0', pac3Routes)
 app.use('/api/scraping', scrapingTerritoriesRoutes)
 app.use('/api/detection', detectionRoutes)
 app.use('/api/scraping-engine', scrapingSystemRoutes)
+// Email webhook (no auth - Brevo calls this directly)
+app.post('/api/webhook/email', async (req, res) => {
+  try {
+    const event = req.body
+    console.log('[Email Webhook]', event.event || event.type, event.email || '')
+
+    const eventType = event.event || event.type || ''
+    const from = event.sender || event.from || event.email || ''
+    const subject = event.subject || ''
+    const content = event.content || event.text || event['stripped-text'] || ''
+
+    if (['reply', 'inbound'].includes(eventType) || (content && from)) {
+      const { pool } = await import('./config/database.js')
+      const leadRes = await pool.query("SELECT id FROM leads WHERE email = $1 LIMIT 1", [from])
+      await pool.query(
+        `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
+         VALUES ($1, 'EMAIL', 0, $2, $3, false, 'REPLIED', NOW())`,
+        [leadRes.rows[0]?.id || null, subject ? `RE: ${subject}` : 'Respuesta', content || 'Respuesta recibida']
+      )
+    }
+
+    if (['opened', 'open', 'unique_opened'].includes(eventType)) {
+      const { pool } = await import('./config/database.js')
+      await pool.query("UPDATE outreach_messages SET status = 'OPENED', opened_at = NOW() WHERE status = 'SENT' ORDER BY sent_at DESC LIMIT 1").catch(() => {})
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('[Email Webhook] Error:', err.message)
+    res.json({ success: true })
+  }
+})
+
 app.use('/api/outreach', outreachRoutes)
 app.use('/api/avatars', avatarRoutes)
 

@@ -507,6 +507,56 @@ router.post('/whatsapp/send-bulk', async (req, res) => {
   }
 });
 
+// ── Email Webhook (receives replies from Brevo) ──
+
+// POST /email/webhook - Brevo webhook for email events (replies, opens, clicks)
+// This endpoint does NOT require auth (Brevo calls it directly)
+router.post('/email/webhook', async (req, res) => {
+  try {
+    const event = req.body
+    console.log('[Email Webhook] Event:', JSON.stringify(event).slice(0, 300))
+
+    const eventType = event.event || event.type
+    const email = event.email || event['message-id']
+    const subject = event.subject || ''
+    const content = event.content || event.text || event['stripped-text'] || ''
+    const from = event.sender || event.from || email
+
+    if (eventType === 'reply' || eventType === 'inbound' || content) {
+      // Save reply as incoming message
+      // Try to find the lead by email
+      const leadRes = await pool.query(
+        "SELECT id, name FROM leads WHERE email = $1 LIMIT 1",
+        [from]
+      )
+      const leadId = leadRes.rows[0]?.id || null
+
+      await pool.query(
+        `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
+         VALUES ($1, 'EMAIL', 0, $2, $3, false, 'REPLIED', NOW())`,
+        [leadId, subject ? `RE: ${subject}` : 'Respuesta', content || 'Respuesta recibida']
+      )
+
+      console.log(`[Email Webhook] Reply saved from ${from}, lead: ${leadId}`)
+    }
+
+    if (eventType === 'opened' || eventType === 'open') {
+      // Update message status to OPENED
+      if (event['message-id']) {
+        await pool.query(
+          "UPDATE outreach_messages SET status = 'OPENED', opened_at = NOW() WHERE id::text LIKE $1 OR subject LIKE $2",
+          [`%${event['message-id']}%`, `%${subject}%`]
+        ).catch(() => {})
+      }
+    }
+
+    res.json({ success: true })
+  } catch (error) {
+    console.error('[Email Webhook] Error:', error.message)
+    res.json({ success: true }) // Always return 200 to Brevo
+  }
+});
+
 // ── Email Config ──
 
 // GET /email/config - Get active email config
