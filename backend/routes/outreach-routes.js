@@ -557,6 +557,30 @@ router.post('/email/webhook', async (req, res) => {
   }
 });
 
+// ── Email Inbox (IMAP) ──
+
+// POST /email/check-inbox - Check for new replies via IMAP
+router.post('/email/check-inbox', async (req, res) => {
+  try {
+    const { default: emailInboxService } = await import('../services/outreach/email-inbox-service.js');
+    const result = await emailInboxService.checkInbox();
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /email/inbox-status - Get inbox polling status
+router.get('/email/inbox-status', async (req, res) => {
+  try {
+    const { default: emailInboxService } = await import('../services/outreach/email-inbox-service.js');
+    const status = emailInboxService.getStatus();
+    res.json({ success: true, ...status });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ── Email Config ──
 
 // GET /email/config - Get active email config

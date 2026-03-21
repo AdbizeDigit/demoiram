@@ -559,6 +559,20 @@ export default function EmailOutreachPage() {
               <span className="font-semibold text-gray-800">{computedStats.aiActiveCount}</span>
             </div>
             <button
+              onClick={async () => {
+                try {
+                  await api.post('/api/outreach/email/check-inbox')
+                  showNotification('Bandeja revisada')
+                } catch {}
+                loadMessages(); loadStats()
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Revisar bandeja de entrada"
+            >
+              <Inbox className="w-3.5 h-3.5" />
+              Revisar Inbox
+            </button>
+            <button
               onClick={() => { loadMessages(); loadStats() }}
               className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="Refrescar"

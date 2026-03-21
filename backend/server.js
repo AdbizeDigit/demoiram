@@ -196,6 +196,15 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error iniciando detection scanner:', err.message);
   }
 
+  // Auto-start email inbox polling (check for replies every 2 min)
+  try {
+    const { default: emailInboxService } = await import('./services/outreach/email-inbox-service.js');
+    emailInboxService.startPolling(2);
+    console.log('📬 Email inbox polling iniciado (cada 2 min)');
+  } catch (err) {
+    console.error('⚠️ Error iniciando email inbox:', err.message);
+  }
+
   // Auto-reconnect WhatsApp if session exists
   try {
     const { pool } = await import('./config/database.js');
