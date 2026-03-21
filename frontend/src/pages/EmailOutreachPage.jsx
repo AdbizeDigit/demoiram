@@ -125,9 +125,10 @@ export default function EmailOutreachPage() {
 
     // Create thread entries from messages
     messages.forEach(msg => {
-      // Group by lead_id, or by email address if no lead_id
+      // Group by lead_id, or by email, or by subject thread
       const msgEmail = msg.lead_email || msg.lead?.email || msg.lead?.lead_data?.email || ''
-      const leadId = msg.lead_id || msg.lead?.id || (msgEmail ? `email-${msgEmail}` : `orphan-${msg.id}`)
+      const baseSubject = (msg.subject || '').replace(/^(RE:|FWD:|Fwd:|Re:)\s*/gi, '').trim().toLowerCase()
+      const leadId = msg.lead_id || msg.lead?.id || (msgEmail ? `email-${msgEmail}` : (baseSubject ? `thread-${baseSubject}` : `orphan-${msg.id}`))
 
       if (!threadMap.has(leadId)) {
         threadMap.set(leadId, {
@@ -219,7 +220,10 @@ export default function EmailOutreachPage() {
       result = result.filter(t => getAiEnabled(t.leadId))
     }
 
-    return result
+    // Prioritize threads with messages, limit empty ones
+    const withEmails = result.filter(t => t.emails.length > 0)
+    const withoutEmails = result.filter(t => t.emails.length === 0).slice(0, 20)
+    return [...withEmails, ...withoutEmails]
   }, [threads, searchQuery, threadFilter])
 
   // ── Selected thread ──
@@ -586,7 +590,7 @@ export default function EmailOutreachPage() {
       </div>
 
       {/* ═══ MAIN CONTENT: SIDEBAR + PANEL ═══ */}
-      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 120px)' }}>
+      <div className="flex flex-1 overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
 
         {/* ── LEFT SIDEBAR: Thread List (35%) ── */}
         <div className="w-[35%] min-w-[320px] bg-white border-r border-gray-200 flex flex-col">
