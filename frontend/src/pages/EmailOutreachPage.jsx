@@ -746,7 +746,6 @@ export default function EmailOutreachPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Email destino</label>
                     <input
                       type="email"
-                      value={composeSubject ? '' : ''}
                       placeholder="email@empresa.com"
                       className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       id="directEmailInput"
