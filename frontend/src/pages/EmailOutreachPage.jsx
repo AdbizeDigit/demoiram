@@ -103,16 +103,10 @@ export default function EmailOutreachPage() {
     try {
       const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
       const allLeads = res.data?.leads || res.data || []
-      setLeads(allLeads.filter(l => l.lead_data?.email))
+      setLeads(allLeads.filter(l => l.email || l.lead_data?.email))
     } catch (err) {
-      // Fallback to CRM endpoint
-      try {
-        const res = await api.get('/api/crm/leads')
-        const allLeads = res.data?.leads || res.data || []
-        setLeads(allLeads.filter(l => l.lead_data?.email))
-      } catch {
-        console.error('Error loading leads:', err)
-      }
+      console.error('Error loading leads:', err)
+      setLeads([])
     }
   }, [])
 
@@ -129,17 +123,16 @@ export default function EmailOutreachPage() {
   const threads = useMemo(() => {
     const threadMap = new Map()
 
-    // Create thread entries for leads that have emails in messages
+    // Create thread entries from messages
     messages.forEach(msg => {
-      const leadId = msg.lead_id || msg.lead?.id
-      if (!leadId) return
+      const leadId = msg.lead_id || msg.lead?.id || `orphan-${msg.id}`
 
       if (!threadMap.has(leadId)) {
         threadMap.set(leadId, {
           leadId,
-          leadName: msg.lead_name || msg.lead?.lead_data?.company || msg.lead?.lead_data?.contact_name || 'Sin nombre',
-          leadEmail: msg.to_email || msg.lead?.lead_data?.email || msg.email || '',
-          leadCompany: msg.lead?.lead_data?.company || '',
+          leadName: msg.lead_name || msg.lead?.name || msg.lead?.lead_data?.company || 'Email Directo',
+          leadEmail: msg.lead_email || msg.lead?.email || msg.lead?.lead_data?.email || '',
+          leadCompany: msg.lead?.lead_data?.company || msg.lead?.name || '',
           emails: [],
           lastDate: null,
           lastStatus: 'PENDING',
@@ -161,15 +154,15 @@ export default function EmailOutreachPage() {
       if (step > thread.maxStep) thread.maxStep = step
     })
 
-    // Add leads without messages
+    // Add leads with email that don't have messages yet
     leads.forEach(lead => {
       const id = lead.id || lead._id
       if (!threadMap.has(id)) {
         threadMap.set(id, {
           leadId: id,
-          leadName: lead.lead_data?.company || lead.lead_data?.contact_name || 'Sin nombre',
-          leadEmail: lead.lead_data?.email || '',
-          leadCompany: lead.lead_data?.company || '',
+          leadName: lead.name || lead.lead_data?.company || lead.lead_data?.contact_name || 'Sin nombre',
+          leadEmail: lead.email || lead.lead_data?.email || '',
+          leadCompany: lead.name || lead.lead_data?.company || '',
           emails: [],
           lastDate: null,
           lastStatus: null,
