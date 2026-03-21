@@ -707,12 +707,90 @@ export default function EmailOutreachPage() {
         {/* ── RIGHT PANEL (65%) ── */}
         <div className="flex-1 flex flex-col bg-gray-50 min-w-0">
           {!selectedLeadId ? (
-            /* Empty state */
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <Mail className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 font-medium">Selecciona un hilo de email o inicia uno nuevo</p>
-                <p className="text-sm text-gray-400 mt-1">Elige un lead de la lista para ver su conversacion</p>
+            /* New Email / Empty state */
+            <div className="flex-1 flex items-center justify-center p-8">
+              <div className="w-full max-w-lg">
+                <div className="text-center mb-6">
+                  <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                    <Mail className="w-7 h-7 text-blue-600" />
+                  </div>
+                  <h2 className="text-lg font-bold text-gray-800">Nuevo Email</h2>
+                  <p className="text-sm text-gray-400 mt-1">Selecciona un lead o escribe un email directo</p>
+                </div>
+
+                {/* Quick lead selector */}
+                <div className="bg-white rounded-2xl border border-gray-200 p-5 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar Lead</label>
+                    <select
+                      onChange={(e) => { if (e.target.value) setSelectedLeadId(e.target.value) }}
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      defaultValue=""
+                    >
+                      <option value="" disabled>Elegir un lead con email...</option>
+                      {threads.filter(t => t.leadEmail).map(t => (
+                        <option key={t.leadId} value={t.leadId}>
+                          {t.leadName} — {t.leadEmail}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                    <span className="text-xs text-gray-400">o envia un email directo</span>
+                    <div className="flex-1 h-px bg-gray-200"></div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email destino</label>
+                    <input
+                      type="email"
+                      value={composeSubject ? '' : ''}
+                      placeholder="email@empresa.com"
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      id="directEmailInput"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Asunto</label>
+                    <input
+                      type="text"
+                      placeholder="Asunto del email..."
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      id="directSubjectInput"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mensaje</label>
+                    <textarea
+                      rows={5}
+                      placeholder="Escribe tu email..."
+                      className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                      id="directBodyInput"
+                    />
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const email = document.getElementById('directEmailInput')?.value
+                      const subject = document.getElementById('directSubjectInput')?.value
+                      const body = document.getElementById('directBodyInput')?.value
+                      if (!email || !subject || !body) { alert('Completa todos los campos'); return }
+                      try {
+                        await api.post('/api/outreach/email/test', { email, subject, body, sendEmail: true })
+                        showNotification('Email enviado correctamente')
+                        document.getElementById('directEmailInput').value = ''
+                        document.getElementById('directSubjectInput').value = ''
+                        document.getElementById('directBodyInput').value = ''
+                      } catch (err) {
+                        showNotification(err.response?.data?.error || 'Error enviando', 'error')
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl transition-colors"
+                  >
+                    <Send className="w-4 h-4" /> Enviar Email
+                  </button>
+                </div>
               </div>
             </div>
           ) : (
