@@ -125,13 +125,15 @@ export default function EmailOutreachPage() {
 
     // Create thread entries from messages
     messages.forEach(msg => {
-      const leadId = msg.lead_id || msg.lead?.id || `orphan-${msg.id}`
+      // Group by lead_id, or by email address if no lead_id
+      const msgEmail = msg.lead_email || msg.lead?.email || msg.lead?.lead_data?.email || ''
+      const leadId = msg.lead_id || msg.lead?.id || (msgEmail ? `email-${msgEmail}` : `orphan-${msg.id}`)
 
       if (!threadMap.has(leadId)) {
         threadMap.set(leadId, {
           leadId,
-          leadName: msg.lead_name || msg.lead?.name || msg.lead?.lead_data?.company || 'Email Directo',
-          leadEmail: msg.lead_email || msg.lead?.email || msg.lead?.lead_data?.email || '',
+          leadName: msg.lead_name || msg.lead?.name || msg.lead?.lead_data?.company || msgEmail || 'Email Directo',
+          leadEmail: msgEmail,
           leadCompany: msg.lead?.lead_data?.company || msg.lead?.name || '',
           emails: [],
           lastDate: null,
