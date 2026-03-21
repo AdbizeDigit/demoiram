@@ -440,6 +440,25 @@ export default function WhatsAppOutreachPage() {
         <StatPill icon={<MessageSquare size={14} />} label="Conversaciones" value={stats.totalConversaciones} />
         <StatPill icon={<Send size={14} />} label="Mensajes" value={stats.totalMensajes} />
         <StatPill icon={<Bot size={14} />} label="Con IA" value={stats.conIA} />
+        {whatsappStatus === 'connected' && (
+          <button
+            onClick={async () => {
+              try {
+                const r = await api.post('/api/outreach/whatsapp/verify-leads')
+                alert(r.data?.message || 'Verificacion iniciada')
+              } catch (err) {
+                alert(err.response?.data?.error || 'Error')
+              }
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '4px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+              background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', cursor: 'pointer',
+            }}
+          >
+            <Search size={13} /> Verificar WhatsApp
+          </button>
+        )}
         <div style={{
           display: 'flex',
           alignItems: 'center',

@@ -256,6 +256,38 @@ class WhatsAppConnectionService extends EventEmitter {
   getMessages(limit = 50) {
     return this.messageHistory.slice(0, limit);
   }
+
+  // Check if a phone number has WhatsApp
+  async checkWhatsApp(phone) {
+    if (!this.socket || this.connectionStatus !== 'connected') {
+      throw new Error('WhatsApp no esta conectado');
+    }
+    const jid = phone.replace(/\D/g, '');
+    try {
+      const [result] = await this.socket.onWhatsApp(jid);
+      return { phone, exists: !!result?.exists, jid: result?.jid || null };
+    } catch {
+      return { phone, exists: false, jid: null };
+    }
+  }
+
+  // Check multiple numbers in bulk
+  async checkWhatsAppBulk(phones) {
+    if (!this.socket || this.connectionStatus !== 'connected') {
+      throw new Error('WhatsApp no esta conectado');
+    }
+    const results = [];
+    for (const phone of phones) {
+      try {
+        const result = await this.checkWhatsApp(phone);
+        results.push(result);
+        await delay(500); // Delay to avoid rate limiting
+      } catch {
+        results.push({ phone, exists: false, jid: null });
+      }
+    }
+    return results;
+  }
 }
 
 // Singleton

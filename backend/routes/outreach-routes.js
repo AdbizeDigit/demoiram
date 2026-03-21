@@ -504,4 +504,112 @@ router.put('/email/config', async (req, res) => {
   }
 });
 
+// ── WhatsApp Verification ──
+
+// POST /whatsapp/verify-leads - Verify all leads with phone numbers for WhatsApp
+router.post('/whatsapp/verify-leads', async (req, res) => {
+  try {
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+
+    if (whatsappConnection.connectionStatus !== 'connected') {
+      return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado. Conecta primero.' });
+    }
+
+    // Add has_whatsapp column if not exists
+    await pool.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS has_whatsapp BOOLEAN DEFAULT NULL');
+    await pool.query('ALTER TABLE leads ADD COLUMN IF NOT EXISTS whatsapp_verified_at TIMESTAMP');
+
+    // Get leads with phone that haven't been verified yet
+    const leadsRes = await pool.query(
+      "SELECT id, name, phone, social_whatsapp FROM leads WHERE (phone IS NOT NULL AND phone != '') AND has_whatsapp IS NULL LIMIT 500"
+    );
+
+    const total = leadsRes.rows.length;
+    if (total === 0) {
+      return res.json({ success: true, message: 'Todos los leads ya fueron verificados', verified: 0, withWhatsApp: 0, withoutWhatsApp: 0 });
+    }
+
+    // Run verification in background
+    res.json({ success: true, message: `Verificando ${total} leads en segundo plano`, total });
+
+    let withWA = 0, withoutWA = 0;
+
+    for (const lead of leadsRes.rows) {
+      const phone = lead.social_whatsapp || lead.phone;
+      if (!phone) continue;
+
+      try {
+        const result = await whatsappConnection.checkWhatsApp(phone);
+
+        await pool.query(
+          'UPDATE leads SET has_whatsapp = $1, whatsapp_verified_at = NOW() WHERE id = $2',
+          [result.exists, lead.id]
+        );
+
+        if (result.exists) {
+          withWA++;
+          // If has WhatsApp but no social_whatsapp, update it
+          if (!lead.social_whatsapp && result.jid) {
+            const waNumber = result.jid.split('@')[0];
+            await pool.query('UPDATE leads SET social_whatsapp = $1 WHERE id = $2', [waNumber, lead.id]);
+          }
+        } else {
+          withoutWA++;
+        }
+      } catch (err) {
+        console.log(`[WA Verify] Error checking ${lead.name}: ${err.message}`);
+      }
+
+      // Delay between checks
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    console.log(`[WA Verify] Done: ${withWA} with WhatsApp, ${withoutWA} without, of ${total} checked`);
+  } catch (error) {
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+});
+
+// GET /whatsapp/verify-stats - Get verification stats
+router.get('/whatsapp/verify-stats', async (req, res) => {
+  try {
+    const [total, verified, withWA, withoutWA, pending] = await Promise.all([
+      pool.query("SELECT COUNT(*) FROM leads WHERE phone IS NOT NULL AND phone != ''"),
+      pool.query("SELECT COUNT(*) FROM leads WHERE has_whatsapp IS NOT NULL"),
+      pool.query("SELECT COUNT(*) FROM leads WHERE has_whatsapp = true"),
+      pool.query("SELECT COUNT(*) FROM leads WHERE has_whatsapp = false"),
+      pool.query("SELECT COUNT(*) FROM leads WHERE has_whatsapp IS NULL AND phone IS NOT NULL AND phone != ''"),
+    ]);
+
+    res.json({
+      success: true,
+      stats: {
+        totalWithPhone: parseInt(total.rows[0].count),
+        verified: parseInt(verified.rows[0].count),
+        withWhatsApp: parseInt(withWA.rows[0].count),
+        withoutWhatsApp: parseInt(withoutWA.rows[0].count),
+        pending: parseInt(pending.rows[0].count),
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /whatsapp/check-number - Check a single number
+router.post('/whatsapp/check-number', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ success: false, error: 'phone requerido' });
+
+    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await whatsappConnection.checkWhatsApp(phone);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 export default router;
