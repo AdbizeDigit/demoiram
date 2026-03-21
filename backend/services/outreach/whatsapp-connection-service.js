@@ -131,7 +131,7 @@ class WhatsAppConnectionService extends EventEmitter {
       this.socket.ev.on('creds.update', saveCreds);
 
       // Listen for incoming messages
-      this.socket.ev.on('messages.upsert', ({ messages }) => {
+      this.socket.ev.on('messages.upsert', async ({ messages }) => {
         for (const msg of messages) {
           if (!msg.key.fromMe && msg.message) {
             const from = msg.key.remoteJid?.split('@')[0] || 'unknown';
