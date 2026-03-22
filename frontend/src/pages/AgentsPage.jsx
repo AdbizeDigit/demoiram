@@ -15,6 +15,13 @@ const TARGET_TYPES = [
   { value: 'enterprises', label: 'Grandes Empresas', icon: Briefcase, color: 'indigo' },
 ]
 
+const COUNTRIES = [
+  'Mexico', 'Argentina', 'Colombia', 'Chile', 'Peru', 'Ecuador', 'Uruguay',
+  'Paraguay', 'Bolivia', 'Venezuela', 'Costa Rica', 'Panama', 'Guatemala',
+  'Republica Dominicana', 'Honduras', 'El Salvador', 'Nicaragua', 'Cuba',
+  'España', 'Estados Unidos', 'Brasil', 'Canada',
+]
+
 const STATUS_CONFIG = {
   idle: { label: 'Inactivo', color: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' },
   running: { label: 'En Ejecucion', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' },
@@ -23,12 +30,10 @@ const STATUS_CONFIG = {
 }
 
 const AVAILABLE_TOOLS = [
-  { id: 'duckduckgo', label: 'DuckDuckGo', icon: Search, desc: 'Busqueda web' },
-  { id: 'google_maps', label: 'Google Maps', icon: MapPin, desc: 'Buscar negocios' },
-  { id: 'linkedin', label: 'LinkedIn', icon: Globe, desc: 'Perfiles publicos' },
-  { id: 'hunter', label: 'Hunter', icon: Zap, desc: 'Encontrar emails' },
-  { id: 'apollo', label: 'Apollo', icon: Rocket, desc: 'Base B2B leads' },
+  { id: 'wikipedia', label: 'Wikipedia', icon: Globe, desc: 'Verificar personas' },
+  { id: 'ai_network', label: 'IA Red', icon: Users, desc: 'Mapear entorno' },
   { id: 'scraping', label: 'Web Scraping', icon: Eye, desc: 'Extraer contactos' },
+  { id: 'hunter', label: 'Hunter', icon: Zap, desc: 'Encontrar emails' },
   { id: 'enrichment', label: 'Enriquecimiento', icon: Sparkles, desc: 'Completar datos' },
   { id: 'email', label: 'Email', icon: Mail, desc: 'Enviar emails' },
   { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, desc: 'Enviar WhatsApp' },
@@ -37,6 +42,7 @@ const AVAILABLE_TOOLS = [
 const ACTION_ICONS = {
   started: { icon: Play, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   stopped: { icon: Square, color: 'text-gray-600', bg: 'bg-gray-50' },
+  network_mapped: { icon: Users, color: 'text-indigo-700', bg: 'bg-indigo-100' },
   phase: { icon: Zap, color: 'text-indigo-700', bg: 'bg-indigo-50' },
   tool_active: { icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
   searching: { icon: Search, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -86,6 +92,7 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
     name: '',
     avatar_id: '',
     target_type: 'business_owners',
+    country: 'Mexico',
     search_keywords: '',
     strategy: '',
     max_contacts_per_run: 10,
@@ -113,6 +120,7 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
           ...(f.name && { name: f.name }),
           ...(f.avatar_id !== undefined && { avatar_id: f.avatar_id || '' }),
           ...(f.target_type && { target_type: f.target_type }),
+          ...(f.country && { country: f.country }),
           ...(f.search_keywords !== undefined && {
             search_keywords: Array.isArray(f.search_keywords) ? f.search_keywords.join(', ') : (f.search_keywords || '')
           }),
@@ -138,6 +146,7 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
           ? form.search_keywords.split(',').map(k => k.trim()).filter(Boolean)
           : [],
         tools: form.tools,
+        country: form.country,
       })
       onClose()
     } catch {
@@ -234,6 +243,18 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
               {avatars.map(a => (
                 <option key={a.id} value={a.id}>{a.name} — {a.role}</option>
               ))}
+            </select>
+          </div>
+
+          {/* Country */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Pais Objetivo</label>
+            <select
+              value={form.country}
+              onChange={e => setForm(f => ({ ...f, country: e.target.value }))}
+              className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              {COUNTRIES.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
 
@@ -495,11 +516,16 @@ function AgentCard({ agent, onStart, onStop, onDelete, onSelect, isSelected }) {
         </span>
       </div>
 
-      {/* Target + Stats */}
-      <div className="flex items-center gap-2 mb-3">
+      {/* Target + Country + Stats */}
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <span className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-${target.color}-50 text-${target.color}-700 border border-${target.color}-200`}>
           <TargetIcon className="w-3 h-3" />{target.label}
         </span>
+        {agent.country && (
+          <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-gray-50 text-gray-600 border border-gray-200">
+            <MapPin className="w-3 h-3" />{agent.country}
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-3">

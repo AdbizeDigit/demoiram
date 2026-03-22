@@ -1,17 +1,11 @@
 import { pool } from '../config/database.js'
-import { analyzeWithDeepSeek } from './deepseek.js'
+import deepseekService, { analyzeWithDeepSeek } from './deepseek.js'
 import axios from 'axios'
 import * as cheerio from 'cheerio'
 import { EventEmitter } from 'events'
 
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/119.0.0.0 Safari/537.36',
-]
-
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
-function randomUA() { return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)] }
 
 // ── Table Init ────────────────────────────────────────────────────────────────
 async function initAgentTables() {
@@ -21,11 +15,12 @@ async function initAgentTables() {
       name VARCHAR(100) NOT NULL,
       avatar_id UUID,
       target_type VARCHAR(50) NOT NULL,
+      country VARCHAR(50) DEFAULT 'Mexico',
       search_keywords TEXT[] DEFAULT '{}',
       strategy TEXT DEFAULT '',
       status VARCHAR(20) DEFAULT 'idle',
       channels TEXT[] DEFAULT '{email,whatsapp}',
-      tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin,hunter,apollo}',
+      tools TEXT[] DEFAULT '{wikipedia,ai_network,scraping,email,whatsapp,enrichment,hunter,apollo}',
       max_contacts_per_run INT DEFAULT 10,
       contacts_found INT DEFAULT 0,
       messages_sent INT DEFAULT 0,
@@ -43,67 +38,31 @@ async function initAgentTables() {
       metadata JSONB DEFAULT '{}',
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS agent_network_maps (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      agent_id UUID REFERENCES ai_agents(id) ON DELETE CASCADE,
+      root_name VARCHAR(200) NOT NULL,
+      root_role VARCHAR(200),
+      network JSONB DEFAULT '{}',
+      country VARCHAR(50),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
   `)
-  // Add tools column if it doesn't exist (migration for existing tables)
-  await pool.query(`
-    ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin,hunter,apollo}'
-  `).catch(() => {})
+  await pool.query(`ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS country VARCHAR(50) DEFAULT 'Mexico'`).catch(() => {})
+  await pool.query(`ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS tools TEXT[] DEFAULT '{wikipedia,ai_network,scraping,email,whatsapp,enrichment,hunter,apollo}'`).catch(() => {})
 }
 
-// ── Log Helper ────────────────────────────────────────────────────────────────
-async function logActivity(agentId, action, detail, targetName, targetCompany, metadata = {}) {
+async function log(agentId, action, detail, name, company, meta = {}) {
   await pool.query(
     `INSERT INTO agent_activity_logs (agent_id, action, detail, target_name, target_company, metadata)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [agentId, action, detail, targetName || null, targetCompany || null, JSON.stringify(metadata)]
+    [agentId, action, detail, name || null, company || null, JSON.stringify(meta)]
   )
 }
 
-// ── Target Search Queries ─────────────────────────────────────────────────────
-const TARGET_QUERIES = {
-  business_owners: [
-    'CEO empresa tecnologia Mexico necesita software 2026',
-    'director general startup Mexico buscando desarrollador app',
-    'fundador empresa Mexico transformacion digital',
-    'dueño empresa PYME Mexico necesita pagina web app',
-    'empresario Mexico busca automatizar procesos con IA',
-  ],
-  celebrities: [
-    'celebridad influencer Mexico lanza marca necesita app',
-    'famoso mexicano nuevo negocio digital plataforma',
-    'influencer latinoamerica busca desarrollar aplicacion',
-    'artista mexicano proyecto digital ecommerce',
-  ],
-  politicians: [
-    'gobierno Mexico licitacion plataforma digital 2026',
-    'municipio Mexico modernizacion sistemas tecnologia',
-    'secretaria Mexico proyecto digitalizacion gobierno',
-    'gobierno estatal Mexico app servicios ciudadanos',
-  ],
-  startups: [
-    'startup Mexico ronda inversion busca equipo desarrollo',
-    'startup latinoamerica necesita CTO desarrollador',
-    'emprendedor Mexico idea app busca desarrollador',
-    'aceleradora Mexico startups tecnologia nuevas',
-  ],
-  enterprises: [
-    'empresa grande Mexico modernizar ERP sistemas',
-    'corporativo Mexico migrar nube cloud',
-    'empresa mexicana busca proveedor software IA',
-    'multinacional Mexico outsourcing desarrollo nearshoring',
-  ],
-}
-
-// Google Maps categories for target types
-const MAPS_QUERIES = {
-  business_owners: ['empresas tecnologia', 'agencia marketing digital', 'consultora empresarial', 'startup incubadora'],
-  celebrities: ['agencia talentos', 'productora eventos', 'agencia influencers'],
-  politicians: ['gobierno municipal oficina', 'dependencia gobierno'],
-  startups: ['coworking espacio', 'incubadora startups', 'hub tecnologia'],
-  enterprises: ['corporativo oficinas', 'empresa manufactura', 'grupo empresarial'],
-}
-
-// ── Agent Runner ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// AGENT RUNNER
+// ══════════════════════════════════════════════════════════════════════════════
 class AgentRunnerService extends EventEmitter {
   constructor() {
     super()
@@ -126,886 +85,535 @@ class AgentRunnerService extends EventEmitter {
 
   async startAgent(agentId) {
     await this.init()
-    if (this.runningAgents.has(agentId)) {
-      return { success: false, message: 'Agente ya esta corriendo' }
-    }
+    if (this.runningAgents.has(agentId)) return { success: false, message: 'Agente ya corriendo' }
 
-    const agentRes = await pool.query('SELECT * FROM ai_agents WHERE id = $1', [agentId])
-    if (!agentRes.rows.length) return { success: false, message: 'Agente no encontrado' }
+    const res = await pool.query('SELECT * FROM ai_agents WHERE id = $1', [agentId])
+    if (!res.rows.length) return { success: false, message: 'Agente no encontrado' }
 
-    const agent = agentRes.rows[0]
-    const control = { abort: false }
-    this.runningAgents.set(agentId, control)
+    const agent = res.rows[0]
+    const ctrl = { abort: false }
+    this.runningAgents.set(agentId, ctrl)
 
     await pool.query("UPDATE ai_agents SET status = 'running', updated_at = NOW() WHERE id = $1", [agentId])
+    await log(agentId, 'started', `Agente "${agent.name}" iniciado. Pais: ${agent.country || 'Mexico'}. Objetivo: ${agent.target_type}`, null, null)
 
-    const toolsList = (agent.tools || []).join(', ') || 'todas'
-    await logActivity(agentId, 'started',
-      `Agente "${agent.name}" iniciado. Objetivo: ${agent.target_type}. Herramientas: ${toolsList}`,
-      null, null, { tools: agent.tools })
-
-    this._runAgentLoop(agent, control).catch(err => {
-      console.error(`[Agent ${agentId}] Fatal error:`, err.message)
+    this._run(agent, ctrl).catch(err => {
+      console.error(`[Agent ${agentId}] Fatal:`, err.message)
     })
-
-    return { success: true, message: 'Agente iniciado' }
-  }
-
-  async stopAgent(agentId) {
-    const control = this.runningAgents.get(agentId)
-    if (!control) return { success: false, message: 'Agente no esta corriendo' }
-    control.abort = true
-    this.runningAgents.delete(agentId)
-    await pool.query("UPDATE ai_agents SET status = 'idle', updated_at = NOW() WHERE id = $1", [agentId])
-    await logActivity(agentId, 'stopped', 'Agente detenido por el usuario', null, null)
     return { success: true }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // MAIN AGENT LOOP
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _runAgentLoop(agent, control) {
-    const agentId = agent.id
-    const tools = agent.tools || ['duckduckgo', 'scraping', 'email', 'whatsapp', 'enrichment', 'google_maps', 'linkedin']
+  async stopAgent(agentId) {
+    const ctrl = this.runningAgents.get(agentId)
+    if (!ctrl) return { success: false, message: 'No esta corriendo' }
+    ctrl.abort = true
+    this.runningAgents.delete(agentId)
+    await pool.query("UPDATE ai_agents SET status = 'idle', updated_at = NOW() WHERE id = $1", [agentId])
+    await log(agentId, 'stopped', 'Agente detenido', null, null)
+    return { success: true }
+  }
+
+  // ── MAIN LOOP ─────────────────────────────────────────────────────────────
+  async _run(agent, ctrl) {
+    const id = agent.id
+    const country = agent.country || 'Mexico'
+    const keywords = (agent.search_keywords || []).filter(k => k.trim())
 
     try {
-      // 1. Get avatar
       let avatar = null
       if (agent.avatar_id) {
-        const avRes = await pool.query('SELECT * FROM avatars WHERE id = $1', [agent.avatar_id])
-        avatar = avRes.rows[0] || null
+        const av = await pool.query('SELECT * FROM avatars WHERE id = $1', [agent.avatar_id])
+        avatar = av.rows[0] || null
       }
 
-      // 2. Build search queries
-      const customKeywords = agent.search_keywords?.filter(k => k.trim()) || []
-      const baseQueries = TARGET_QUERIES[agent.target_type] || TARGET_QUERIES.business_owners
-      const queries = customKeywords.length > 0
-        ? customKeywords.map(k => `${k} Mexico contacto email`)
-        : baseQueries
+      // ═══════════════════════════════════════════════════════════════════════
+      // FASE 1: DESCUBRIMIENTO — Encontrar personas clave
+      // ═══════════════════════════════════════════════════════════════════════
+      await log(id, 'phase', `📡 FASE 1: Descubrimiento en ${country} — buscando ${agent.target_type}...`, null, null)
 
-      let totalFound = 0
-      const allContacts = []
+      // 1A. Usar IA para generar lista de targets reales
+      await log(id, 'tool_active', '🧠 Herramienta: DeepSeek IA — generando lista de targets reales...', null, null)
 
-      // ── PHASE 1: DISCOVERY ──────────────────────────────────────────────────
-      await logActivity(agentId, 'phase', '📡 FASE 1: Descubrimiento — buscando targets en multiples fuentes...', null, null)
+      const targetPrompt = this._buildTargetPrompt(agent.target_type, country, keywords)
+      const targetResp = await analyzeWithDeepSeek(targetPrompt)
+      let targets = []
 
-      // 1A. DuckDuckGo search
-      if (tools.includes('duckduckgo') && !control.abort) {
-        await logActivity(agentId, 'tool_active', '🔍 Herramienta: Web Search activa (DDG Lite + Brave)', null, null)
-
-        for (const query of queries) {
-          if (control.abort || totalFound >= agent.max_contacts_per_run) break
-          await logActivity(agentId, 'searching', `Buscando: "${query}"`, null, null)
-          const results = await this._searchDuckDuckGo(query)
-          await logActivity(agentId, 'search_results', `${results.length} resultados de DuckDuckGo`, null, null)
-
-          for (const r of results.slice(0, 4)) {
-            if (control.abort || totalFound >= agent.max_contacts_per_run) break
-            const contact = await this._extractContactInfo(r, agentId)
-            if (contact && (contact.email || contact.phone)) {
-              allContacts.push(contact)
-              totalFound++
-              await logActivity(agentId, 'found_target',
-                `✅ Target: ${contact.name || 'N/A'} — ${contact.company || 'N/A'} (${contact.email || contact.phone})`,
-                contact.name, contact.company,
-                { email: contact.email, phone: contact.phone, source: 'duckduckgo' })
-            }
-            await sleep(2000)
-          }
-          await sleep(2500)
-        }
+      try {
+        targets = JSON.parse(targetResp.match(/\[[\s\S]*\]/)?.[0] || '[]')
+      } catch {
+        await log(id, 'warning', 'Error parseando targets de IA, reintentando...', null, null)
+        // Retry with simpler prompt
+        const retry = await analyzeWithDeepSeek(
+          `Lista 10 ${agent.target_type === 'politicians' ? 'politicos' : agent.target_type === 'celebrities' ? 'celebridades/influencers' : agent.target_type === 'startups' ? 'fundadores de startups' : agent.target_type === 'enterprises' ? 'CEOs de grandes empresas' : 'empresarios'} reales y actuales de ${country}. JSON array: [{"name":"nombre","role":"cargo","org":"organizacion"}]`
+        )
+        try { targets = JSON.parse(retry.match(/\[[\s\S]*\]/)?.[0] || '[]') } catch {}
       }
 
-      // 1B. Google Maps search
-      if (tools.includes('google_maps') && !control.abort && totalFound < agent.max_contacts_per_run) {
-        await logActivity(agentId, 'tool_active', '🗺️ Herramienta: Google Maps Scraping activa', null, null)
-        const mapQueries = MAPS_QUERIES[agent.target_type] || MAPS_QUERIES.business_owners
-        const cities = ['Ciudad de Mexico', 'Monterrey', 'Guadalajara', 'Puebla', 'Queretaro']
-        const city = cities[Math.floor(Math.random() * cities.length)]
+      await log(id, 'search_results', `IA genero ${targets.length} targets de ${country}`, null, null,
+        { targets: targets.map(t => t.name) })
 
-        for (const mq of mapQueries.slice(0, 2)) {
-          if (control.abort || totalFound >= agent.max_contacts_per_run) break
-          const query = `${mq} ${city} Mexico`
-          await logActivity(agentId, 'searching', `Google Maps: "${query}"`, null, null)
-          const mapResults = await this._searchGoogleMaps(query)
-          await logActivity(agentId, 'search_results', `${mapResults.length} negocios encontrados en Google Maps`, null, null)
-
-          for (const mr of mapResults.slice(0, 3)) {
-            if (control.abort || totalFound >= agent.max_contacts_per_run) break
-            if (mr.email || mr.phone) {
-              allContacts.push(mr)
-              totalFound++
-              await logActivity(agentId, 'found_target',
-                `✅ Negocio: ${mr.company || mr.name} — ${mr.address || city} (${mr.phone || mr.email})`,
-                mr.name, mr.company,
-                { ...mr, source: 'google_maps' })
-            }
-          }
-          await sleep(3000)
-        }
+      if (targets.length === 0) {
+        await log(id, 'error', 'No se pudieron generar targets. Verifica los keywords.', null, null)
+        await pool.query("UPDATE ai_agents SET status = 'error', updated_at = NOW() WHERE id = $1", [id])
+        return
       }
 
-      // 1C. LinkedIn public profile search
-      if (tools.includes('linkedin') && !control.abort && totalFound < agent.max_contacts_per_run) {
-        await logActivity(agentId, 'tool_active', '💼 Herramienta: LinkedIn Discovery activa', null, null)
+      // 1B. Para cada target, Wikipedia para verificar y enriquecer
+      const verifiedTargets = []
 
-        const liTitleMap = {
-          business_owners: ['CEO', 'Director General', 'Fundador', 'Dueño'],
-          celebrities: ['Influencer', 'Content Creator', 'Artista'],
-          politicians: ['Secretario', 'Director Gobierno', 'Alcalde', 'Diputado'],
-          startups: ['Founder', 'Co-Founder', 'CTO', 'CEO startup'],
-          enterprises: ['CTO', 'CIO', 'VP Technology', 'Director TI'],
+      for (const target of targets.slice(0, agent.max_contacts_per_run)) {
+        if (ctrl.abort) break
+
+        await log(id, 'analyzing', `Verificando: ${target.name} — ${target.role || target.org || ''}`, target.name, target.org)
+
+        // Wikipedia verification
+        const wikiData = await this._searchWikipedia(target.name, country)
+        if (wikiData) {
+          target.verified = true
+          target.bio = wikiData.extract?.slice(0, 300)
+          target.wikipedia = wikiData.url
+          await log(id, 'found_target', `✅ Verificado en Wikipedia: ${target.name}`, target.name, target.org,
+            { wikipedia: wikiData.url, bio: target.bio })
+        } else {
+          target.verified = false
+          await log(id, 'found_target', `📌 Target (sin Wikipedia): ${target.name} — ${target.role}`, target.name, target.org)
         }
-        const liTitles = liTitleMap[agent.target_type] || liTitleMap.business_owners
 
-        const liQueries = customKeywords.length > 0
-          ? [
-              ...customKeywords.slice(0, 2).map(k => `site:linkedin.com/in "${k}" Mexico`),
-              `site:linkedin.com/in ${liTitles[0]} ${customKeywords[0]} Mexico`,
-            ]
-          : liTitles.slice(0, 3).map(t => `site:linkedin.com/in "${t}" Mexico tecnologia`)
-
-        for (const lq of liQueries) {
-          if (control.abort || totalFound >= agent.max_contacts_per_run) break
-          await logActivity(agentId, 'searching', `LinkedIn: "${lq}"`, null, null)
-          const liResults = await this._searchDuckDuckGo(lq)
-
-          for (const lr of liResults.slice(0, 3)) {
-            if (control.abort || totalFound >= agent.max_contacts_per_run) break
-            if (!lr.url.includes('linkedin.com')) continue
-            const liProfile = await this._scrapeLinkedInPublic(lr, agentId)
-            if (liProfile) {
-              allContacts.push(liProfile)
-              totalFound++
-              await logActivity(agentId, 'found_target',
-                `✅ LinkedIn: ${liProfile.name || 'N/A'} — ${liProfile.headline || ''} (${liProfile.company || 'N/A'})`,
-                liProfile.name, liProfile.company,
-                { ...liProfile, source: 'linkedin' })
-            }
-            await sleep(3000)
-          }
-          await sleep(2000)
-        }
+        verifiedTargets.push(target)
+        await sleep(1000)
       }
 
-      // 1D. Apollo People Search
-      if (tools.includes('apollo') && !control.abort && totalFound < agent.max_contacts_per_run) {
-        await logActivity(agentId, 'tool_active', '🚀 Herramienta: Apollo People Search activa', null, null)
+      // ═══════════════════════════════════════════════════════════════════════
+      // FASE 2: MAPEO DE RED — Para cada target, mapear su entorno
+      // ═══════════════════════════════════════════════════════════════════════
+      if (ctrl.abort) return
+      await log(id, 'phase', `🕸️ FASE 2: Mapeo de Red — analizando entorno de ${verifiedTargets.length} targets...`, null, null)
 
-        const titleMap = {
-          business_owners: 'CEO',
-          celebrities: 'Influencer',
-          politicians: 'Director Gobierno',
-          startups: 'Founder',
-          enterprises: 'CTO',
-        }
-        const searchTitle = titleMap[agent.target_type] || 'CEO'
-        const searchIndustry = customKeywords[0] || 'tecnologia'
+      const allContacts = [] // {name, role, org, email, phone, linkedin, parent}
 
-        await logActivity(agentId, 'searching', `Apollo: buscando ${searchTitle} en ${searchIndustry}`, null, null)
+      for (const target of verifiedTargets) {
+        if (ctrl.abort) break
+
+        await log(id, 'tool_active', `🗺️ Mapeando red de ${target.name}...`, target.name, target.org)
+
+        // Use AI to generate network map
+        const networkPrompt = `Eres un experto en inteligencia de negocios. Para la siguiente persona real de ${country}, genera un MAPA de su red de contactos cercanos (equipo, asesores, aliados, secretarios, directores, socios, etc).
+
+Persona: ${target.name}
+Cargo: ${target.role || 'N/A'}
+Organizacion: ${target.org || 'N/A'}
+${target.bio ? `Bio: ${target.bio}` : ''}
+
+Genera SOLO un JSON array con personas REALES de su entorno cercano (max 8):
+[{"name":"nombre real","role":"cargo","relationship":"relacion con ${target.name}","org":"organizacion"}]
+
+IMPORTANTE: Solo personas reales verificables. No inventes.`
 
         try {
-          const { apolloService } = await import('./apollo-service.js')
-          const apolloResult = await apolloService.searchPeople({
-            title: searchTitle,
-            industry: searchIndustry,
-            location: 'Mexico',
-            keywords: customKeywords.join(' ') || undefined,
-            limit: Math.min(5, agent.max_contacts_per_run - totalFound),
-          })
+          const networkResp = await analyzeWithDeepSeek(networkPrompt)
+          const network = JSON.parse(networkResp.match(/\[[\s\S]*\]/)?.[0] || '[]')
 
-          await logActivity(agentId, 'search_results', `${apolloResult.people?.length || 0} personas encontradas via Apollo`, null, null)
+          // Save network map to DB
+          await pool.query(
+            `INSERT INTO agent_network_maps (agent_id, root_name, root_role, network, country)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [id, target.name, target.role, JSON.stringify({ target, contacts: network }), country]
+          )
 
-          for (const p of (apolloResult.people || [])) {
-            if (control.abort || totalFound >= agent.max_contacts_per_run) break
-            if (p.email || p.phone || p.linkedin) {
-              allContacts.push({
-                name: p.name,
-                company: p.company,
-                email: p.email,
-                phone: p.phone,
-                linkedin: p.linkedin,
-                website: p.website,
-                role: p.title,
-                location: p.location,
-              })
-              totalFound++
-              await logActivity(agentId, 'found_target',
-                `✅ Apollo: ${p.name || 'N/A'} — ${p.title || ''} @ ${p.company || 'N/A'}`,
-                p.name, p.company, { ...p, source: 'apollo' })
-            }
+          await log(id, 'network_mapped',
+            `🕸️ Red de ${target.name}: ${network.length} contactos — ${network.map(n => n.name).join(', ')}`,
+            target.name, target.org,
+            { network: network.map(n => ({ name: n.name, role: n.role })) })
+
+          // Add target + network to contacts list
+          allContacts.push({ ...target, parent: null })
+          for (const n of network) {
+            allContacts.push({ ...n, parent: target.name })
           }
         } catch (err) {
-          await logActivity(agentId, 'warning', `Apollo error: ${err.message}`, null, null)
+          await log(id, 'warning', `Error mapeando red de ${target.name}: ${err.message}`, target.name, target.org)
+          allContacts.push({ ...target, parent: null })
         }
+
+        await sleep(2000)
       }
 
-      if (allContacts.length === 0) {
-        await logActivity(agentId, 'warning', '⚠️ No se encontraron contactos en ninguna fuente. Intenta con otros keywords.', null, null)
-      }
+      await log(id, 'search_results',
+        `Total contactos en red: ${allContacts.length} (${verifiedTargets.length} targets + ${allContacts.length - verifiedTargets.length} del entorno)`,
+        null, null)
 
-      // ── PHASE 2: ENRICHMENT & VALIDATION ────────────────────────────────────
-      if (allContacts.length > 0 && !control.abort) {
-        await logActivity(agentId, 'phase', `🔬 FASE 2: Enriquecimiento — procesando ${allContacts.length} contactos...`, null, null)
-      }
+      // ═══════════════════════════════════════════════════════════════════════
+      // FASE 3: BUSCAR CONTACTO — email, WhatsApp, LinkedIn de cada uno
+      // ═══════════════════════════════════════════════════════════════════════
+      if (ctrl.abort) return
+      await log(id, 'phase', `🔍 FASE 3: Buscando contacto de ${allContacts.length} personas...`, null, null)
 
       const processedLeads = []
 
       for (const contact of allContacts) {
-        if (control.abort) break
+        if (ctrl.abort) break
+
+        await log(id, 'searching', `Buscando contacto de ${contact.name}...`, contact.name, contact.org)
+
+        // Search for contact info using multiple methods
+        const info = await this._findContactInfo(contact, country, id)
 
         // Save as lead
-        const leadId = await this._saveAsLead(contact, agentId)
+        const leadId = await this._saveAsLead({ ...contact, ...info }, id)
         if (!leadId) continue
 
-        // Hunter: find email by domain if we don't have one
-        if (!contact.email && contact.website && tools.includes('hunter')) {
-          await logActivity(agentId, 'hunter_search',
-            `🎯 Hunter: buscando email en ${contact.website} para ${contact.name || contact.company}...`,
-            contact.name, contact.company)
+        // Enrich with Hunter if we have a website but no email
+        if (!info.email && info.website) {
           try {
             const { hunterService } = await import('./hunter-service.js')
-            const domain = contact.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+            const domain = info.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
             const hunterResult = await hunterService.findByDomain(domain, contact.name)
-
-            if (hunterResult.emails?.length > 0) {
-              const bestEmail = hunterResult.emails[0]
-              contact.email = bestEmail.email
-              await pool.query('UPDATE leads SET email = $1 WHERE id = $2 AND email IS NULL', [bestEmail.email, leadId])
-              await logActivity(agentId, 'hunter_found',
-                `🎯 Hunter encontro email: ${bestEmail.email} (confianza: ${bestEmail.confidence}%)`,
-                contact.name, contact.company,
-                { email: bestEmail.email, confidence: bestEmail.confidence, source: bestEmail.source })
-            } else {
-              await logActivity(agentId, 'hunter_empty',
-                `Hunter: sin emails para ${domain}`, contact.name, contact.company)
+            if (hunterResult.emails?.[0]) {
+              info.email = hunterResult.emails[0].email
+              await pool.query('UPDATE leads SET email = $1 WHERE id = $2 AND email IS NULL', [info.email, leadId])
+              await log(id, 'hunter_found', `🎯 Hunter: ${info.email}`, contact.name, contact.org)
             }
-          } catch (err) {
-            await logActivity(agentId, 'warning', `Hunter error: ${err.message}`, contact.name, contact.company)
-          }
+          } catch {}
         }
 
-        // Enrichment
-        if (tools.includes('enrichment')) {
-          await logActivity(agentId, 'enriching',
-            `Enriqueciendo datos de ${contact.name || contact.company}...`,
-            contact.name, contact.company)
-          const enriched = await this._enrichLead(leadId, agentId)
-          if (enriched) {
-            // Update contact with enriched data
-            if (enriched.email && !contact.email) contact.email = enriched.email
-            if (enriched.phone && !contact.phone) contact.phone = enriched.phone
-            if (enriched.social_linkedin) contact.linkedin = enriched.social_linkedin
-            await logActivity(agentId, 'enriched',
-              `Datos enriquecidos: ${enriched.fieldsFound?.join(', ') || 'completado'}`,
-              contact.name, contact.company,
-              { fieldsFound: enriched.fieldsFound })
-          }
+        // Validate email
+        if (info.email) {
+          try {
+            const { emailValidator } = await import('./email-validator.js')
+            const valid = await emailValidator.validateComplete(info.email)
+            if (valid?.valid === false) {
+              await log(id, 'email_invalid', `❌ Email invalido: ${info.email}`, contact.name, contact.org)
+              info.email = null
+            }
+          } catch {}
         }
 
-        // Email validation
-        if (contact.email && tools.includes('email')) {
-          const valid = await this._validateEmail(contact.email)
-          if (!valid) {
-            await logActivity(agentId, 'email_invalid',
-              `❌ Email invalido: ${contact.email} — se descarta para envio`,
-              contact.name, contact.company)
-            contact.email = null
-          } else {
-            await logActivity(agentId, 'email_valid',
-              `✓ Email valido: ${contact.email}`,
-              contact.name, contact.company)
-          }
+        // Check WhatsApp
+        if (info.phone) {
+          try {
+            const { default: wa } = await import('./outreach/whatsapp-connection-service.js')
+            if (wa.connectionStatus === 'connected') {
+              const hasWA = await wa.checkWhatsApp(info.phone).catch(() => false)
+              info.hasWhatsApp = !!hasWA
+              if (hasWA) await log(id, 'whatsapp_found', `✓ WhatsApp: ${info.phone}`, contact.name, contact.org)
+            }
+          } catch {}
         }
 
-        // WhatsApp check
-        if (contact.phone && tools.includes('whatsapp')) {
-          const hasWA = await this._checkWhatsApp(contact.phone)
-          contact.hasWhatsApp = hasWA
-          if (hasWA) {
-            await logActivity(agentId, 'whatsapp_found',
-              `✓ WhatsApp confirmado: ${contact.phone}`,
-              contact.name, contact.company)
-          }
-        }
+        const summary = [
+          info.email ? `📧${info.email}` : null,
+          info.phone ? `📱${info.phone}` : null,
+          info.linkedin ? '💼LinkedIn' : null,
+        ].filter(Boolean).join(' | ')
 
-        // ML Scoring
-        const score = await this._scoreLead(contact)
-        if (score) {
-          await pool.query('UPDATE leads SET score = $1 WHERE id = $2', [score.score, leadId])
-          await logActivity(agentId, 'scored',
-            `Score: ${score.score}/100 (${score.quality}) — ${contact.name || contact.company}`,
-            contact.name, contact.company,
-            { score: score.score, quality: score.quality })
-        }
+        await log(id, summary ? 'found_target' : 'no_contact',
+          summary ? `✅ ${contact.name}: ${summary}` : `⚠️ ${contact.name}: sin datos de contacto`,
+          contact.name, contact.org, info)
 
-        await pool.query(
-          'UPDATE ai_agents SET contacts_found = contacts_found + 1, updated_at = NOW() WHERE id = $1',
-          [agentId])
-
-        processedLeads.push({ ...contact, leadId, score })
+        await pool.query('UPDATE ai_agents SET contacts_found = contacts_found + 1, updated_at = NOW() WHERE id = $1', [id])
+        processedLeads.push({ ...contact, ...info, leadId })
         await sleep(1500)
       }
 
-      // ── PHASE 3: OUTREACH ───────────────────────────────────────────────────
-      if (processedLeads.length > 0 && !control.abort) {
-        await logActivity(agentId, 'phase',
-          `📨 FASE 3: Outreach — contactando ${processedLeads.length} leads...`, null, null)
+      // ═══════════════════════════════════════════════════════════════════════
+      // FASE 4: OUTREACH — contactar uno por uno
+      // ═══════════════════════════════════════════════════════════════════════
+      const contactable = processedLeads.filter(l => l.email || l.hasWhatsApp)
+      if (contactable.length > 0 && !ctrl.abort) {
+        await log(id, 'phase', `📨 FASE 4: Contactando ${contactable.length} de ${processedLeads.length} personas...`, null, null)
       }
 
-      for (const lead of processedLeads) {
-        if (control.abort) break
+      for (const lead of contactable) {
+        if (ctrl.abort) break
 
-        // Generate personalized message
-        await logActivity(agentId, 'generating_message',
-          `Generando mensaje para ${lead.name || lead.company}...`,
-          lead.name, lead.company)
+        await log(id, 'generating_message', `Generando mensaje para ${lead.name}...`, lead.name, lead.org)
 
-        const outreach = await this._generateOutreach(agentId, agent, avatar, lead)
+        const outreach = await this._generateMessage(agent, avatar, lead, country)
         if (!outreach) continue
 
         // Send Email
-        if (lead.email && tools.includes('email')) {
-          const sent = await this._sendEmail(lead.email, outreach.subject, outreach.htmlBody, agentId, lead)
-          if (sent) {
+        if (lead.email) {
+          try {
+            const { emailOutreachService } = await import('./outreach/email-outreach-service.js')
+            await emailOutreachService.sendEmail(lead.email, outreach.subject, outreach.html)
             await pool.query(
               `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
                VALUES ($1, 'EMAIL', 1, $2, $3, true, 'SENT', NOW())`,
               [lead.leadId, outreach.subject, outreach.message])
-            await logActivity(agentId, 'email_sent',
-              `📧 Email ENVIADO a ${lead.email}: "${outreach.subject}"`,
-              lead.name, lead.company,
-              { email: lead.email, subject: outreach.subject })
+            await log(id, 'email_sent', `📧 Email ENVIADO a ${lead.email}`, lead.name, lead.org)
+          } catch (err) {
+            await log(id, 'email_error', `Error email: ${err.message}`, lead.name, lead.org)
           }
         }
 
         // Send WhatsApp
-        if (lead.phone && lead.hasWhatsApp && tools.includes('whatsapp')) {
-          const waSent = await this._sendWhatsApp(lead.phone, outreach.whatsappMsg, agentId, lead)
-          if (waSent) {
-            await pool.query(
-              `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
-               VALUES ($1, 'WHATSAPP', 1, 'WhatsApp Outreach', $2, true, 'SENT', NOW())`,
-              [lead.leadId, outreach.whatsappMsg])
-            await logActivity(agentId, 'whatsapp_sent',
-              `💬 WhatsApp ENVIADO a ${lead.phone}`,
-              lead.name, lead.company,
-              { phone: lead.phone })
+        if (lead.hasWhatsApp && lead.phone) {
+          try {
+            const { default: wa } = await import('./outreach/whatsapp-connection-service.js')
+            if (wa.connectionStatus === 'connected') {
+              await wa.sendMessage(lead.phone, outreach.whatsapp)
+              await pool.query(
+                `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
+                 VALUES ($1, 'WHATSAPP', 1, 'WhatsApp', $2, true, 'SENT', NOW())`,
+                [lead.leadId, outreach.whatsapp])
+              await log(id, 'whatsapp_sent', `💬 WhatsApp ENVIADO a ${lead.phone}`, lead.name, lead.org)
+            }
+          } catch (err) {
+            await log(id, 'whatsapp_error', `Error WA: ${err.message}`, lead.name, lead.org)
           }
-        } else if (lead.phone && !lead.hasWhatsApp && tools.includes('whatsapp')) {
-          // Queue for manual send
-          await pool.query(
-            `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status)
-             VALUES ($1, 'WHATSAPP', 1, 'WhatsApp Outreach', $2, true, 'PENDING')`,
-            [lead.leadId, outreach.whatsappMsg])
-          await logActivity(agentId, 'whatsapp_queued',
-            `WhatsApp en cola (sin verificar WA): ${lead.phone}`,
-            lead.name, lead.company)
         }
 
-        await pool.query(
-          'UPDATE ai_agents SET messages_sent = messages_sent + 1, updated_at = NOW() WHERE id = $1',
-          [agentId])
-
-        await sleep(5000) // Delay between contacts to avoid spam
+        await pool.query('UPDATE ai_agents SET messages_sent = messages_sent + 1, updated_at = NOW() WHERE id = $1', [id])
+        await sleep(5000) // Anti-spam delay
       }
 
-      // ── PHASE 4: SUMMARY ───────────────────────────────────────────────────
-      if (!control.abort) {
+      // ═══════════════════════════════════════════════════════════════════════
+      // RESUMEN
+      // ═══════════════════════════════════════════════════════════════════════
+      if (!ctrl.abort) {
         const stats = {
-          totalFound: allContacts.length,
-          enriched: processedLeads.length,
-          emailsSent: processedLeads.filter(l => l.email).length,
-          whatsappSent: processedLeads.filter(l => l.hasWhatsApp).length,
+          targets: verifiedTargets.length,
+          networkTotal: allContacts.length,
+          withContact: processedLeads.filter(l => l.email || l.phone).length,
+          emailsSent: contactable.filter(l => l.email).length,
+          whatsappSent: contactable.filter(l => l.hasWhatsApp).length,
         }
-        await pool.query("UPDATE ai_agents SET status = 'completed', updated_at = NOW() WHERE id = $1", [agentId])
-        await logActivity(agentId, 'completed',
-          `🏁 Mision completada. ${stats.totalFound} encontrados, ${stats.enriched} enriquecidos, ${stats.emailsSent} emails enviados, ${stats.whatsappSent} WhatsApp enviados.`,
+        await pool.query("UPDATE ai_agents SET status = 'completed', updated_at = NOW() WHERE id = $1", [id])
+        await log(id, 'completed',
+          `🏁 Mision completada en ${country}. ${stats.targets} targets, ${stats.networkTotal} en red, ${stats.withContact} con contacto, ${stats.emailsSent} emails, ${stats.whatsappSent} WhatsApp.`,
           null, null, stats)
       }
     } catch (err) {
-      console.error(`[Agent ${agentId}] Error:`, err.message)
-      await pool.query("UPDATE ai_agents SET status = 'error', updated_at = NOW() WHERE id = $1", [agentId])
-      await logActivity(agentId, 'error', `Error: ${err.message}`, null, null)
+      console.error(`[Agent ${id}] Error:`, err.message)
+      await pool.query("UPDATE ai_agents SET status = 'error', updated_at = NOW() WHERE id = $1", [id])
+      await log(id, 'error', `Error fatal: ${err.message}`, null, null)
     } finally {
-      this.runningAgents.delete(agentId)
+      this.runningAgents.delete(id)
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Web Search (multi-engine: Bing → Google scrape → DuckDuckGo lite)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _searchDuckDuckGo(query) {
-    // DDG Lite as primary (tested, works without captcha)
-    let results = await this._searchDDGLite(query)
-    if (results.length > 0) return results
+  // ── Build target prompt per type ──────────────────────────────────────────
+  _buildTargetPrompt(type, country, keywords) {
+    const kw = keywords.length > 0 ? `\nEnfoque especifico: ${keywords.join(', ')}` : ''
 
-    // Brave Search as backup
-    results = await this._searchBrave(query)
-    if (results.length > 0) return results
+    const prompts = {
+      politicians: `Lista 12 politicos REALES y ACTUALES de ${country} (gobernadores, senadores, diputados, alcaldes, secretarios de estado, funcionarios). Incluye personas de distintos partidos y niveles de gobierno.${kw}`,
+      celebrities: `Lista 12 celebridades, influencers y figuras publicas REALES y ACTUALES de ${country} que tengan negocios o marcas propias (artistas, youtubers, deportistas, conductores).${kw}`,
+      business_owners: `Lista 12 empresarios y dueños de empresas REALES y ACTUALES de ${country} (CEOs, fundadores, directores generales de empresas medianas y grandes).${kw}`,
+      startups: `Lista 12 fundadores de startups REALES y ACTUALES de ${country} (founders, CTOs de startups tecnologicas activas).${kw}`,
+      enterprises: `Lista 12 directivos de grandes empresas/corporativos REALES y ACTUALES de ${country} (CEOs, CTOs, CIOs de empresas Fortune 500, multinacionales).${kw}`,
+    }
 
-    // DDG API as last resort
-    results = await this._searchDDGApi(query)
-    return results
+    return `${prompts[type] || prompts.business_owners}
+
+IMPORTANTE: Solo personas REALES que existan. No inventes.
+
+Responde SOLO JSON array valido:
+[{"name":"nombre completo real","role":"cargo actual","org":"organizacion/empresa/partido"}]`
   }
 
-  // DuckDuckGo Lite — POST form, no captcha, returns 10+ results
+  // ── Wikipedia Search ──────────────────────────────────────────────────────
+  async _searchWikipedia(name, country) {
+    try {
+      // Search Wikipedia in Spanish
+      const searchUrl = `https://es.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(name + ' ' + country)}&format=json&srlimit=3`
+      const searchResp = await axios.get(searchUrl, { timeout: 8000 })
+      const results = searchResp.data?.query?.search || []
+
+      if (results.length === 0) {
+        // Try English Wikipedia
+        const enUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(name)}&format=json&srlimit=3`
+        const enResp = await axios.get(enUrl, { timeout: 8000 })
+        const enResults = enResp.data?.query?.search || []
+        if (enResults.length === 0) return null
+
+        const title = enResults[0].title
+        const extResp = await axios.get(`https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts&exintro&explaintext&format=json`, { timeout: 8000 })
+        const pages = extResp.data?.query?.pages || {}
+        const page = Object.values(pages)[0]
+        return page?.extract ? { extract: page.extract, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}` } : null
+      }
+
+      const title = results[0].title
+      const extResp = await axios.get(`https://es.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts&exintro&explaintext&format=json`, { timeout: 8000 })
+      const pages = extResp.data?.query?.pages || {}
+      const page = Object.values(pages)[0]
+      return page?.extract ? { extract: page.extract, url: `https://es.wikipedia.org/wiki/${encodeURIComponent(title)}` } : null
+    } catch {
+      return null
+    }
+  }
+
+  // ── Find contact info ─────────────────────────────────────────────────────
+  async _findContactInfo(contact, country, agentId) {
+    const info = { email: null, phone: null, linkedin: null, website: null, twitter: null }
+
+    // 1. Use DDG Lite to find their website/LinkedIn
+    try {
+      const query = `${contact.name} ${contact.org || ''} ${country} contacto`
+      const results = await this._searchDDGLite(query)
+
+      for (const r of results.slice(0, 5)) {
+        if (r.url.includes('linkedin.com/in')) info.linkedin = r.url
+        if (r.url.includes('twitter.com/') || r.url.includes('x.com/')) info.twitter = r.url
+        if (!info.website && !r.url.includes('wikipedia') && !r.url.includes('linkedin') &&
+            !r.url.includes('twitter') && !r.url.includes('facebook') && !r.url.includes('youtube')) {
+          info.website = r.url
+        }
+      }
+    } catch {}
+
+    // 2. If no LinkedIn, search specifically
+    if (!info.linkedin) {
+      try {
+        const liResults = await this._searchDDGLite(`site:linkedin.com/in "${contact.name}" ${country}`)
+        const li = liResults.find(r => r.url.includes('linkedin.com/in'))
+        if (li) info.linkedin = li.url
+      } catch {}
+    }
+
+    // 3. Scrape website for email/phone
+    if (info.website) {
+      try {
+        const resp = await axios.get(info.website, {
+          headers: { 'User-Agent': UA },
+          timeout: 8000,
+          maxContentLength: 500000,
+        })
+        const $ = cheerio.load(resp.data)
+        const text = $('body').text()
+
+        const emails = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || []
+        info.email = emails.filter(e => !e.includes('example') && !e.includes('.png') && !e.includes('sentry'))[0] || null
+
+        const phones = text.match(/(?:\+?(?:52|54|55|57|1)\s?)?(?:\(?\d{2,3}\)?\s?)?\d{3,4}[\s.-]?\d{4}/g) || []
+        info.phone = phones[0]?.replace(/\s/g, '') || null
+
+        // Social links
+        $('a[href]').each((_, el) => {
+          const href = $(el).attr('href') || ''
+          if (!info.linkedin && href.includes('linkedin.com/in')) info.linkedin = href
+          if (!info.twitter && (href.includes('twitter.com/') || href.includes('x.com/'))) info.twitter = href
+        })
+      } catch {}
+    }
+
+    // 4. Use AI as last resort to find known public contact info
+    if (!info.email && !info.phone) {
+      try {
+        const aiResp = await analyzeWithDeepSeek(
+          `Para ${contact.name} (${contact.role || ''}, ${contact.org || ''}) de ${country}, cual es su informacion de contacto PUBLICA conocida? Busca en tu conocimiento.
+Responde SOLO JSON: {"email":"email o null","phone":"telefono o null","linkedin":"url linkedin o null","twitter":"url twitter o null","website":"sitio web o null"}
+Solo datos REALES y PUBLICOS. Si no sabes, pon null.`
+        )
+        const parsed = JSON.parse(aiResp.match(/\{[\s\S]*\}/)?.[0] || '{}')
+        if (parsed.email && parsed.email !== 'null') info.email = parsed.email
+        if (parsed.phone && parsed.phone !== 'null') info.phone = parsed.phone
+        if (parsed.linkedin && parsed.linkedin !== 'null' && !info.linkedin) info.linkedin = parsed.linkedin
+        if (parsed.twitter && parsed.twitter !== 'null' && !info.twitter) info.twitter = parsed.twitter
+        if (parsed.website && parsed.website !== 'null' && !info.website) info.website = parsed.website
+      } catch {}
+    }
+
+    return info
+  }
+
+  // ── DDG Lite Search ───────────────────────────────────────────────────────
   async _searchDDGLite(query) {
     const articles = []
     try {
       const resp = await axios.post('https://lite.duckduckgo.com/lite/',
         `q=${encodeURIComponent(query)}`,
         {
-          headers: {
-            'User-Agent': randomUA(),
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'text/html',
-            'Accept-Language': 'es-MX,es;q=0.9',
-          },
+          headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'text/html' },
           timeout: 12000,
         }
       )
       const $ = cheerio.load(resp.data)
-
-      // DDG Lite uses <a class="result-link">
       $('a.result-link').each((i, el) => {
         const link = $(el).attr('href') || ''
         const title = $(el).text().trim()
         if (title && link?.startsWith('http') && !link.includes('duckduckgo.com')) {
-          // Try to find snippet in adjacent row
-          const row = $(el).closest('tr')
-          const snippetRow = row.next('tr')
-          const snippet = snippetRow.find('td.result-snippet').text().trim() || ''
-          articles.push({ title, url: link, snippet })
+          articles.push({ title, url: link, snippet: '' })
         }
       })
-
-      // Fallback: parse all links that look like results
+      // Fallback
       if (articles.length === 0) {
         $('a[href^="http"]').each((i, el) => {
           const href = $(el).attr('href') || ''
           const text = $(el).text().trim()
-          if (text.length > 10 && !href.includes('duckduckgo.com') && !href.includes('duck.co')) {
+          if (text.length > 10 && !href.includes('duckduckgo') && articles.length < 15) {
             articles.push({ title: text, url: href, snippet: '' })
           }
         })
       }
     } catch (err) {
-      console.error(`[Agent DDG Lite] Error: ${err.message}`)
+      console.error(`[DDG Lite] Error: ${err.message}`)
     }
     return articles
   }
 
-  // Brave Search — reliable, no captcha, rich results
-  async _searchBrave(query) {
-    const articles = []
+  // ── Save as Lead ──────────────────────────────────────────────────────────
+  async _saveAsLead(contact, agentId) {
     try {
-      const resp = await axios.get(`https://search.brave.com/search?q=${encodeURIComponent(query)}`, {
-        headers: {
-          'User-Agent': randomUA(),
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'es-MX,es;q=0.9',
-        },
-        timeout: 12000,
-      })
-      const $ = cheerio.load(resp.data)
-
-      // Brave uses various result containers
-      $('[data-type="web"]').each((i, el) => {
-        const titleEl = $(el).find('a[href]').first()
-        const title = $(el).find('.title, .snippet-title').first().text().trim() || titleEl.text().trim()
-        const link = titleEl.attr('href') || ''
-        const snippet = $(el).find('.snippet-description, .snippet-content').first().text().trim()
-        if (title && link?.startsWith('http') && !link.includes('brave.com')) {
-          articles.push({ title, url: link, snippet })
-        }
-      })
-
-      // Fallback: any <a> inside result divs
-      if (articles.length === 0) {
-        $('a[href^="http"]').each((i, el) => {
-          const href = $(el).attr('href') || ''
-          const text = $(el).text().trim()
-          if (text.length > 15 && !href.includes('brave.com') && !href.includes('javascript:') &&
-              !href.includes('cdn.') && articles.length < 15) {
-            articles.push({ title: text, url: href, snippet: '' })
-          }
-        })
-      }
-    } catch (err) {
-      console.error(`[Agent Brave] Error: ${err.message}`)
-    }
-    return articles
-  }
-
-  // DuckDuckGo Instant Answer API — limited but guaranteed no captcha
-  async _searchDDGApi(query) {
-    const articles = []
-    try {
-      const resp = await axios.get(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`, {
-        timeout: 10000,
-      })
-      const data = resp.data
-      for (const topic of (data.RelatedTopics || [])) {
-        if (topic.FirstURL && topic.Text) {
-          articles.push({ title: topic.Text.slice(0, 100), url: topic.FirstURL, snippet: topic.Text })
-        }
-        for (const sub of (topic.Topics || [])) {
-          if (sub.FirstURL && sub.Text) {
-            articles.push({ title: sub.Text.slice(0, 100), url: sub.FirstURL, snippet: sub.Text })
-          }
-        }
-      }
-      if (data.AbstractURL && data.Abstract) {
-        articles.push({ title: data.Heading || data.Abstract.slice(0, 80), url: data.AbstractURL, snippet: data.Abstract })
-      }
-    } catch (err) {
-      console.error(`[Agent DDG API] Error: ${err.message}`)
-    }
-    return articles
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Google Maps Scraping (free via DuckDuckGo maps link)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _searchGoogleMaps(query) {
-    const businesses = []
-    try {
-      // Use DuckDuckGo to search for businesses (safer than scraping Google directly)
-      const searchQuery = `${query} telefono email contacto`
-      const results = await this._searchDuckDuckGo(searchQuery)
-
-      for (const r of results.slice(0, 5)) {
-        try {
-          const resp = await axios.get(r.url, {
-            headers: { 'User-Agent': randomUA() },
-            timeout: 8000,
-            maxContentLength: 500000,
-          })
-          const $ = cheerio.load(resp.data)
-          const pageText = $('body').text()
-
-          const emailMatch = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)
-          const phoneMatch = pageText.match(/(?:\+?52\s?)?(?:\(?\d{2,3}\)?\s?)?\d{3,4}[\s.-]?\d{4}/g)
-          const email = emailMatch?.filter(e => !e.includes('example.com') && !e.includes('sentry') && !e.includes('.png'))[0] || null
-          const phone = phoneMatch?.[0]?.replace(/\s/g, '') || null
-
-          if (email || phone) {
-            const company = $('meta[property="og:site_name"]').attr('content') || $('title').text().split('|')[0].split('-')[0].trim().slice(0, 100)
-            businesses.push({
-              name: null,
-              company: company || r.title.slice(0, 80),
-              email,
-              phone,
-              website: r.url,
-              address: null,
-            })
-          }
-          await sleep(1500)
-        } catch {}
-      }
-    } catch (err) {
-      console.error(`[Agent Maps] Error: ${err.message}`)
-    }
-    return businesses
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: LinkedIn Public Profile Scraping
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _scrapeLinkedInPublic(searchResult, agentId) {
-    try {
-      // Extract info from DuckDuckGo snippet (LinkedIn blocks scrapers)
-      const { title, snippet, url } = searchResult
-
-      // Parse name and headline from title like "Juan Pérez - CEO at TechCo | LinkedIn"
-      const titleParts = title.replace(/\s*[\|–-]\s*LinkedIn.*$/i, '').trim()
-      const nameParts = titleParts.split(/\s*[-–]\s*/)
-      const name = nameParts[0]?.trim() || null
-      const headline = nameParts[1]?.trim() || null
-
-      // Use AI to extract structured data from snippet
-      const aiResp = await analyzeWithDeepSeek(
-        `Extrae datos de este perfil de LinkedIn. Responde SOLO JSON valido:
-{"name":"nombre","company":"empresa actual","role":"cargo","location":"ubicacion","headline":"titulo profesional"}
-
-Titulo: ${title}
-Snippet: ${snippet?.slice(0, 500) || 'N/A'}`
-      )
-
-      const parsed = JSON.parse(aiResp.match(/\{[\s\S]*\}/)?.[0] || '{}')
-
-      // Try to find email by searching company website
-      let email = null
-      if (parsed.company) {
-        const emailSearch = await this._searchDuckDuckGo(`"${parsed.company}" contacto email site:${parsed.company?.toLowerCase().replace(/\s/g, '')}.com`)
-        for (const es of emailSearch.slice(0, 2)) {
-          try {
-            const resp = await axios.get(es.url, { headers: { 'User-Agent': randomUA() }, timeout: 6000, maxContentLength: 300000 })
-            const emailMatch = resp.data.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)
-            email = emailMatch?.filter(e => !e.includes('example') && !e.includes('.png'))[0] || null
-            if (email) break
-          } catch {}
-          await sleep(1000)
-        }
-      }
-
-      return {
-        name: parsed.name || name,
-        company: parsed.company || null,
-        headline: parsed.headline || headline,
-        role: parsed.role || null,
-        email,
-        phone: null,
-        website: url,
-        linkedin: url,
-        location: parsed.location || null,
-      }
-    } catch (err) {
-      console.error(`[Agent LinkedIn] Error: ${err.message}`)
-      return null
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Page Scraping (extract contact info)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _extractContactInfo(result, agentId) {
-    try {
-      const info = { name: null, company: null, email: null, phone: null, website: result.url }
-
-      const resp = await axios.get(result.url, {
-        headers: { 'User-Agent': randomUA() },
-        timeout: 8000,
-        maxContentLength: 500000,
-        maxRedirects: 3,
-      })
-
-      const $ = cheerio.load(resp.data)
-      const pageText = $('body').text()
-
-      // Extract emails
-      const emailMatch = pageText.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g)
-      if (emailMatch) {
-        const filtered = emailMatch.filter(e =>
-          !e.includes('example.com') && !e.includes('sentry.io') &&
-          !e.includes('wixpress') && !e.includes('wordpress') &&
-          !e.includes('github.com') && !e.includes('.png') && !e.includes('.jpg')
-        )
-        info.email = filtered[0] || null
-      }
-
-      // Extract phones (Mexico + Argentina + general LATAM)
-      const phoneMatch = pageText.match(/(?:\+?(?:52|54|55|57)\s?)?(?:\(?\d{2,3}\)?\s?)?\d{3,4}[\s.-]?\d{4}/g)
-      if (phoneMatch) {
-        info.phone = phoneMatch[0]?.replace(/\s/g, '') || null
-      }
-
-      // Extract social links
-      const links = []
-      $('a[href]').each((_, el) => { links.push($(el).attr('href')) })
-      info.linkedin = links.find(l => l?.includes('linkedin.com/')) || null
-      info.instagram = links.find(l => l?.includes('instagram.com/')) || null
-      info.facebook = links.find(l => l?.includes('facebook.com/')) || null
-
-      // Company name
-      const metaTitle = $('meta[property="og:site_name"]').attr('content') || $('title').text()
-      info.company = metaTitle?.split('|')[0]?.split('-')[0]?.trim().slice(0, 100) || result.title.split('|')[0].trim().slice(0, 100)
-
-      // AI extraction for person name
-      if (result.snippet) {
-        try {
-          const aiResp = await analyzeWithDeepSeek(
-            `Del siguiente texto, extrae el nombre de la persona (CEO, director, fundador) y la empresa. Responde SOLO JSON: {"name":"nombre o null","company":"empresa o null"}\n\nTexto: ${result.title} - ${result.snippet.slice(0, 300)}`
-          )
-          const parsed = JSON.parse(aiResp.match(/\{[\s\S]*\}/)?.[0] || '{}')
-          if (parsed.name) info.name = parsed.name
-          if (parsed.company) info.company = parsed.company
-        } catch {}
-      }
-
-      return info
-    } catch {
-      return null
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Lead Enrichment (uses existing service)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _enrichLead(leadId, agentId) {
-    try {
-      const { enrichmentService } = await import('./scraping/enrichment-service.js')
-      const result = await enrichmentService.enrichLead(leadId)
-      return result
-    } catch (err) {
-      console.error(`[Agent Enrich] Error: ${err.message}`)
-      return null
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Email Validation
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _validateEmail(email) {
-    try {
-      const { emailValidator } = await import('./email-validator.js')
-      const result = await emailValidator.validateComplete(email)
-      return result?.valid !== false && result?.syntax !== false
-    } catch {
-      return true // If validation fails, assume valid
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: WhatsApp Check & Send
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _checkWhatsApp(phone) {
-    try {
-      const { default: whatsappConnection } = await import('./outreach/whatsapp-connection-service.js')
-      if (whatsappConnection.connectionStatus !== 'connected') return false
-      const result = await whatsappConnection.checkWhatsApp(phone)
-      return !!result
-    } catch {
-      return false
-    }
-  }
-
-  async _sendWhatsApp(phone, message, agentId, contact) {
-    try {
-      const { default: whatsappConnection } = await import('./outreach/whatsapp-connection-service.js')
-      if (whatsappConnection.connectionStatus !== 'connected') {
-        await logActivity(agentId, 'whatsapp_skip', 'WhatsApp no conectado — mensaje en cola', contact.name, contact.company)
-        return false
-      }
-      await whatsappConnection.sendMessage(phone, message)
-      return true
-    } catch (err) {
-      await logActivity(agentId, 'whatsapp_error', `Error enviando WA: ${err.message}`, contact.name, contact.company)
-      return false
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Email Send (uses existing Brevo/SMTP service)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _sendEmail(to, subject, htmlBody, agentId, contact) {
-    try {
-      const { emailOutreachService } = await import('./outreach/email-outreach-service.js')
-      await emailOutreachService.sendEmail(to, subject, htmlBody)
-      return true
-    } catch (err) {
-      await logActivity(agentId, 'email_error', `Error enviando email: ${err.message}`, contact.name, contact.company)
-      return false
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: ML Lead Scoring
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _scoreLead(contact) {
-    try {
-      const { mlLeadScorer } = await import('./ml-lead-scoring.js')
-      const result = mlLeadScorer.calculatePredictiveScore({
-        industry: 'technology',
-        location: contact.location || 'Mexico',
-        contact_title: contact.role || contact.headline || '',
-        website_visits: contact.website ? 1 : 0,
-      })
-      return result
-    } catch {
-      return null
-    }
-  }
-
-  // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: Save Lead to DB
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _saveAsLead(contactInfo, agentId) {
-    try {
-      if (contactInfo.email) {
-        const existing = await pool.query('SELECT id FROM leads WHERE email = $1', [contactInfo.email])
+      if (contact.email) {
+        const existing = await pool.query('SELECT id FROM leads WHERE email = $1', [contact.email])
         if (existing.rows.length) return existing.rows[0].id
       }
-
       const res = await pool.query(
-        `INSERT INTO leads (name, email, phone, website, sector, source_url, status, score,
-         social_linkedin, social_instagram, social_facebook)
-         VALUES ($1, $2, $3, $4, 'ai-agent-discovery', $5, 'new', 50, $6, $7, $8)
-         RETURNING id`,
+        `INSERT INTO leads (name, email, phone, website, sector, source_url, status, score, social_linkedin)
+         VALUES ($1, $2, $3, $4, $5, $6, 'new', 50, $7) RETURNING id`,
         [
-          contactInfo.name || contactInfo.company || 'Target Descubierto',
-          contactInfo.email,
-          contactInfo.phone,
-          contactInfo.website,
-          contactInfo.website,
-          contactInfo.linkedin || null,
-          contactInfo.instagram || null,
-          contactInfo.facebook || null,
+          contact.name || 'Target',
+          contact.email || null,
+          contact.phone || null,
+          contact.website || null,
+          `ai-agent:${contact.role || 'discovery'}`,
+          contact.wikipedia || contact.website || null,
+          contact.linkedin || null,
         ]
       )
       return res.rows[0]?.id
     } catch (err) {
-      console.error('[Agent] Error saving lead:', err.message)
+      console.error('[Agent] Save lead error:', err.message)
       return null
     }
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
-  // Generate Outreach (AI message + email HTML + WhatsApp text)
-  // ══════════════════════════════════════════════════════════════════════════════
-  async _generateOutreach(agentId, agent, avatar, contact) {
+  // ── Generate outreach message ─────────────────────────────────────────────
+  async _generateMessage(agent, avatar, lead, country) {
     try {
-      const avatarName = avatar?.name || 'Adbize'
-      const avatarRole = avatar?.role || 'Business Development'
-      const avatarPhone = avatar?.phone || ''
-      const avatarEmail = avatar?.email || 'contacto@adbize.com'
+      const from = avatar?.name || 'Adbize'
+      const role = avatar?.role || 'Business Development'
 
-      const prompt = `Eres ${avatarName}, ${avatarRole} en Adbize, empresa de desarrollo de software e IA en Mexico.
-Genera contenido de outreach personalizado para:
+      const resp = await analyzeWithDeepSeek(
+        `Eres ${from}, ${role} en Adbize (desarrollo de software, IA, apps, automatizacion).
+Genera outreach para:
 
-Nombre: ${contact.name || 'Estimado/a'}
-Empresa: ${contact.company || 'su empresa'}
-Cargo: ${contact.role || contact.headline || 'N/A'}
-Website: ${contact.website || 'N/A'}
-LinkedIn: ${contact.linkedin || 'N/A'}
+Persona: ${lead.name}
+Cargo: ${lead.role || 'N/A'}
+Org: ${lead.org || 'N/A'}
+Pais: ${country}
+${agent.strategy ? `Estrategia: ${agent.strategy}` : ''}
 
-Servicios de Adbize: desarrollo web, apps moviles, inteligencia artificial, machine learning, chatbots con LLM, automatizacion, ecommerce.
+JSON valido:
+{"subject":"asunto email (max 8 palabras)","message":"email profesional (max 120 palabras)","whatsapp":"mensaje WhatsApp directo (max 50 palabras)"}`)
 
-${agent.strategy ? `Estrategia especifica: ${agent.strategy}` : ''}
-
-Genera en JSON VALIDO:
-{
-  "subject": "asunto de email (max 8 palabras)",
-  "message": "email profesional corto (max 150 palabras, mencionar algo especifico de su empresa)",
-  "whatsapp": "mensaje WhatsApp corto y directo (max 60 palabras)"
-}
-
-Responde SOLO el JSON.`
-
-      const resp = await analyzeWithDeepSeek(prompt)
       const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
 
-      const htmlBody = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-  <p style="font-size:15px;color:#333;line-height:1.6;">${(parsed.message || '').replace(/\n/g, '<br>')}</p>
-  <div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;">
-    <p style="font-size:13px;color:#666;margin:0;">
-      <strong>${avatarName}</strong><br>
-      ${avatarRole} — Adbize<br>
-      ${avatarEmail}${avatarPhone ? `<br>${avatarPhone}` : ''}
-    </p>
-  </div>
-</div>`
+      const html = `<div style="font-family:Arial;max-width:600px;padding:20px;">
+<p style="font-size:15px;color:#333;line-height:1.6;">${(parsed.message || '').replace(/\n/g, '<br>')}</p>
+<div style="margin-top:20px;padding-top:15px;border-top:1px solid #eee;">
+<p style="font-size:13px;color:#666;"><strong>${from}</strong><br>${role} — Adbize<br>${avatar?.email || 'contacto@adbize.com'}</p>
+</div></div>`
 
       return {
-        subject: parsed.subject || `Propuesta de Adbize para ${contact.company || 'su empresa'}`,
+        subject: parsed.subject || `Propuesta para ${lead.org || lead.name}`,
         message: parsed.message || '',
-        htmlBody,
-        whatsappMsg: parsed.whatsapp || parsed.message?.slice(0, 300) || '',
+        html,
+        whatsapp: parsed.whatsapp || parsed.message?.slice(0, 250) || '',
       }
-    } catch (err) {
-      await logActivity(agentId, 'error', `Error generando outreach: ${err.message}`, contact.name, contact.company)
+    } catch {
       return null
     }
   }
