@@ -45,13 +45,13 @@ router.get('/:id', async (req, res) => {
 // POST / - Create agent
 router.post('/', async (req, res) => {
   try {
-    const { name, avatar_id, target_type, search_keywords, strategy, channels, max_contacts_per_run } = req.body
+    const { name, avatar_id, target_type, search_keywords, strategy, channels, max_contacts_per_run, tools } = req.body
     if (!name || !target_type) {
       return res.status(400).json({ success: false, error: 'name y target_type son requeridos' })
     }
     const result = await pool.query(
-      `INSERT INTO ai_agents (name, avatar_id, target_type, search_keywords, strategy, channels, max_contacts_per_run)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO ai_agents (name, avatar_id, target_type, search_keywords, strategy, channels, max_contacts_per_run, tools)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
       [
         name,
@@ -61,6 +61,7 @@ router.post('/', async (req, res) => {
         strategy || '',
         channels || ['email', 'whatsapp'],
         max_contacts_per_run || 10,
+        tools || ['duckduckgo', 'scraping', 'email', 'whatsapp', 'enrichment', 'google_maps', 'linkedin'],
       ]
     )
     res.json({ success: true, agent: result.rows[0] })

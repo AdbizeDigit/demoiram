@@ -22,18 +22,42 @@ const STATUS_CONFIG = {
   error: { label: 'Error', color: 'bg-red-100 text-red-700', dot: 'bg-red-500' },
 }
 
+const AVAILABLE_TOOLS = [
+  { id: 'duckduckgo', label: 'DuckDuckGo', icon: Search, desc: 'Busqueda web' },
+  { id: 'google_maps', label: 'Google Maps', icon: MapPin, desc: 'Buscar negocios' },
+  { id: 'linkedin', label: 'LinkedIn', icon: Globe, desc: 'Perfiles publicos' },
+  { id: 'scraping', label: 'Web Scraping', icon: Eye, desc: 'Extraer contactos' },
+  { id: 'enrichment', label: 'Enriquecimiento', icon: Sparkles, desc: 'Completar datos' },
+  { id: 'email', label: 'Email', icon: Mail, desc: 'Enviar emails' },
+  { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, desc: 'Enviar WhatsApp' },
+]
+
 const ACTION_ICONS = {
   started: { icon: Play, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   stopped: { icon: Square, color: 'text-gray-600', bg: 'bg-gray-50' },
+  phase: { icon: Zap, color: 'text-indigo-700', bg: 'bg-indigo-50' },
+  tool_active: { icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
   searching: { icon: Search, color: 'text-blue-600', bg: 'bg-blue-50' },
   search_results: { icon: Globe, color: 'text-blue-500', bg: 'bg-blue-50' },
   analyzing: { icon: Eye, color: 'text-indigo-600', bg: 'bg-indigo-50' },
   found_target: { icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   no_contact: { icon: AlertCircle, color: 'text-gray-400', bg: 'bg-gray-50' },
+  enriching: { icon: Sparkles, color: 'text-violet-600', bg: 'bg-violet-50' },
+  enriched: { icon: CheckCircle, color: 'text-violet-600', bg: 'bg-violet-50' },
+  email_valid: { icon: CheckCircle, color: 'text-emerald-500', bg: 'bg-emerald-50' },
+  email_invalid: { icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50' },
+  whatsapp_found: { icon: MessageCircle, color: 'text-green-600', bg: 'bg-green-50' },
+  scored: { icon: ArrowRight, color: 'text-amber-600', bg: 'bg-amber-50' },
   generating_message: { icon: Sparkles, color: 'text-purple-600', bg: 'bg-purple-50' },
   message_ready: { icon: CheckCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-  email_queued: { icon: Mail, color: 'text-blue-600', bg: 'bg-blue-50' },
-  whatsapp_queued: { icon: MessageCircle, color: 'text-green-600', bg: 'bg-green-50' },
+  email_sent: { icon: Mail, color: 'text-blue-700', bg: 'bg-blue-100' },
+  email_queued: { icon: Mail, color: 'text-blue-500', bg: 'bg-blue-50' },
+  email_error: { icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50' },
+  whatsapp_sent: { icon: MessageCircle, color: 'text-green-700', bg: 'bg-green-100' },
+  whatsapp_queued: { icon: MessageCircle, color: 'text-green-500', bg: 'bg-green-50' },
+  whatsapp_skip: { icon: MessageCircle, color: 'text-gray-400', bg: 'bg-gray-50' },
+  whatsapp_error: { icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50' },
+  warning: { icon: AlertCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
   completed: { icon: CheckCircle, color: 'text-blue-600', bg: 'bg-blue-50' },
   error: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
 }
@@ -60,6 +84,7 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
     search_keywords: '',
     strategy: '',
     max_contacts_per_run: 10,
+    tools: AVAILABLE_TOOLS.map(t => t.id),
   })
   const [saving, setSaving] = useState(false)
   const [aiPrompt, setAiPrompt] = useState('')
@@ -107,6 +132,7 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
         search_keywords: form.search_keywords
           ? form.search_keywords.split(',').map(k => k.trim()).filter(Boolean)
           : [],
+        tools: form.tools,
       })
       onClose()
     } catch {
@@ -256,6 +282,38 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
               placeholder="Ej: Enfocarse en empresas que estan levantando ronda de inversion..."
               className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 resize-none"
             />
+          </div>
+
+          {/* Tools */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-2">Herramientas <span className="text-gray-400">(todas gratuitas)</span></label>
+            <div className="grid grid-cols-2 gap-1.5">
+              {AVAILABLE_TOOLS.map(t => {
+                const Icon = t.icon
+                const active = form.tools.includes(t.id)
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setForm(f => ({
+                      ...f,
+                      tools: active
+                        ? f.tools.filter(x => x !== t.id)
+                        : [...f.tools, t.id]
+                    }))}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs transition-all ${
+                      active
+                        ? 'border-blue-300 bg-blue-50 text-blue-700'
+                        : 'border-gray-100 text-gray-400 hover:border-gray-200'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span className="font-medium">{t.label}</span>
+                    <span className="text-[10px] opacity-70 ml-auto">{t.desc}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {/* Max contacts */}
