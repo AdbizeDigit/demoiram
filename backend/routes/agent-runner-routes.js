@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { pool } from '../config/database.js'
 import AgentRunnerService from '../services/agent-runner-service.js'
+import { analyzeWithDeepSeek } from '../services/deepseek.js'
 
 const router = Router()
 const runner = AgentRunnerService.getInstance()
@@ -157,6 +158,63 @@ router.get('/avatars/list', async (req, res) => {
     const result = await pool.query('SELECT id, name, role, photo_url FROM avatars WHERE is_active = true ORDER BY name')
     res.json({ success: true, avatars: result.rows })
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// POST /ai-autocomplete - AI fills agent form from natural language description
+router.post('/ai-autocomplete', async (req, res) => {
+  try {
+    const { prompt, current_form } = req.body
+    if (!prompt) return res.status(400).json({ success: false, error: 'prompt requerido' })
+
+    // Get available avatars for context
+    let avatarsList = []
+    try {
+      const avRes = await pool.query('SELECT id, name, role FROM avatars WHERE is_active = true ORDER BY name')
+      avatarsList = avRes.rows
+    } catch {}
+
+    const avatarsContext = avatarsList.length > 0
+      ? `Avatares disponibles (usa el id exacto):\n${avatarsList.map(a => `- id: "${a.id}" → ${a.name} (${a.role})`).join('\n')}`
+      : 'No hay avatares disponibles, deja avatar_id vacio.'
+
+    const systemPrompt = `Eres un asistente que configura agentes autonomos de venta para Adbize, empresa de desarrollo de software e IA en Mexico.
+
+Servicios de Adbize: desarrollo web, apps moviles, IA/Machine Learning, chatbots con LLM, automatizacion, ecommerce, SaaS.
+
+El usuario te describe lo que quiere y tu completas el formulario del agente.
+
+${avatarsContext}
+
+Tipos de objetivo validos: business_owners, celebrities, politicians, startups, enterprises
+
+Formulario actual: ${JSON.stringify(current_form || {})}
+
+Responde SOLO con JSON valido (sin markdown, sin backticks):
+{
+  "name": "nombre del agente",
+  "avatar_id": "id del avatar o vacio",
+  "target_type": "uno de los tipos validos",
+  "search_keywords": "keyword1, keyword2, keyword3",
+  "strategy": "descripcion de la estrategia",
+  "max_contacts_per_run": numero,
+  "ai_message": "mensaje corto explicando lo que configuraste"
+}`
+
+    const response = await analyzeWithDeepSeek(
+      `${systemPrompt}\n\nEl usuario dice: "${prompt}"`
+    )
+
+    const jsonMatch = response.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      return res.json({ success: true, ai_message: response, form: {} })
+    }
+
+    const parsed = JSON.parse(jsonMatch[0])
+    res.json({ success: true, ...parsed, form: parsed })
+  } catch (error) {
+    console.error('[AI Autocomplete] Error:', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })

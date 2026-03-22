@@ -62,6 +62,40 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
     max_contacts_per_run: 10,
   })
   const [saving, setSaving] = useState(false)
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiMessage, setAiMessage] = useState('')
+  const [showAiChat, setShowAiChat] = useState(false)
+
+  const handleAiAutocomplete = async () => {
+    if (!aiPrompt.trim()) return
+    setAiLoading(true)
+    setAiMessage('')
+    try {
+      const { data } = await api.post('/api/agent-runner/ai-autocomplete', {
+        prompt: aiPrompt,
+        current_form: form,
+      })
+      if (data.success) {
+        const f = data.form || data
+        setForm(prev => ({
+          ...prev,
+          ...(f.name && { name: f.name }),
+          ...(f.avatar_id !== undefined && { avatar_id: f.avatar_id || '' }),
+          ...(f.target_type && { target_type: f.target_type }),
+          ...(f.search_keywords !== undefined && {
+            search_keywords: Array.isArray(f.search_keywords) ? f.search_keywords.join(', ') : (f.search_keywords || '')
+          }),
+          ...(f.strategy && { strategy: f.strategy }),
+          ...(f.max_contacts_per_run && { max_contacts_per_run: f.max_contacts_per_run }),
+        }))
+        setAiMessage(data.ai_message || f.ai_message || 'Formulario completado con IA')
+      }
+    } catch (err) {
+      setAiMessage('Error al procesar con IA. Intenta de nuevo.')
+    }
+    setAiLoading(false)
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -91,6 +125,56 @@ function CreateAgentModal({ onClose, onCreate, avatars }) {
             <h2 className="text-lg font-bold text-gray-900">Nuevo Agente</h2>
           </div>
           <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4" /></button>
+        </div>
+
+        {/* AI Autocomplete Chat */}
+        <div className="px-5 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowAiChat(!showAiChat)}
+            className={`w-full flex items-center justify-between gap-2 px-4 py-3 rounded-xl border-2 border-dashed transition-all ${
+              showAiChat
+                ? 'border-purple-300 bg-purple-50'
+                : 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/50'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-500" />
+              <span className="text-sm font-semibold text-purple-700">Completar con IA</span>
+              <span className="text-[11px] text-purple-400">— Decile que queres y completa todo automatico</span>
+            </div>
+            <ChevronDown className={`w-4 h-4 text-purple-400 transition-transform ${showAiChat ? 'rotate-180' : ''}`} />
+          </button>
+
+          {showAiChat && (
+            <div className="mt-3 p-3 bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl border border-purple-100">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleAiAutocomplete() } }}
+                  placeholder="Ej: Quiero buscar startups fintech en Mexico que necesiten una app..."
+                  className="flex-1 bg-white border border-purple-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-400 placeholder:text-gray-400"
+                  disabled={aiLoading}
+                />
+                <button
+                  type="button"
+                  onClick={handleAiAutocomplete}
+                  disabled={aiLoading || !aiPrompt.trim()}
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white text-sm font-semibold hover:from-purple-700 hover:to-blue-700 disabled:opacity-50 transition-all flex-shrink-0"
+                >
+                  {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                </button>
+              </div>
+              {aiMessage && (
+                <div className="mt-2 flex items-start gap-2 px-3 py-2 bg-white/80 rounded-lg border border-purple-100">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-xs text-purple-700 leading-relaxed">{aiMessage}</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
