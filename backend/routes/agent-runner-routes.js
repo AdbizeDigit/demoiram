@@ -154,6 +154,53 @@ router.get('/:id/activity', async (req, res) => {
   }
 })
 
+// GET /:id/network - Get network maps for agent
+router.get('/:id/network', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM agent_network_maps WHERE agent_id = $1 ORDER BY created_at DESC',
+      [req.params.id]
+    )
+    res.json({ success: true, networks: result.rows })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
+// GET /:id/contacts - Get leads found by this agent with their messages
+router.get('/:id/contacts', async (req, res) => {
+  try {
+    const leads = await pool.query(
+      `SELECT l.*,
+        (SELECT json_agg(m ORDER BY m.sent_at DESC) FROM outreach_messages m WHERE m.lead_id = l.id) as messages
+       FROM leads l
+       WHERE l.sector LIKE 'ai-agent%'
+       AND l.id IN (
+         SELECT DISTINCT (metadata->>'leadId')::uuid FROM agent_activity_logs
+         WHERE agent_id = $1 AND metadata->>'leadId' IS NOT NULL
+       )
+       ORDER BY l.created_at DESC
+       LIMIT 100`,
+      [req.params.id]
+    )
+    // fallback: get leads discovered around same time as agent run
+    if (leads.rows.length === 0) {
+      const fallback = await pool.query(
+        `SELECT l.*,
+          (SELECT json_agg(m ORDER BY m.sent_at DESC) FROM outreach_messages m WHERE m.lead_id = l.id) as messages
+         FROM leads l
+         WHERE l.sector LIKE 'ai-agent%'
+         ORDER BY l.created_at DESC
+         LIMIT 50`
+      )
+      return res.json({ success: true, contacts: fallback.rows })
+    }
+    res.json({ success: true, contacts: leads.rows })
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message })
+  }
+})
+
 // GET /avatars/list - Get available avatars for assignment
 router.get('/avatars/list', async (req, res) => {
   try {
