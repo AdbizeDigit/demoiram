@@ -191,7 +191,7 @@ class AgentRunnerService extends EventEmitter {
 
       // 1A. DuckDuckGo search
       if (tools.includes('duckduckgo') && !control.abort) {
-        await logActivity(agentId, 'tool_active', '🔍 Herramienta: DuckDuckGo Search activa', null, null)
+        await logActivity(agentId, 'tool_active', '🔍 Herramienta: Web Search activa (DDG Lite + Brave)', null, null)
 
         for (const query of queries) {
           if (control.abort || totalFound >= agent.max_contacts_per_run) break
@@ -248,9 +248,22 @@ class AgentRunnerService extends EventEmitter {
       // 1C. LinkedIn public profile search
       if (tools.includes('linkedin') && !control.abort && totalFound < agent.max_contacts_per_run) {
         await logActivity(agentId, 'tool_active', '💼 Herramienta: LinkedIn Discovery activa', null, null)
+
+        const liTitleMap = {
+          business_owners: ['CEO', 'Director General', 'Fundador', 'Dueño'],
+          celebrities: ['Influencer', 'Content Creator', 'Artista'],
+          politicians: ['Secretario', 'Director Gobierno', 'Alcalde', 'Diputado'],
+          startups: ['Founder', 'Co-Founder', 'CTO', 'CEO startup'],
+          enterprises: ['CTO', 'CIO', 'VP Technology', 'Director TI'],
+        }
+        const liTitles = liTitleMap[agent.target_type] || liTitleMap.business_owners
+
         const liQueries = customKeywords.length > 0
-          ? customKeywords.slice(0, 2).map(k => `site:linkedin.com/in ${k}`)
-          : [`site:linkedin.com/in CEO ${agent.target_type === 'startups' ? 'startup' : 'empresa'} Mexico tecnologia`]
+          ? [
+              ...customKeywords.slice(0, 2).map(k => `site:linkedin.com/in "${k}" Mexico`),
+              `site:linkedin.com/in ${liTitles[0]} ${customKeywords[0]} Mexico`,
+            ]
+          : liTitles.slice(0, 3).map(t => `site:linkedin.com/in "${t}" Mexico tecnologia`)
 
         for (const lq of liQueries) {
           if (control.abort || totalFound >= agent.max_contacts_per_run) break
@@ -520,31 +533,134 @@ class AgentRunnerService extends EventEmitter {
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
-  // TOOL: DuckDuckGo Search
+  // TOOL: Web Search (multi-engine: Bing → Google scrape → DuckDuckGo lite)
   // ══════════════════════════════════════════════════════════════════════════════
   async _searchDuckDuckGo(query) {
+    // DDG Lite as primary (tested, works without captcha)
+    let results = await this._searchDDGLite(query)
+    if (results.length > 0) return results
+
+    // Brave Search as backup
+    results = await this._searchBrave(query)
+    if (results.length > 0) return results
+
+    // DDG API as last resort
+    results = await this._searchDDGApi(query)
+    return results
+  }
+
+  // DuckDuckGo Lite — POST form, no captcha, returns 10+ results
+  async _searchDDGLite(query) {
     const articles = []
     try {
-      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
-      const resp = await axios.get(url, {
-        headers: { 'User-Agent': randomUA(), 'Accept-Language': 'es-MX,es;q=0.9' },
-        timeout: 15000,
-      })
-      const $ = cheerio.load(resp.data)
-      $('.result').each((i, el) => {
-        const titleEl = $(el).find('.result__title a')
-        const title = titleEl.text().trim()
-        let link = titleEl.attr('href') || ''
-        const snippet = $(el).find('.result__snippet').text().trim()
-        if (link.includes('uddg=')) {
-          try { link = new URL(link, 'https://duckduckgo.com').searchParams.get('uddg') || link } catch {}
+      const resp = await axios.post('https://lite.duckduckgo.com/lite/',
+        `q=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            'User-Agent': randomUA(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'text/html',
+            'Accept-Language': 'es-MX,es;q=0.9',
+          },
+          timeout: 12000,
         }
-        if (title && link?.startsWith('http')) {
+      )
+      const $ = cheerio.load(resp.data)
+
+      // DDG Lite uses <a class="result-link">
+      $('a.result-link').each((i, el) => {
+        const link = $(el).attr('href') || ''
+        const title = $(el).text().trim()
+        if (title && link?.startsWith('http') && !link.includes('duckduckgo.com')) {
+          // Try to find snippet in adjacent row
+          const row = $(el).closest('tr')
+          const snippetRow = row.next('tr')
+          const snippet = snippetRow.find('td.result-snippet').text().trim() || ''
           articles.push({ title, url: link, snippet })
         }
       })
+
+      // Fallback: parse all links that look like results
+      if (articles.length === 0) {
+        $('a[href^="http"]').each((i, el) => {
+          const href = $(el).attr('href') || ''
+          const text = $(el).text().trim()
+          if (text.length > 10 && !href.includes('duckduckgo.com') && !href.includes('duck.co')) {
+            articles.push({ title: text, url: href, snippet: '' })
+          }
+        })
+      }
     } catch (err) {
-      console.error(`[Agent DDG] Error: ${err.message}`)
+      console.error(`[Agent DDG Lite] Error: ${err.message}`)
+    }
+    return articles
+  }
+
+  // Brave Search — reliable, no captcha, rich results
+  async _searchBrave(query) {
+    const articles = []
+    try {
+      const resp = await axios.get(`https://search.brave.com/search?q=${encodeURIComponent(query)}`, {
+        headers: {
+          'User-Agent': randomUA(),
+          'Accept': 'text/html,application/xhtml+xml',
+          'Accept-Language': 'es-MX,es;q=0.9',
+        },
+        timeout: 12000,
+      })
+      const $ = cheerio.load(resp.data)
+
+      // Brave uses various result containers
+      $('[data-type="web"]').each((i, el) => {
+        const titleEl = $(el).find('a[href]').first()
+        const title = $(el).find('.title, .snippet-title').first().text().trim() || titleEl.text().trim()
+        const link = titleEl.attr('href') || ''
+        const snippet = $(el).find('.snippet-description, .snippet-content').first().text().trim()
+        if (title && link?.startsWith('http') && !link.includes('brave.com')) {
+          articles.push({ title, url: link, snippet })
+        }
+      })
+
+      // Fallback: any <a> inside result divs
+      if (articles.length === 0) {
+        $('a[href^="http"]').each((i, el) => {
+          const href = $(el).attr('href') || ''
+          const text = $(el).text().trim()
+          if (text.length > 15 && !href.includes('brave.com') && !href.includes('javascript:') &&
+              !href.includes('cdn.') && articles.length < 15) {
+            articles.push({ title: text, url: href, snippet: '' })
+          }
+        })
+      }
+    } catch (err) {
+      console.error(`[Agent Brave] Error: ${err.message}`)
+    }
+    return articles
+  }
+
+  // DuckDuckGo Instant Answer API — limited but guaranteed no captcha
+  async _searchDDGApi(query) {
+    const articles = []
+    try {
+      const resp = await axios.get(`https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`, {
+        timeout: 10000,
+      })
+      const data = resp.data
+      for (const topic of (data.RelatedTopics || [])) {
+        if (topic.FirstURL && topic.Text) {
+          articles.push({ title: topic.Text.slice(0, 100), url: topic.FirstURL, snippet: topic.Text })
+        }
+        for (const sub of (topic.Topics || [])) {
+          if (sub.FirstURL && sub.Text) {
+            articles.push({ title: sub.Text.slice(0, 100), url: sub.FirstURL, snippet: sub.Text })
+          }
+        }
+      }
+      if (data.AbstractURL && data.Abstract) {
+        articles.push({ title: data.Heading || data.Abstract.slice(0, 80), url: data.AbstractURL, snippet: data.Abstract })
+      }
+    } catch (err) {
+      console.error(`[Agent DDG API] Error: ${err.message}`)
     }
     return articles
   }
