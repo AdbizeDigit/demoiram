@@ -6,24 +6,28 @@ import {
 } from 'lucide-react';
 
 const OPP_TYPE_LABELS = {
-  NEARSHORING: 'Nearshoring',
-  LICITACION: 'Licitacion',
-  EXPANSION: 'Expansion',
-  OFICINA_NUEVA: 'Oficina Nueva',
-  COWORKING: 'Coworking',
-  PARQUE_INDUSTRIAL: 'Parque Industrial',
-  RENOVACION: 'Renovacion',
+  APP_WEB: 'App Web',
+  APP_MOVIL: 'App Movil',
+  IA_ML: 'IA / Machine Learning',
+  CHATBOT_LLM: 'Chatbot / LLM',
+  AUTOMATIZACION: 'Automatizacion',
+  ECOMMERCE: 'Ecommerce',
+  LICITACION_TECH: 'Licitacion Tech',
+  NEARSHORING_TECH: 'Nearshoring Tech',
+  TRANSFORMACION_DIGITAL: 'Transformacion Digital',
   OTRO: 'Otro',
 };
 
 const OPP_TYPE_COLORS = {
-  NEARSHORING: 'bg-blue-50 text-blue-700 border-blue-200',
-  LICITACION: 'bg-amber-50 text-amber-700 border-amber-200',
-  EXPANSION: 'bg-purple-50 text-purple-700 border-purple-200',
-  OFICINA_NUEVA: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  COWORKING: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  PARQUE_INDUSTRIAL: 'bg-orange-50 text-orange-700 border-orange-200',
-  RENOVACION: 'bg-teal-50 text-teal-700 border-teal-200',
+  APP_WEB: 'bg-blue-50 text-blue-700 border-blue-200',
+  APP_MOVIL: 'bg-purple-50 text-purple-700 border-purple-200',
+  IA_ML: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  CHATBOT_LLM: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  AUTOMATIZACION: 'bg-amber-50 text-amber-700 border-amber-200',
+  ECOMMERCE: 'bg-orange-50 text-orange-700 border-orange-200',
+  LICITACION_TECH: 'bg-red-50 text-red-700 border-red-200',
+  NEARSHORING_TECH: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  TRANSFORMACION_DIGITAL: 'bg-teal-50 text-teal-700 border-teal-200',
   OTRO: 'bg-gray-100 text-gray-600 border-gray-200',
 };
 

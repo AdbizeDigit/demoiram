@@ -13,7 +13,7 @@ export default function CreateOpportunityModal({ onClose, onCreate }) {
   const [form, setForm] = useState({
     name: '',
     description: '',
-    type: 'OFICINA_NUEVA',
+    type: 'APP_WEB',
     priority: 'MEDIA',
     company: '',
     location: '',

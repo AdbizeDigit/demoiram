@@ -17,26 +17,32 @@ export const TABS = [
   { id: 'leads', label: 'Leads', icon: 'Users' },
 ];
 
-// ── Opportunity types for Adbize (mobiliario de oficina) ─────────
+// ── Opportunity types for Adbize (servicios de tecnologia) ──────
 export const OPPORTUNITY_TYPES = [
   { value: '', label: 'Todos los tipos' },
-  { value: 'LICITACION', label: 'Licitacion' },
-  { value: 'NEARSHORING', label: 'Nearshoring' },
-  { value: 'EXPANSION', label: 'Expansion' },
-  { value: 'OFICINA_NUEVA', label: 'Oficina Nueva' },
-  { value: 'COWORKING', label: 'Coworking' },
-  { value: 'PARQUE_INDUSTRIAL', label: 'Parque Industrial' },
+  { value: 'APP_WEB', label: 'App Web' },
+  { value: 'APP_MOVIL', label: 'App Movil' },
+  { value: 'IA_ML', label: 'IA / Machine Learning' },
+  { value: 'CHATBOT_LLM', label: 'Chatbot / LLM' },
+  { value: 'AUTOMATIZACION', label: 'Automatizacion' },
+  { value: 'ECOMMERCE', label: 'Ecommerce' },
+  { value: 'LICITACION_TECH', label: 'Licitacion Tech' },
+  { value: 'NEARSHORING_TECH', label: 'Nearshoring Tech' },
+  { value: 'TRANSFORMACION_DIGITAL', label: 'Transformacion Digital' },
   { value: 'OTRO', label: 'Otro' },
 ];
 
 // ── Type labels ──────────────────────────────────────────────────
 export const typeLabels = {
-  LICITACION: 'Licitacion',
-  NEARSHORING: 'Nearshoring',
-  EXPANSION: 'Expansion',
-  OFICINA_NUEVA: 'Oficina Nueva',
-  COWORKING: 'Coworking',
-  PARQUE_INDUSTRIAL: 'Parque Industrial',
+  APP_WEB: 'App Web',
+  APP_MOVIL: 'App Movil',
+  IA_ML: 'IA / Machine Learning',
+  CHATBOT_LLM: 'Chatbot / LLM',
+  AUTOMATIZACION: 'Automatizacion',
+  ECOMMERCE: 'Ecommerce',
+  LICITACION_TECH: 'Licitacion Tech',
+  NEARSHORING_TECH: 'Nearshoring Tech',
+  TRANSFORMACION_DIGITAL: 'Transformacion Digital',
   OTRO: 'Otro',
 };
 
@@ -74,14 +80,14 @@ export const STATUS_COLORS = {
 
 // ── Default sources for Adbize ──────────────────────────────────
 export const DEFAULT_SOURCES = [
-  { id: 'src-1', name: 'Compranet', category: 'gubernamental', enabled: true, schedule: 'Cada 2 horas', lastRun: new Date(Date.now() - 3600000).toISOString(), status: 'active', totalDetected: 47, last24h: 5, description: 'Licitaciones publicas federales' },
-  { id: 'src-2', name: 'El Financiero RSS', category: 'empresarial', enabled: true, schedule: 'Cada 4 horas', lastRun: new Date(Date.now() - 7200000).toISOString(), status: 'active', totalDetected: 23, last24h: 2, description: 'Noticias financieras y empresariales' },
-  { id: 'src-3', name: 'Expansion RSS', category: 'empresarial', enabled: true, schedule: 'Cada 4 horas', lastRun: new Date(Date.now() - 5400000).toISOString(), status: 'active', totalDetected: 34, last24h: 3, description: 'Noticias de negocios y expansion' },
-  { id: 'src-4', name: 'El Economista RSS', category: 'empresarial', enabled: true, schedule: 'Cada 6 horas', lastRun: new Date(Date.now() - 10800000).toISOString(), status: 'active', totalDetected: 19, last24h: 1, description: 'Noticias economicas empresariales' },
-  { id: 'src-5', name: 'DuckDuckGo Search', category: 'empresarial', enabled: true, schedule: 'Cada 1 hora', lastRun: new Date(Date.now() - 1800000).toISOString(), status: 'active', totalDetected: 56, last24h: 8, description: 'Busqueda de noticias nearshoring y oficinas' },
-  { id: 'src-6', name: 'Noticias Nearshoring', category: 'inmobiliaria', enabled: true, schedule: 'Cada 3 horas', lastRun: new Date(Date.now() - 4500000).toISOString(), status: 'active', totalDetected: 31, last24h: 4, description: 'Monitoreo nearshoring Mexico' },
-  { id: 'src-7', name: 'AMPIP', category: 'inmobiliaria', enabled: false, schedule: 'Diario', lastRun: null, status: 'idle', totalDetected: 12, last24h: 0, description: 'Asociacion Mexicana de Parques Industriales' },
-  { id: 'src-8', name: 'Monitor Aduanero', category: 'aduanera', enabled: true, schedule: 'Cada 12 horas', lastRun: new Date(Date.now() - 14400000).toISOString(), status: 'active', totalDetected: 15, last24h: 1, description: 'Importaciones de mobiliario' },
+  { id: 'src-1', name: 'Compranet Tech', category: 'gubernamental', enabled: true, schedule: 'Cada 2 horas', lastRun: new Date(Date.now() - 3600000).toISOString(), status: 'active', totalDetected: 47, last24h: 5, description: 'Licitaciones de software y tecnologia del gobierno' },
+  { id: 'src-2', name: 'El Financiero RSS', category: 'empresarial', enabled: true, schedule: 'Cada 4 horas', lastRun: new Date(Date.now() - 7200000).toISOString(), status: 'active', totalDetected: 23, last24h: 2, description: 'Noticias de transformacion digital y tech' },
+  { id: 'src-3', name: 'Expansion RSS', category: 'empresarial', enabled: true, schedule: 'Cada 4 horas', lastRun: new Date(Date.now() - 5400000).toISOString(), status: 'active', totalDetected: 34, last24h: 3, description: 'Startups, IA y negocios digitales' },
+  { id: 'src-4', name: 'TechCrunch Latam', category: 'tecnologia', enabled: true, schedule: 'Cada 3 horas', lastRun: new Date(Date.now() - 10800000).toISOString(), status: 'active', totalDetected: 19, last24h: 1, description: 'Noticias de startups y tecnologia LATAM' },
+  { id: 'src-5', name: 'DuckDuckGo Search', category: 'tecnologia', enabled: true, schedule: 'Cada 1 hora', lastRun: new Date(Date.now() - 1800000).toISOString(), status: 'active', totalDetected: 56, last24h: 8, description: 'Busqueda de oportunidades de desarrollo de software e IA' },
+  { id: 'src-6', name: 'Nearshoring Tech MX', category: 'tecnologia', enabled: true, schedule: 'Cada 3 horas', lastRun: new Date(Date.now() - 4500000).toISOString(), status: 'active', totalDetected: 31, last24h: 4, description: 'Nearshoring de desarrollo de software en Mexico' },
+  { id: 'src-7', name: 'GitHub Trending', category: 'tecnologia', enabled: false, schedule: 'Diario', lastRun: null, status: 'idle', totalDetected: 12, last24h: 0, description: 'Tendencias en tecnologia y herramientas' },
+  { id: 'src-8', name: 'Gobierno Digital MX', category: 'gubernamental', enabled: true, schedule: 'Cada 12 horas', lastRun: new Date(Date.now() - 14400000).toISOString(), status: 'active', totalDetected: 15, last24h: 1, description: 'Proyectos de digitalizacion gubernamental' },
 ];
 
 // ── Default rules ───────────────────────────────────────────────
@@ -97,17 +103,17 @@ export const DEFAULT_RULES = [
     priority: 'ALTA', createdAt: new Date(Date.now() - 86400000 * 7).toISOString(), lastTriggered: new Date(Date.now() - 3600000).toISOString(), triggerCount: 12,
   },
   {
-    id: 'rule-2', name: 'Alerta Licitaciones', description: 'Alerta cuando se detecta una licitacion de mobiliario',
+    id: 'rule-2', name: 'Alerta Licitaciones Tech', description: 'Alerta cuando se detecta una licitacion de software o tecnologia',
     enabled: true,
-    conditions: [{ id: 'c3', field: 'opportunity_type', operator: 'equals', value: 'LICITACION' }],
+    conditions: [{ id: 'c3', field: 'opportunity_type', operator: 'equals', value: 'LICITACION_TECH' }],
     actions: [{ id: 'a2', type: 'send_alert', label: 'Enviar alerta' }],
     priority: 'ALTA', createdAt: new Date(Date.now() - 86400000 * 14).toISOString(), lastTriggered: new Date(Date.now() - 7200000).toISOString(), triggerCount: 8,
   },
   {
-    id: 'rule-3', name: 'Enriquecimiento Expansion', description: 'Auto-enriquecer datos de oportunidades de expansion',
+    id: 'rule-3', name: 'Enriquecimiento IA/ML', description: 'Auto-enriquecer oportunidades de IA y Machine Learning con score >60',
     enabled: true,
     conditions: [
-      { id: 'c4', field: 'opportunity_type', operator: 'equals', value: 'EXPANSION' },
+      { id: 'c4', field: 'opportunity_type', operator: 'equals', value: 'IA_ML' },
       { id: 'c5', field: 'relevance_score', operator: 'greater_than', value: 60 },
     ],
     actions: [{ id: 'a3', type: 'auto_enrich', label: 'Enriquecer automaticamente' }],
@@ -195,12 +201,15 @@ export function PriorityTag({ priority }) {
 
 export function TypeTag({ type }) {
   const colors = {
-    LICITACION: 'bg-amber-50 text-amber-700 border-amber-200',
-    NEARSHORING: 'bg-blue-50 text-blue-700 border-blue-200',
-    EXPANSION: 'bg-purple-50 text-purple-700 border-purple-200',
-    OFICINA_NUEVA: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    COWORKING: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-    PARQUE_INDUSTRIAL: 'bg-orange-50 text-orange-700 border-orange-200',
+    APP_WEB: 'bg-blue-50 text-blue-700 border-blue-200',
+    APP_MOVIL: 'bg-purple-50 text-purple-700 border-purple-200',
+    IA_ML: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    CHATBOT_LLM: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    AUTOMATIZACION: 'bg-amber-50 text-amber-700 border-amber-200',
+    ECOMMERCE: 'bg-orange-50 text-orange-700 border-orange-200',
+    LICITACION_TECH: 'bg-red-50 text-red-700 border-red-200',
+    NEARSHORING_TECH: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    TRANSFORMACION_DIGITAL: 'bg-teal-50 text-teal-700 border-teal-200',
     OTRO: 'bg-gray-100 text-gray-600 border-gray-200',
   };
   return (
@@ -248,9 +257,9 @@ export function CustomSelect({ value, onChange, options, icon: Icon }) {
 export function CategoryBadge({ category }) {
   const map = {
     gubernamental: 'bg-orange-50 text-orange-700 border-orange-200',
-    inmobiliaria: 'bg-blue-50 text-blue-700 border-blue-200',
+    tecnologia: 'bg-blue-50 text-blue-700 border-blue-200',
     empresarial: 'bg-purple-50 text-purple-700 border-purple-200',
-    aduanera: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+    inmobiliaria: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   };
   return (
     <span className={`px-2 py-0.5 rounded text-[11px] font-medium border ${map[category] || 'bg-gray-100 text-gray-600'}`}>

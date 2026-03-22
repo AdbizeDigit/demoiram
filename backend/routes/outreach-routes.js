@@ -387,7 +387,9 @@ router.get('/whatsapp/status', async (req, res) => {
     const status = whatsappConnection.getStatus();
     res.json({ success: true, ...status });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('[WhatsApp Status] Error:', error.message);
+    // Return disconnected instead of 500 so frontend doesn't break
+    res.json({ success: true, status: 'disconnected', phone: null, name: null, qrCode: null, messageCount: 0 });
   }
 });
 
@@ -417,9 +419,13 @@ router.post('/whatsapp/send-direct', async (req, res) => {
     }
 
     const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    if (whatsappConnection.connectionStatus !== 'connected') {
+      return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado. Conecta primero escaneando el QR.' });
+    }
     const result = await whatsappConnection.sendMessage(phone, message);
     res.json({ success: true, message: 'Mensaje enviado por WhatsApp', result });
   } catch (error) {
+    console.error('[WhatsApp Send] Error:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

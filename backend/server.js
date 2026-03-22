@@ -40,6 +40,7 @@ import detectionRoutes from './routes/detection.js'
 import scrapingSystemRoutes from './routes/scraping-routes.js'
 import outreachRoutes from './routes/outreach-routes.js'
 import avatarRoutes from './routes/avatar-routes.js'
+import agentRunnerRoutes from './routes/agent-runner-routes.js'
 import { connectDB } from './config/database.js'
 import { initializeScheduledSearches } from './routes/automation.js'
 import CustomChatbot from './models/CustomChatbot.js'
@@ -128,6 +129,7 @@ app.post('/api/webhook/email', async (req, res) => {
 
 app.use('/api/outreach', outreachRoutes)
 app.use('/api/avatars', avatarRoutes)
+app.use('/api/agent-runner', agentRunnerRoutes)
 
 // Health check
 app.get('/api/health', (req, res) => {

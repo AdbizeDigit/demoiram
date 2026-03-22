@@ -185,6 +185,15 @@ export default function WhatsAppOutreachPage() {
     checkWhatsappStatus()
   }, [loadLeads, loadMessages, checkWhatsappStatus])
 
+  // Poll WhatsApp status every 5s until connected (handles auto-reconnect delay)
+  useEffect(() => {
+    if (whatsappStatus === 'connected') return
+    const interval = setInterval(() => {
+      checkWhatsappStatus()
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [whatsappStatus, checkWhatsappStatus])
+
   // ── Conversations (grouped messages by lead) ──────────────────────────────
 
   const conversations = useMemo(() => {

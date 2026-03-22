@@ -12,11 +12,16 @@ const USER_AGENTS = [
 ]
 
 const RELEVANCE_KEYWORDS = [
-  'mobiliario', 'oficina', 'licitación', 'nearshoring', 'expansión',
-  'corporativo', 'coworking', 'parque industrial', 'inmobiliario',
-  'nueva sede', 'remodelación', 'equipamiento', 'workspace',
-  'ampliación', 'inauguración', 'construcción', 'edificio',
-  'arrendamiento', 'contrato', 'gobierno', 'empresa', 'inversión'
+  'desarrollo web', 'aplicacion movil', 'app movil', 'inteligencia artificial',
+  'machine learning', 'llm', 'chatbot', 'automatizacion', 'transformacion digital',
+  'software a medida', 'desarrollo de software', 'saas', 'plataforma digital',
+  'api', 'microservicios', 'cloud', 'nube', 'devops', 'startup',
+  'fintech', 'healthtech', 'edtech', 'proptech', 'licitacion tecnologia',
+  'modernizacion', 'digitalizacion', 'ecommerce', 'comercio electronico',
+  'deep learning', 'modelo predictivo', 'vision artificial', 'nlp',
+  'procesamiento lenguaje natural', 'data science', 'ciencia de datos',
+  'nearshoring tecnologia', 'outsourcing desarrollo', 'agente ia',
+  'empresa tecnologia', 'inversion tecnologia', 'gobierno digital'
 ]
 
 function getRandomUserAgent() {
@@ -285,9 +290,16 @@ class OpportunityScannerService {
     const articles = []
     const config = typeof source.config === 'string' ? JSON.parse(source.config) : source.config
     const keywords = config.keywords || [
-      'licitacion mobiliario oficina mexico',
-      'nearshoring mexico oficinas nuevas',
-      'expansion corporativa mexico'
+      'licitacion desarrollo software mexico 2026',
+      'empresa necesita app movil desarrollo web mexico',
+      'inteligencia artificial machine learning empresas mexico',
+      'transformacion digital automatizacion empresas latinoamerica',
+      'chatbot IA empresa atencion cliente mexico',
+      'nearshoring desarrollo software mexico',
+      'startup busca desarrollo aplicacion movil',
+      'gobierno digital licitacion plataforma tecnologia mexico',
+      'ecommerce plataforma digital desarrollo mexico',
+      'deep learning vision artificial proyecto mexico'
     ]
 
     for (const keyword of keywords) {
@@ -345,17 +357,27 @@ class OpportunityScannerService {
     const textToAnalyze = `Título: ${article.title}\n\nDescripción: ${article.snippet || 'No disponible'}`
 
     try {
-      const systemPrompt = `Eres un analista de inteligencia comercial para una empresa de mobiliario de oficina en México. Analiza el siguiente artículo y determina si representa una OPORTUNIDAD DE VENTA de mobiliario, equipamiento o servicios para oficinas.
+      const systemPrompt = `Eres un analista de inteligencia comercial para Adbize, una empresa de desarrollo de software y tecnología en México. Adbize ofrece estos servicios:
+- Desarrollo de aplicaciones web (React, Node.js, full-stack)
+- Desarrollo de aplicaciones móviles (iOS, Android, React Native)
+- Inteligencia Artificial y Machine Learning (modelos predictivos, visión artificial, NLP)
+- Chatbots personalizados con IA/LLM
+- Automatización de procesos con IA
+- Plataformas SaaS y ecommerce
+- Ciencia de datos y analytics
+- Agentes de IA y soluciones con LLMs
+
+Analiza el siguiente artículo y determina si representa una OPORTUNIDAD DE VENTA de servicios tecnológicos para Adbize.
 
 Criterios de puntuación:
-- 90-100: Oportunidad directa (licitación de mobiliario, nueva oficina que necesita equipar)
-- 70-89: Oportunidad indirecta clara (expansión corporativa, nearshoring con nuevas instalaciones)
-- 50-69: Señal interesante (crecimiento empresarial, nueva sede anunciada)
-- 30-49: Remotamente relevante (noticias del sector inmobiliario corporativo)
-- 0-29: No relevante
+- 90-100: Oportunidad directa (licitación de software, empresa buscando desarrollador de apps/IA)
+- 70-89: Oportunidad clara (empresa en transformación digital, startup necesitando plataforma)
+- 50-69: Señal interesante (empresa creciendo que podría necesitar tecnología, nearshoring tech)
+- 30-49: Remotamente relevante (noticias generales del sector tech)
+- 0-29: No relevante para servicios de tecnología
 
 Responde SOLO con JSON válido, sin markdown ni texto adicional:
-{"relevant":bool,"relevanceScore":int,"opportunityType":"NEARSHORING|LICITACION|EXPANSION|OFICINA_NUEVA|COWORKING|PARQUE_INDUSTRIAL|OTRO","priority":"ALTA|MEDIA|BAJA","summary":"resumen breve de la oportunidad","companyMentioned":"nombre de empresa o null","locationMentioned":"ubicación o null"}`
+{"relevant":bool,"relevanceScore":int,"opportunityType":"APP_WEB|APP_MOVIL|IA_ML|CHATBOT_LLM|AUTOMATIZACION|ECOMMERCE|LICITACION_TECH|NEARSHORING_TECH|TRANSFORMACION_DIGITAL|OTRO","priority":"ALTA|MEDIA|BAJA","summary":"resumen breve de la oportunidad para Adbize","companyMentioned":"nombre de empresa o null","locationMentioned":"ubicación o null"}`
 
       const prompt = `${systemPrompt}\n\nArtículo a analizar:\n${textToAnalyze}`
       const response = await analyzeWithDeepSeek(prompt)
@@ -403,11 +425,16 @@ Responde SOLO con JSON válido, sin markdown ni texto adicional:
     }
 
     // High-value keyword bonuses
-    if (text.includes('licitación') || text.includes('licitacion')) score += 20
-    if (text.includes('mobiliario')) score += 15
-    if (text.includes('nearshoring')) score += 12
-    if (text.includes('nueva oficina') || text.includes('nuevas oficinas')) score += 15
-    if (text.includes('equipamiento')) score += 12
+    if (text.includes('licitacion') || text.includes('licitación')) score += 20
+    if (text.includes('desarrollo de software') || text.includes('desarrollo software')) score += 18
+    if (text.includes('inteligencia artificial') || text.includes('machine learning')) score += 18
+    if (text.includes('app movil') || text.includes('aplicacion movil') || text.includes('aplicación móvil')) score += 15
+    if (text.includes('chatbot') || text.includes('llm') || text.includes('agente ia')) score += 15
+    if (text.includes('desarrollo web') || text.includes('plataforma digital')) score += 12
+    if (text.includes('automatizacion') || text.includes('automatización')) score += 12
+    if (text.includes('nearshoring') && (text.includes('software') || text.includes('tecnolog'))) score += 15
+    if (text.includes('ecommerce') || text.includes('comercio electrónico')) score += 10
+    if (text.includes('transformacion digital') || text.includes('transformación digital')) score += 12
 
     score = Math.min(100, score)
 
@@ -416,12 +443,15 @@ Responde SOLO con JSON válido, sin markdown ni texto adicional:
     else if (score >= 50) priority = 'MEDIA'
 
     let opportunityType = 'OTRO'
-    if (text.includes('licitación') || text.includes('licitacion')) opportunityType = 'LICITACION'
-    else if (text.includes('nearshoring')) opportunityType = 'NEARSHORING'
-    else if (text.includes('expansión') || text.includes('expansion')) opportunityType = 'EXPANSION'
-    else if (text.includes('coworking')) opportunityType = 'COWORKING'
-    else if (text.includes('parque industrial')) opportunityType = 'PARQUE_INDUSTRIAL'
-    else if (text.includes('oficina')) opportunityType = 'OFICINA_NUEVA'
+    if (text.includes('licitacion') || text.includes('licitación')) opportunityType = 'LICITACION_TECH'
+    else if (text.includes('app movil') || text.includes('aplicacion movil') || text.includes('mobile')) opportunityType = 'APP_MOVIL'
+    else if (text.includes('desarrollo web') || text.includes('plataforma') || text.includes('saas')) opportunityType = 'APP_WEB'
+    else if (text.includes('inteligencia artificial') || text.includes('machine learning') || text.includes('deep learning')) opportunityType = 'IA_ML'
+    else if (text.includes('chatbot') || text.includes('llm') || text.includes('agente ia')) opportunityType = 'CHATBOT_LLM'
+    else if (text.includes('automatizacion') || text.includes('automatización')) opportunityType = 'AUTOMATIZACION'
+    else if (text.includes('ecommerce') || text.includes('comercio electr')) opportunityType = 'ECOMMERCE'
+    else if (text.includes('nearshoring')) opportunityType = 'NEARSHORING_TECH'
+    else if (text.includes('transformacion digital') || text.includes('digitalizacion')) opportunityType = 'TRANSFORMACION_DIGITAL'
 
     return {
       relevant: score >= 50,
