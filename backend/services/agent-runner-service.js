@@ -25,7 +25,7 @@ async function initAgentTables() {
       strategy TEXT DEFAULT '',
       status VARCHAR(20) DEFAULT 'idle',
       channels TEXT[] DEFAULT '{email,whatsapp}',
-      tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin}',
+      tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin,hunter,apollo}',
       max_contacts_per_run INT DEFAULT 10,
       contacts_found INT DEFAULT 0,
       messages_sent INT DEFAULT 0,
@@ -46,7 +46,7 @@ async function initAgentTables() {
   `)
   // Add tools column if it doesn't exist (migration for existing tables)
   await pool.query(`
-    ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin}'
+    ALTER TABLE ai_agents ADD COLUMN IF NOT EXISTS tools TEXT[] DEFAULT '{duckduckgo,scraping,email,whatsapp,enrichment,google_maps,linkedin,hunter,apollo}'
   `).catch(() => {})
 }
 
@@ -275,6 +275,58 @@ class AgentRunnerService extends EventEmitter {
         }
       }
 
+      // 1D. Apollo People Search
+      if (tools.includes('apollo') && !control.abort && totalFound < agent.max_contacts_per_run) {
+        await logActivity(agentId, 'tool_active', '🚀 Herramienta: Apollo People Search activa', null, null)
+
+        const titleMap = {
+          business_owners: 'CEO',
+          celebrities: 'Influencer',
+          politicians: 'Director Gobierno',
+          startups: 'Founder',
+          enterprises: 'CTO',
+        }
+        const searchTitle = titleMap[agent.target_type] || 'CEO'
+        const searchIndustry = customKeywords[0] || 'tecnologia'
+
+        await logActivity(agentId, 'searching', `Apollo: buscando ${searchTitle} en ${searchIndustry}`, null, null)
+
+        try {
+          const { apolloService } = await import('./apollo-service.js')
+          const apolloResult = await apolloService.searchPeople({
+            title: searchTitle,
+            industry: searchIndustry,
+            location: 'Mexico',
+            keywords: customKeywords.join(' ') || undefined,
+            limit: Math.min(5, agent.max_contacts_per_run - totalFound),
+          })
+
+          await logActivity(agentId, 'search_results', `${apolloResult.people?.length || 0} personas encontradas via Apollo`, null, null)
+
+          for (const p of (apolloResult.people || [])) {
+            if (control.abort || totalFound >= agent.max_contacts_per_run) break
+            if (p.email || p.phone || p.linkedin) {
+              allContacts.push({
+                name: p.name,
+                company: p.company,
+                email: p.email,
+                phone: p.phone,
+                linkedin: p.linkedin,
+                website: p.website,
+                role: p.title,
+                location: p.location,
+              })
+              totalFound++
+              await logActivity(agentId, 'found_target',
+                `✅ Apollo: ${p.name || 'N/A'} — ${p.title || ''} @ ${p.company || 'N/A'}`,
+                p.name, p.company, { ...p, source: 'apollo' })
+            }
+          }
+        } catch (err) {
+          await logActivity(agentId, 'warning', `Apollo error: ${err.message}`, null, null)
+        }
+      }
+
       if (allContacts.length === 0) {
         await logActivity(agentId, 'warning', '⚠️ No se encontraron contactos en ninguna fuente. Intenta con otros keywords.', null, null)
       }
@@ -292,6 +344,33 @@ class AgentRunnerService extends EventEmitter {
         // Save as lead
         const leadId = await this._saveAsLead(contact, agentId)
         if (!leadId) continue
+
+        // Hunter: find email by domain if we don't have one
+        if (!contact.email && contact.website && tools.includes('hunter')) {
+          await logActivity(agentId, 'hunter_search',
+            `🎯 Hunter: buscando email en ${contact.website} para ${contact.name || contact.company}...`,
+            contact.name, contact.company)
+          try {
+            const { hunterService } = await import('./hunter-service.js')
+            const domain = contact.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
+            const hunterResult = await hunterService.findByDomain(domain, contact.name)
+
+            if (hunterResult.emails?.length > 0) {
+              const bestEmail = hunterResult.emails[0]
+              contact.email = bestEmail.email
+              await pool.query('UPDATE leads SET email = $1 WHERE id = $2 AND email IS NULL', [bestEmail.email, leadId])
+              await logActivity(agentId, 'hunter_found',
+                `🎯 Hunter encontro email: ${bestEmail.email} (confianza: ${bestEmail.confidence}%)`,
+                contact.name, contact.company,
+                { email: bestEmail.email, confidence: bestEmail.confidence, source: bestEmail.source })
+            } else {
+              await logActivity(agentId, 'hunter_empty',
+                `Hunter: sin emails para ${domain}`, contact.name, contact.company)
+            }
+          } catch (err) {
+            await logActivity(agentId, 'warning', `Hunter error: ${err.message}`, contact.name, contact.company)
+          }
+        }
 
         // Enrichment
         if (tools.includes('enrichment')) {
