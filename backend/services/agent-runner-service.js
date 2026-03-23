@@ -205,7 +205,8 @@ class AgentRunnerService extends EventEmitter {
     const indent = '  '.repeat(depth)
     await log(agentId, 'tool_active', `${indent}🔍 Nivel ${depth}: Explorando red de ${person.name}...`, person.name, person.org)
 
-    const prompt = `Para ${person.name} (${person.role || ''}, ${person.org || ''}) de ${country}, lista su equipo cercano y contactos clave REALES (asesores, secretarios, directores, socios, aliados, colaboradores).
+    const prompt = `Para ${person.name} (${person.role || ''}, ${person.org || ''}) de ${country}, lista personas REALES de su entorno que TOMAN DECISIONES: gerentes, encargados, directores, socios, dueños, responsables de compras o contrataciones.
+Enfocate en quienes tienen poder de decision para contratar servicios de IA/tecnologia/automatizacion.
 ${depth === 1 ? 'Max 8 personas.' : 'Max 5 personas.'}
 JSON array: [{"name":"nombre real","role":"cargo","relationship":"relacion con ${person.name}","org":"organizacion"}]
 Solo personas REALES. No inventes.`
@@ -251,11 +252,11 @@ Solo personas REALES. No inventes.`
     const excl = exclude.length > 0 ? `\nNO incluyas a: ${exclude.join(', ')}` : ''
 
     const prompts = {
-      politicians: `Lista 12 politicos REALES y ACTUALES de ${country} (gobernadores, senadores, diputados, alcaldes, secretarios, funcionarios, asesores politicos, directores de campana). Distintos partidos y niveles.${kw}${excl}`,
-      celebrities: `Lista 12 celebridades/influencers/figuras publicas REALES de ${country} con negocios o marcas.${kw}${excl}`,
-      business_owners: `Lista 12 empresarios/dueños REALES de ${country} (CEOs, fundadores).${kw}${excl}`,
-      startups: `Lista 12 fundadores de startups REALES de ${country}.${kw}${excl}`,
-      enterprises: `Lista 12 directivos de grandes empresas REALES de ${country} (CEO, CTO, CIO).${kw}${excl}`,
+      politicians: `Lista 12 personas REALES que toman decisiones en el gobierno/politica de ${country}: jefes de gabinete, secretarios, directores, responsables de compras/licitaciones, gerentes de area. Personas con poder de decision, no solo figuras publicas.${kw}${excl}`,
+      celebrities: `Lista 12 managers, representantes, socios comerciales y personas que toman decisiones en el entorno de celebridades/influencers de ${country}. Managers de artistas, dueños de agencias, directores de marketing.${kw}${excl}`,
+      business_owners: `Lista 12 dueños, gerentes, encargados y personas que toman decisiones en empresas REALES de ${country}. CEOs, fundadores, directores comerciales, gerentes de compras, encargados de tecnologia.${kw}${excl}`,
+      startups: `Lista 12 fundadores, CTOs, COOs y decision-makers de startups REALES de ${country}.${kw}${excl}`,
+      enterprises: `Lista 12 directivos y decision-makers de grandes empresas REALES de ${country}: CEO, CTO, CIO, VP, directores de area, gerentes de compras.${kw}${excl}`,
     }
 
     return `${prompts[type] || prompts.business_owners}\nResponde SOLO JSON: [{"name":"nombre","role":"cargo","org":"organizacion"}]`

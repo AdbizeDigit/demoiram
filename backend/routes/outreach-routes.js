@@ -413,7 +413,7 @@ router.get('/whatsapp/qr', async (req, res) => {
 // POST /whatsapp/send-direct - Send message via connected WhatsApp
 router.post('/whatsapp/send-direct', async (req, res) => {
   try {
-    const { phone, message } = req.body;
+    const { phone, message, leadId } = req.body;
     if (!phone || !message) {
       return res.status(400).json({ success: false, error: 'phone y message son requeridos' });
     }
@@ -423,6 +423,25 @@ router.post('/whatsapp/send-direct', async (req, res) => {
       return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado. Conecta primero escaneando el QR.' });
     }
     const result = await whatsappConnection.sendMessage(phone, message);
+
+    // Save to outreach messages DB
+    let resolvedLeadId = leadId;
+    if (!resolvedLeadId) {
+      const cleanPhone = phone.replace(/\D/g, '');
+      const leadRes = await pool.query(
+        "SELECT id FROM leads WHERE phone LIKE $1 OR social_whatsapp LIKE $1 LIMIT 1",
+        [`%${cleanPhone.slice(-8)}%`]
+      );
+      resolvedLeadId = leadRes.rows[0]?.id || null;
+    }
+    if (resolvedLeadId) {
+      await pool.query(
+        `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at)
+         VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW())`,
+        [resolvedLeadId, message]
+      );
+    }
+
     res.json({ success: true, message: 'Mensaje enviado por WhatsApp', result });
   } catch (error) {
     console.error('[WhatsApp Send] Error:', error.message);

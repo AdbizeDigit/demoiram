@@ -100,6 +100,9 @@ export default function LeadDetailPage() {
   const [actionResult, setActionResult] = useState(null)
   const [expandedMsgId, setExpandedMsgId] = useState(null)
   const [stageDropdownOpen, setStageDropdownOpen] = useState(false)
+  const [waInput, setWaInput] = useState('')
+  const [waSending, setWaSending] = useState(false)
+  const waEndRef = useRef(null)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [notes, setNotes] = useState([])
@@ -177,6 +180,34 @@ export default function LeadDetailPage() {
     loadMessages()
   }, [loadLead, loadReport, loadMessages])
 
+  // Poll for new messages every 5 seconds
+  useEffect(() => {
+    const interval = setInterval(() => { loadMessages() }, 5000)
+    return () => clearInterval(interval)
+  }, [loadMessages])
+
+  // Auto-scroll WhatsApp chat
+  const waMessages = messages.filter(m => (m.channel || m.type || '').toUpperCase() === 'WHATSAPP')
+  useEffect(() => {
+    waEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [waMessages.length])
+
+  async function handleWaSend() {
+    if (!waInput.trim() || waSending) return
+    const phone = lead.whatsapp || lead.phone
+    if (!phone) return
+    setWaSending(true)
+    try {
+      const clean = phone.replace(/[^\d+]/g, '')
+      await api.post('/api/outreach/whatsapp/send-direct', { phone: clean, message: waInput.trim(), leadId: lead.id })
+      setWaInput('')
+      setTimeout(loadMessages, 500)
+    } catch (err) {
+      setActionResult({ type: 'whatsapp', success: false, message: err.response?.data?.error || 'Error enviando WhatsApp' })
+    }
+    setWaSending(false)
+  }
+
   // Auto-generate report if lead has no report
   useEffect(() => {
     if (!lead || loadingReport || report) return
@@ -236,8 +267,8 @@ export default function LeadDetailPage() {
         api.post(`/api/scraping-engine/leads/${lead.id}/report`).then(r => setReport(r.data?.report || r.data)).catch(() => {})
       } else if (type === 'whatsapp') {
         if (lead.whatsapp || lead.phone) {
-          res = await api.post('/api/outreach/whatsapp/send-direct', { leadId: lead.id })
-          setActionResult({ type, success: true, message: 'WhatsApp enviado', data: res.data })
+          res = await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
+          setActionResult({ type, success: true, message: 'WhatsApp enviado via IA', data: res.data })
         } else {
           res = await api.post('/api/outreach/whatsapp/generate', { leadId: lead.id })
           setActionResult({ type, success: true, message: 'Mensaje WhatsApp generado', data: res.data })
@@ -847,176 +878,148 @@ export default function LeadDetailPage() {
               </div>
             </Card>
 
-            {/* Historial de Outreach */}
-            <Card title="Historial de Outreach" icon={TrendingUp}>
-              {loadingMessages ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 animate-spin text-gray-300" />
+            {/* WhatsApp Chat en Vivo */}
+            <Card title="" className="!p-0 overflow-hidden">
+              <div className="flex flex-col" style={{ height: '500px' }}>
+                {/* Chat header */}
+                <div className="flex items-center gap-3 px-4 py-3 bg-green-600">
+                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm">
+                    {(lead.company || lead.name || '?')[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{lead.company || lead.name}</p>
+                    <p className="text-[10px] text-green-100">{lead.whatsapp || lead.phone || 'Sin telefono'}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
+                    <span className="text-[10px] text-green-100">En vivo</span>
+                  </div>
                 </div>
-              ) : messages.length > 0 ? (
-                <div className="relative max-h-[600px] overflow-y-auto pr-1">
-                  {/* Timeline line */}
-                  <div className="absolute left-[15px] top-2 bottom-2 w-0.5 bg-gray-200" />
 
-                  {messages.map((msg, i) => {
-                    const ch = (msg.channel || msg.type || '').toUpperCase()
-                    const isEmail = ch === 'EMAIL'
-                    const isWhatsapp = ch === 'WHATSAPP'
-                    const isCall = ch === 'CALL'
+                {/* Messages area */}
+                <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2" style={{ background: '#e5ddd5', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M30 0L60 30L30 60L0 30z\' fill=\'%23d4cfc6\' fill-opacity=\'0.1\'/%3E%3C/svg%3E")' }}>
+                  {waMessages.length === 0 && (
+                    <div className="text-center py-12">
+                      <MessageCircle className="w-12 h-12 text-green-200 mx-auto mb-3" />
+                      <p className="text-sm text-gray-500">Sin mensajes de WhatsApp</p>
+                      <p className="text-xs text-gray-400 mt-1">Envia un mensaje con el boton de abajo o usa "Enviar WhatsApp IA"</p>
+                    </div>
+                  )}
+                  {waMessages.slice().reverse().map((msg, i) => {
                     const status = (msg.status || '').toUpperCase()
-                    const isExpanded = expandedMsgId === (msg.id || i)
-                    const totalSteps = msg.totalSteps || msg.sequenceTotal
-                    const stepNum = msg.stepNumber || msg.sequenceStep
-
-                    const statusConfig = {
-                      SENT: { label: 'Enviado', cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 className="w-2.5 h-2.5" /> },
-                      DELIVERED: { label: 'Entregado', cls: 'bg-emerald-100 text-emerald-700', icon: <CheckCircle2 className="w-2.5 h-2.5" /> },
-                      SCHEDULED: { label: 'Programado', cls: 'bg-blue-100 text-blue-700', icon: <Clock className="w-2.5 h-2.5" /> },
-                      FAILED: { label: 'Fallido', cls: 'bg-red-100 text-red-700', icon: <AlertCircle className="w-2.5 h-2.5" /> },
-                      ERROR: { label: 'Error', cls: 'bg-red-100 text-red-700', icon: <AlertCircle className="w-2.5 h-2.5" /> },
-                      GENERATED: { label: 'Generado', cls: 'bg-gray-100 text-gray-600', icon: <FileText className="w-2.5 h-2.5" /> },
-                      PENDING: { label: 'Pendiente', cls: 'bg-amber-100 text-amber-700', icon: <Clock className="w-2.5 h-2.5" /> },
-                    }
-                    const stInfo = statusConfig[status] || statusConfig.GENERATED
-
+                    const isFromMe = status !== 'REPLIED'
+                    const text = msg.content || msg.message || msg.body || ''
+                    const senderName = msg.subject?.startsWith('De: ') ? msg.subject.replace('De: ', '') : null
                     return (
-                      <div key={msg.id || i} className="relative pl-9 pb-5">
-                        {/* Timeline dot */}
-                        <div className={`absolute left-[11px] top-1.5 w-[10px] h-[10px] rounded-full border-2 border-white z-10 ${
-                          isEmail ? 'bg-emerald-400' : isWhatsapp ? 'bg-green-400' : isCall ? 'bg-blue-400' : 'bg-gray-400'
-                        }`} />
-
-                        <div className="bg-gray-50 rounded-xl p-4">
-                          {/* Header */}
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              {isEmail && <Mail className="w-4 h-4 text-emerald-500 flex-shrink-0" />}
-                              {isWhatsapp && <MessageCircle className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                              {isCall && <PhoneCall className="w-4 h-4 text-blue-500 flex-shrink-0" />}
-                              {!isEmail && !isWhatsapp && !isCall && <Send className="w-4 h-4 text-gray-400 flex-shrink-0" />}
-                              <span className="text-sm font-semibold text-gray-700">
-                                {isEmail ? 'Email' : isWhatsapp ? 'WhatsApp' : isCall ? 'Guion de Llamada' : (msg.channel || 'Mensaje')}
-                                {stepNum ? ` - Paso ${stepNum}${totalSteps ? `/${totalSteps}` : ''}` : ''}
+                      <div key={msg.id || i} className={`flex ${isFromMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] rounded-xl px-3 py-2 shadow-sm ${
+                          isFromMe
+                            ? 'bg-green-100 rounded-tr-sm'
+                            : 'bg-white rounded-tl-sm'
+                        }`}>
+                          {!isFromMe && senderName && (
+                            <p className="text-[10px] font-bold text-green-700 mb-0.5">{senderName}</p>
+                          )}
+                          <p className="text-[13px] text-gray-800 whitespace-pre-wrap leading-relaxed">{text}</p>
+                          <div className="flex items-center justify-end gap-1 mt-1">
+                            <span className="text-[10px] text-gray-400">{timeAgo(msg.sentAt || msg.createdAt)}</span>
+                            {isFromMe && (
+                              <span className="text-[10px]">
+                                {status === 'SENT' || status === 'DELIVERED' ? (
+                                  <CheckCircle2 className="w-3 h-3 text-blue-500 inline" />
+                                ) : status === 'FAILED' || status === 'ERROR' ? (
+                                  <AlertCircle className="w-3 h-3 text-red-400 inline" />
+                                ) : (
+                                  <Clock className="w-3 h-3 text-gray-400 inline" />
+                                )}
                               </span>
-                            </div>
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${stInfo.cls}`}>
-                                {stInfo.icon} {stInfo.label}
-                              </span>
-                            </div>
+                            )}
                           </div>
-
-                          {/* Timestamp */}
-                          <p className="text-[11px] text-gray-400 mb-2">{timeAgo(msg.sentAt || msg.createdAt)}</p>
-
-                          {/* Email content */}
-                          {isEmail && (
-                            <div>
-                              {msg.subject && (
-                                <p className="text-xs text-gray-600 mb-1.5">
-                                  <span className="text-gray-400 font-medium">Asunto: </span>
-                                  <span className="font-medium">"{msg.subject}"</span>
-                                </p>
-                              )}
-                              <button
-                                onClick={() => setExpandedMsgId(isExpanded ? null : (msg.id || i))}
-                                className="text-xs text-emerald-600 hover:text-emerald-700 font-medium flex items-center gap-1"
-                              >
-                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                {isExpanded ? 'Ocultar contenido' : 'Ver contenido'}
-                              </button>
-                              {isExpanded && (
-                                <div className="mt-2 bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-700 max-h-80 overflow-y-auto">
-                                  {msg.bodyHtml || msg.body ? (
-                                    <div dangerouslySetInnerHTML={{ __html: msg.bodyHtml || msg.body || '' }} />
-                                  ) : (
-                                    <p className="whitespace-pre-wrap">{msg.content || msg.message || 'Sin contenido'}</p>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* WhatsApp content */}
-                          {isWhatsapp && (
-                            <div className="mt-1">
-                              <div className="bg-green-50 border border-green-200 rounded-xl rounded-tl-sm px-4 py-3 text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
-                                {msg.content || msg.message || msg.body || 'Sin contenido'}
-                              </div>
-                              {msg.whatsappUrl && (
-                                <a href={msg.whatsappUrl} target="_blank" rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 mt-2 text-xs text-green-600 hover:underline font-medium">
-                                  <ExternalLink className="w-3 h-3" /> Abrir en WhatsApp
-                                </a>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Call script */}
-                          {isCall && (
-                            <div className="mt-1 space-y-2">
-                              {(msg.script?.opening || msg.opening) && (
-                                <div>
-                                  <span className="text-[11px] font-semibold text-blue-600 uppercase">Apertura:</span>
-                                  <p className="text-sm text-gray-600 mt-0.5">"{msg.script?.opening || msg.opening}"</p>
-                                </div>
-                              )}
-                              {(msg.script?.hook || msg.hook) && (
-                                <div>
-                                  <span className="text-[11px] font-semibold text-blue-600 uppercase">Gancho:</span>
-                                  <p className="text-sm text-gray-600 mt-0.5">"{msg.script?.hook || msg.hook}"</p>
-                                </div>
-                              )}
-                              <button
-                                onClick={() => setExpandedMsgId(isExpanded ? null : (msg.id || i))}
-                                className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
-                              >
-                                <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
-                                {isExpanded ? 'Ocultar guion' : 'Ver guion completo'}
-                              </button>
-                              {isExpanded && (
-                                <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-3 space-y-2">
-                                  {(msg.script?.valueProp || msg.valueProp || msg.script?.valueProposition) && (
-                                    <div>
-                                      <span className="text-[11px] font-semibold text-blue-600 uppercase">Propuesta de Valor:</span>
-                                      <p className="text-sm text-gray-600 mt-0.5">{msg.script?.valueProp || msg.valueProp || msg.script?.valueProposition}</p>
-                                    </div>
-                                  )}
-                                  {(msg.script?.objectionHandling || msg.objectionHandling) && (
-                                    <div>
-                                      <span className="text-[11px] font-semibold text-blue-600 uppercase">Manejo de Objeciones:</span>
-                                      <p className="text-sm text-gray-600 mt-0.5">{msg.script?.objectionHandling || msg.objectionHandling}</p>
-                                    </div>
-                                  )}
-                                  {(msg.script?.closing || msg.closing) && (
-                                    <div>
-                                      <span className="text-[11px] font-semibold text-blue-600 uppercase">Cierre:</span>
-                                      <p className="text-sm text-gray-600 mt-0.5">{msg.script?.closing || msg.closing}</p>
-                                    </div>
-                                  )}
-                                  {!msg.script?.opening && !msg.opening && !msg.script?.hook && !msg.hook && (
-                                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{msg.content || msg.message || msg.body || (typeof msg.script === 'string' ? msg.script : JSON.stringify(msg.script, null, 2))}</p>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Generic fallback */}
-                          {!isEmail && !isWhatsapp && !isCall && (
-                            <p className="text-sm text-gray-600 line-clamp-3 mt-1">{msg.content || msg.subject || msg.message || 'Sin contenido'}</p>
-                          )}
                         </div>
                       </div>
                     )
                   })}
+                  <div ref={waEndRef} />
                 </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Send className="w-10 h-10 text-gray-200 mx-auto" />
-                  <p className="text-sm text-gray-400 mt-2">Sin historial de contacto aun</p>
+
+                {/* Input area */}
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-100 border-t border-gray-200">
+                  <input
+                    type="text"
+                    value={waInput}
+                    onChange={e => setWaInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleWaSend()}
+                    placeholder="Escribe un mensaje..."
+                    className="flex-1 px-4 py-2.5 bg-white rounded-full text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    disabled={!(lead.whatsapp || lead.phone)}
+                  />
+                  <button
+                    onClick={handleWaSend}
+                    disabled={!waInput.trim() || waSending || !(lead.whatsapp || lead.phone)}
+                    className="w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                  >
+                    {waSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </button>
                 </div>
-              )}
+              </div>
+            </Card>
+
+            {/* Historial de Emails */}
+            <Card title="Historial de Emails" icon={Mail}>
+              {(() => {
+                const emailMsgs = messages.filter(m => {
+                  const ch = (m.channel || m.type || '').toUpperCase()
+                  return ch === 'EMAIL' || ch === 'CALL'
+                })
+                if (loadingMessages) return <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>
+                if (!emailMsgs.length) return <div className="text-center py-6"><Mail className="w-8 h-8 text-gray-200 mx-auto" /><p className="text-sm text-gray-400 mt-2">Sin emails enviados</p></div>
+                return (
+                  <div className="space-y-3">
+                    {emailMsgs.map((msg, i) => {
+                      const ch = (msg.channel || msg.type || '').toUpperCase()
+                      const isEmail = ch === 'EMAIL'
+                      const status = (msg.status || '').toUpperCase()
+                      const isExpanded = expandedMsgId === (msg.id || i)
+                      const stepNum = msg.stepNumber || msg.sequenceStep
+                      const totalSteps = msg.totalSteps || msg.sequenceTotal
+                      return (
+                        <div key={msg.id || i} className="bg-gray-50 rounded-xl p-4">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2">
+                              {isEmail ? <Mail className="w-4 h-4 text-blue-500" /> : <PhoneCall className="w-4 h-4 text-purple-500" />}
+                              <span className="text-sm font-semibold text-gray-700">
+                                {isEmail ? 'Email' : 'Guion de Llamada'}
+                                {stepNum ? ` ${stepNum}${totalSteps ? `/${totalSteps}` : ''}` : ''}
+                              </span>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              status === 'SENT' || status === 'DELIVERED' ? 'bg-emerald-100 text-emerald-700' :
+                              status === 'FAILED' || status === 'ERROR' ? 'bg-red-100 text-red-700' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>{status === 'SENT' ? 'Enviado' : status === 'DELIVERED' ? 'Entregado' : status === 'FAILED' ? 'Fallido' : status}</span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 mb-2">{timeAgo(msg.sentAt || msg.createdAt)}</p>
+                          {msg.subject && <p className="text-xs text-gray-600">Asunto: <span className="font-medium">"{msg.subject}"</span></p>}
+                          <button onClick={() => setExpandedMsgId(isExpanded ? null : (msg.id || i))}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1 mt-1">
+                            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                            {isExpanded ? 'Ocultar' : 'Ver contenido'}
+                          </button>
+                          {isExpanded && (
+                            <div className="mt-2 bg-white rounded-xl border border-gray-200 p-4 text-sm text-gray-700 max-h-80 overflow-y-auto">
+                              {msg.bodyHtml || msg.body ? (
+                                <div dangerouslySetInnerHTML={{ __html: msg.bodyHtml || msg.body || '' }} />
+                              ) : (
+                                <p className="whitespace-pre-wrap">{msg.content || msg.message || 'Sin contenido'}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })()}
             </Card>
 
             {/* Mover Etapa */}
