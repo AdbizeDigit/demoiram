@@ -5,7 +5,7 @@ import {
   X, ArrowRight, CheckCircle2, AlertCircle, Clock, Building2,
   MapPin, Star, FileText, Send, PhoneCall, BarChart3, Users,
   TrendingUp, ChevronRight, Search, Filter, MoreVertical,
-  Copy, Check
+  Copy, Check, Play, Square, Radio
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -993,6 +993,9 @@ export default function PipelinePage() {
   const [autoContactLead, setAutoContactLead] = useState(null)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [autoPlay, setAutoPlay] = useState(false)
+  const [autoProgress, setAutoProgress] = useState({ done: 0, total: 0, current: '' })
+  const autoRef = useRef(false)
 
   const loadLeads = useCallback(async () => {
     setLoading(true)
@@ -1104,6 +1107,53 @@ export default function PipelinePage() {
     setBulkLoading(false)
   }
 
+  async function startAutoPlay() {
+    if (autoRef.current) return
+    autoRef.current = true
+    setAutoPlay(true)
+
+    // Get leads in NUEVO stage, max 100 per day
+    const nuevos = leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp))
+    const batch = nuevos.slice(0, 100)
+    setAutoProgress({ done: 0, total: batch.length, current: '' })
+
+    for (let i = 0; i < batch.length; i++) {
+      if (!autoRef.current) break
+      const lead = batch[i]
+      setAutoProgress({ done: i, total: batch.length, current: lead.company || lead.name })
+
+      try {
+        // Generate report
+        await api.post(`/api/scraping-engine/leads/${lead.id}/report`).catch(() => {})
+        // Send email
+        if (lead.email) {
+          await api.post('/api/outreach/email/send', { leadId: lead.id }).catch(() => {})
+        }
+        // Send WhatsApp
+        if (lead.phone || lead.whatsapp) {
+          await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id }).catch(() => {})
+        }
+        // Move to CONTACTADO
+        handleMoveStage(lead.id, 'CONTACTADO')
+      } catch {}
+
+      // Delay between contacts (3s to avoid spam)
+      if (autoRef.current && i < batch.length - 1) {
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+
+    setAutoProgress(prev => ({ ...prev, done: prev.total, current: '' }))
+    autoRef.current = false
+    setAutoPlay(false)
+    loadLeads()
+  }
+
+  function stopAutoPlay() {
+    autoRef.current = false
+    setAutoPlay(false)
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -1181,8 +1231,47 @@ export default function PipelinePage() {
           <button onClick={loadLeads} className="p-2 hover:bg-gray-100 rounded-xl transition-colors" title="Refrescar">
             <RefreshCw className="w-4 h-4 text-gray-400" />
           </button>
+
+          {/* Auto Play */}
+          {autoPlay ? (
+            <button onClick={stopAutoPlay}
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors">
+              <Square className="w-4 h-4" />
+              Detener
+            </button>
+          ) : (
+            <button onClick={startAutoPlay}
+              disabled={leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp)).length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              <Play className="w-4 h-4" />
+              Auto Play
+              <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">
+                {leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp)).length}
+              </span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Auto Play Progress */}
+      {autoPlay && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl px-5 py-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Radio className="w-4 h-4 text-emerald-600 animate-pulse" />
+              <span className="text-sm font-semibold text-emerald-800">Auto Play activo</span>
+            </div>
+            <span className="text-sm font-bold text-emerald-700">{autoProgress.done}/{autoProgress.total}</span>
+          </div>
+          <div className="w-full bg-emerald-200 rounded-full h-2.5 mb-2">
+            <div className="bg-emerald-500 h-2.5 rounded-full transition-all duration-500"
+              style={{ width: `${autoProgress.total > 0 ? (autoProgress.done / autoProgress.total) * 100 : 0}%` }} />
+          </div>
+          {autoProgress.current && (
+            <p className="text-xs text-emerald-600">Contactando: <span className="font-semibold">{autoProgress.current}</span></p>
+          )}
+        </div>
+      )}
 
       {/* ── Bulk actions (list view) ───────────────────────────────────────── */}
       {view === 'list' && selectedIds.size > 0 && (
