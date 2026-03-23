@@ -60,6 +60,8 @@ const ACT = {
   whatsapp_found: { icon: MessageCircle, color: 'text-green-600', bg: 'bg-green-50' },
   whatsapp_error: { icon: AlertCircle, color: 'text-red-500', bg: 'bg-red-50' },
   generating_message: { icon: Sparkles, color: 'text-purple-600', bg: 'bg-purple-50' },
+  cycle_complete: { icon: CheckCircle, color: 'text-emerald-700', bg: 'bg-emerald-100' },
+  waiting: { icon: Clock, color: 'text-gray-500', bg: 'bg-gray-50' },
   warning: { icon: AlertCircle, color: 'text-amber-600', bg: 'bg-amber-50' },
   completed: { icon: CheckCircle, color: 'text-blue-600', bg: 'bg-blue-100' },
   error: { icon: AlertCircle, color: 'text-red-600', bg: 'bg-red-50' },
@@ -286,7 +288,7 @@ function NetworkView({ networks, onSelectPerson }) {
     if (!el) return
     const obs = new ResizeObserver(entries => {
       const { width } = entries[0].contentRect
-      setDims({ w: Math.max(500, width), h: Math.max(500, Math.min(750, width * 0.75)) })
+      setDims({ w: Math.max(500, width), h: Math.max(600, Math.min(900, width * 0.85)) })
     })
     obs.observe(el)
     return () => obs.disconnect()
@@ -300,25 +302,27 @@ function NetworkView({ networks, onSelectPerson }) {
     </div>
   )
 
-  // Build unified node list from all networks
+  // Build unified node list — deduplicate by name
   const allRoots = []
   const allNodes = []
   const allEdges = []
+  const seenNames = new Set()
 
   const cx = dims.w / 2
   const cy = dims.h / 2
 
-  // Position roots in a circle around center
-  const rootRadius = Math.min(cx, cy) * 0.35
+  // Spread roots further apart
+  const rootRadius = Math.min(cx, cy) * 0.55
   const numRoots = networks.length
 
   networks.forEach((net, ri) => {
     const data = typeof net.network === 'string' ? JSON.parse(net.network) : net.network
     const contacts = data.contacts || []
     const target = data.target || { name: net.root_name, role: net.root_role }
+    if (seenNames.has(target.name)) return
+    seenNames.add(target.name)
     const colors = ROOT_COLORS[ri % ROOT_COLORS.length]
 
-    // Root position - spread around center
     const rootAngle = (2 * Math.PI * ri) / Math.max(numRoots, 1) - Math.PI / 2
     const rx = cx + (numRoots === 1 ? 0 : rootRadius * Math.cos(rootAngle))
     const ry = cy + (numRoots === 1 ? 0 : rootRadius * Math.sin(rootAngle))
@@ -326,9 +330,10 @@ function NetworkView({ networks, onSelectPerson }) {
     const rootId = `root-${ri}`
     allRoots.push({ ...target, x: rx, y: ry, colors, id: rootId, ri, country: net.country })
 
-    // Contact positions - mini circle around each root
-    const contactRadius = 70 + contacts.length * 6
+    const contactRadius = 90 + contacts.length * 10
     contacts.forEach((c, ci) => {
+      if (seenNames.has(c.name)) return
+      seenNames.add(c.name)
       const cAngle = (2 * Math.PI * ci) / contacts.length - Math.PI / 2
       const nx = rx + contactRadius * Math.cos(cAngle)
       const ny = ry + contactRadius * Math.sin(cAngle)
@@ -337,8 +342,28 @@ function NetworkView({ networks, onSelectPerson }) {
       allEdges.push({ from: rootId, to: nodeId, fx: rx, fy: ry, tx: nx, ty: ny, colors })
     })
 
-    // Edge from center Adbize node to each root
-    allEdges.push({ from: 'center', to: rootId, fx: cx, fy: cy, tx: rx, ty: ry, colors: ['#a5b4fc', '#a5b4fc'] })
+    allEdges.push({ from: 'center', to: rootId, fx: cx, fy: cy, tx: rx, ty: ry, colors: ['#6366f1', '#6366f1'] })
+  })
+
+  // Simple collision resolution
+  for (let pass = 0; pass < 3; pass++) {
+    for (let i = 0; i < allNodes.length; i++) {
+      for (let j = i + 1; j < allNodes.length; j++) {
+        const dx = allNodes[j].x - allNodes[i].x
+        const dy = allNodes[j].y - allNodes[i].y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist < 35 && dist > 0) {
+          const push = (35 - dist) / 2
+          allNodes[i].x -= (dx / dist) * push; allNodes[i].y -= (dy / dist) * push
+          allNodes[j].x += (dx / dist) * push; allNodes[j].y += (dy / dist) * push
+        }
+      }
+    }
+  }
+  // Update edges after collision fix
+  allEdges.forEach(e => {
+    const n = allNodes.find(n => n.id === e.to)
+    if (n) { e.tx = n.x; e.ty = n.y }
   })
 
   const totalNodes = allRoots.length + allNodes.length
@@ -387,8 +412,11 @@ function NetworkView({ networks, onSelectPerson }) {
           </defs>
 
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
-            {/* Background grid */}
-            <rect x="0" y="0" width={dims.w} height={dims.h} fill="transparent" />
+            {/* Dark background */}
+            <rect x="-500" y="-500" width={dims.w + 1000} height={dims.h + 1000} fill="#0f172a" />
+            {/* Subtle grid */}
+            {Array.from({ length: 20 }, (_, i) => <line key={`gx-${i}`} x1={i * 60} y1="0" x2={i * 60} y2={dims.h} stroke="#1e293b" strokeWidth="0.5" />)}
+            {Array.from({ length: 15 }, (_, i) => <line key={`gy-${i}`} x1="0" y1={i * 60} x2={dims.w} y2={i * 60} stroke="#1e293b" strokeWidth="0.5" />)}
 
             {/* All edges */}
             {allEdges.map((e, i) => {
@@ -397,7 +425,7 @@ function NetworkView({ networks, onSelectPerson }) {
               return (
                 <g key={`edge-${i}`}>
                   <line x1={e.fx} y1={e.fy} x2={e.tx} y2={e.ty}
-                    stroke={isHov ? (e.colors[0] || '#a5b4fc') : (isRootEdge ? '#e0e7ff' : '#f0f0f5')}
+                    stroke={isHov ? (e.colors[0] || '#a5b4fc') : (isRootEdge ? '#4338ca' : '#334155')}
                     strokeWidth={isHov ? 2 : (isRootEdge ? 1.5 : 1)}
                     strokeDasharray={isRootEdge ? '6 4' : '3 3'}
                     opacity={isHov ? 1 : 0.6}
@@ -417,7 +445,7 @@ function NetworkView({ networks, onSelectPerson }) {
                 <circle cx={cx} cy={cy} r={28} fill="url(#centerGrad)" filter="url(#glow)" />
                 <text x={cx} y={cy - 3} textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">ADBIZE</text>
                 <text x={cx} y={cy + 8} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="6">RED</text>
-                <circle cx={cx} cy={cy} r={33} fill="none" stroke="#c7d2fe" strokeWidth="1.5" strokeDasharray="4 3">
+                <circle cx={cx} cy={cy} r={33} fill="none" stroke="#6366f1" strokeWidth="1.5" strokeDasharray="4 3" opacity="0.5">
                   <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="30s" repeatCount="indefinite" />
                 </circle>
               </g>
@@ -440,10 +468,10 @@ function NetworkView({ networks, onSelectPerson }) {
                   <text x={r.x} y={r.y + 1} textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">
                     {(r.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                   </text>
-                  <text x={r.x} y={r.y + rad + 13} textAnchor="middle" fill="#1f2937" fontSize="8.5" fontWeight="700">
+                  <text x={r.x} y={r.y + rad + 13} textAnchor="middle" fill="#e2e8f0" fontSize="8.5" fontWeight="700">
                     {(r.name || '').length > 20 ? r.name.slice(0, 18) + '..' : r.name}
                   </text>
-                  <text x={r.x} y={r.y + rad + 23} textAnchor="middle" fill="#9ca3af" fontSize="7">
+                  <text x={r.x} y={r.y + rad + 23} textAnchor="middle" fill="#94a3b8" fontSize="7">
                     {(r.role || '').slice(0, 28)}
                   </text>
                 </g>
@@ -466,10 +494,10 @@ function NetworkView({ networks, onSelectPerson }) {
                     {(n.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
                   </text>
                   {(isHov || isSel) && <>
-                    <text x={n.x} y={n.y + rad + 11} textAnchor="middle" fill="#374151" fontSize="7.5" fontWeight="600">
+                    <text x={n.x} y={n.y + rad + 11} textAnchor="middle" fill="#e2e8f0" fontSize="7.5" fontWeight="600">
                       {(n.name || '').slice(0, 20)}
                     </text>
-                    <text x={n.x} y={n.y + rad + 20} textAnchor="middle" fill="#9ca3af" fontSize="6.5">
+                    <text x={n.x} y={n.y + rad + 20} textAnchor="middle" fill="#94a3b8" fontSize="6.5">
                       {(n.role || n.relationship || '').slice(0, 25)}
                     </text>
                   </>}
