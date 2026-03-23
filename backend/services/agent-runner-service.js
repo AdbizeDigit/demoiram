@@ -170,126 +170,16 @@ class AgentRunnerService extends EventEmitter {
 
         await log(id, 'search_results', `Red total: ${allContacts.length} personas (${targets.length} targets + ${allContacts.length - targets.length} del entorno)`, null, null)
 
-        // ── FASE 3: BUSCAR CONTACTO ───────────────────────────────────────
+        // ── FASE 3: GUARDAR LEADS (solo nombre/rol/org, sin buscar contacto) ──
         if (ctrl.abort) break
-        await log(id, 'phase', `🔍 FASE 3: Buscando contacto de ${allContacts.length} personas...`, null, null)
-
-        const leads = []
         for (const c of allContacts) {
           if (ctrl.abort) break
-          await log(id, 'searching', `Buscando contacto de ${c.name}...`, c.name, c.org)
-
-          const info = await this._findContactInfo(c, country, id)
-          const leadId = await this._saveAsLead({ ...c, ...info }, id)
-          if (!leadId) continue
-
-          // Hunter: find email by domain if missing
-          if (!info.email && info.website) {
-            try {
-              const { hunterService } = await import('./hunter-service.js')
-              const domain = info.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
-              const hr = await hunterService.findByDomain(domain, c.name)
-              if (hr.emails?.[0]) {
-                info.email = hr.emails[0].email
-                await pool.query('UPDATE leads SET email=$1 WHERE id=$2 AND email IS NULL', [info.email, leadId])
-                await log(id, 'hunter_found', `🎯 Hunter: ${info.email} para ${c.name}`, c.name, c.org)
-              }
-            } catch {}
-          }
-
-          // Validate email
-          if (info.email) {
-            try {
-              const { emailValidator } = await import('./email-validator.js')
-              const valid = await emailValidator.validateComplete(info.email)
-              if (valid?.valid === false) {
-                await log(id, 'email_invalid', `❌ Email invalido: ${info.email}`, c.name, c.org)
-                info.email = null
-              } else {
-                await log(id, 'email_valid', `✓ Email valido: ${info.email}`, c.name, c.org)
-              }
-            } catch {}
-          }
-
-          // Check WhatsApp
-          if (info.phone) {
-            try {
-              const { default: wa } = await import('./outreach/whatsapp-connection-service.js')
-              if (wa.connectionStatus === 'connected') {
-                const hasWA = await wa.checkWhatsApp(info.phone).catch(() => false)
-                info.hasWhatsApp = !!hasWA
-                if (hasWA) {
-                  await log(id, 'whatsapp_found', `✓ WhatsApp confirmado: ${info.phone}`, c.name, c.org)
-                  await pool.query('UPDATE leads SET social_whatsapp=$1 WHERE id=$2', [info.phone, leadId])
-                } else {
-                  await log(id, 'no_contact', `WhatsApp no encontrado para ${info.phone}`, c.name, c.org)
-                }
-              }
-            } catch {}
-          }
-
-          // Update lead with all found data
-          await pool.query(
-            `UPDATE leads SET email=COALESCE($1,email), phone=COALESCE($2,phone),
-             social_linkedin=COALESCE($3,social_linkedin), website=COALESCE($4,website)
-             WHERE id=$5`,
-            [info.email, info.phone, info.linkedin, info.website, leadId]
-          ).catch(() => {})
-
-          const s = [
-            info.email ? `📧${info.email}` : null,
-            info.phone ? `📱${info.phone}` : null,
-            info.hasWhatsApp ? '💬WA' : null,
-            info.linkedin ? '💼LinkedIn' : null,
-            info.twitter ? '🐦Twitter' : null,
-            info.website ? '🌐Web' : null,
-          ].filter(Boolean).join(' | ')
-
-          await log(id, s ? 'found_target' : 'no_contact',
-            s ? `✅ ${c.name}: ${s}` : `⚠️ ${c.name}: sin datos de contacto`,
-            c.name, c.org, info)
+          await this._saveAsLead(c, id)
           await pool.query('UPDATE ai_agents SET contacts_found = contacts_found + 1, updated_at = NOW() WHERE id = $1', [id])
-          leads.push({ ...c, ...info, leadId })
-          await sleep(1500)
-        }
-
-        // ── FASE 4: OUTREACH ──────────────────────────────────────────────
-        const contactable = leads.filter(l => l.email || l.hasWhatsApp)
-        if (contactable.length > 0 && !ctrl.abort) {
-          await log(id, 'phase', `📨 FASE 4: Contactando ${contactable.length} personas...`, null, null)
-
-          for (const lead of contactable) {
-            if (ctrl.abort) break
-            const out = await this._generateMessage(agent, avatar, lead, country)
-            if (!out) continue
-
-            if (lead.email) {
-              try {
-                const { emailOutreachService } = await import('./outreach/email-outreach-service.js')
-                await emailOutreachService.sendEmail(lead.email, out.subject, out.html)
-                await pool.query(`INSERT INTO outreach_messages (lead_id,channel,step,subject,body,ai_generated,status,sent_at) VALUES($1,'EMAIL',1,$2,$3,true,'SENT',NOW())`, [lead.leadId, out.subject, out.message])
-                await log(id, 'email_sent', `📧 Email ENVIADO a ${lead.email}`, lead.name, lead.org)
-              } catch (e) { await log(id, 'email_error', `Error email: ${e.message}`, lead.name, lead.org) }
-            }
-
-            if (lead.hasWhatsApp && lead.phone) {
-              try {
-                const { default: wa } = await import('./outreach/whatsapp-connection-service.js')
-                if (wa.connectionStatus === 'connected') {
-                  await wa.sendMessage(lead.phone, out.whatsapp)
-                  await pool.query(`INSERT INTO outreach_messages (lead_id,channel,step,subject,body,ai_generated,status,sent_at) VALUES($1,'WHATSAPP',1,'WA',$2,true,'SENT',NOW())`, [lead.leadId, out.whatsapp])
-                  await log(id, 'whatsapp_sent', `💬 WhatsApp ENVIADO a ${lead.phone}`, lead.name, lead.org)
-                }
-              } catch (e) { await log(id, 'whatsapp_error', `Error WA: ${e.message}`, lead.name, lead.org) }
-            }
-
-            await pool.query('UPDATE ai_agents SET messages_sent = messages_sent + 1, updated_at = NOW() WHERE id = $1', [id])
-            await sleep(5000)
-          }
         }
 
         // Cycle complete
-        await log(id, 'cycle_complete', `✅ Ciclo ${cycle} completado: ${allContacts.length} personas, ${contactable.length} contactados. Siguiente ciclo en 30s...`, null, null)
+        await log(id, 'cycle_complete', `✅ Ciclo ${cycle} completado: ${allContacts.length} personas mapeadas. Siguiente ciclo en 30s...`, null, null)
         await sleep(30000) // Cooldown between cycles
       }
 
@@ -567,14 +457,6 @@ Solo datos REALES y PUBLICOS. Si no sabes, pon null.`)
     } catch { return null }
   }
 
-  async _generateMessage(agent, avatar, lead, country) {
-    try {
-      const from = avatar?.name || 'Adbize'; const role = avatar?.role || 'Business Development'
-      const r = await analyzeWithDeepSeek(`Eres ${from}, ${role} en Adbize (software, IA, apps). Outreach para ${lead.name} (${lead.role||''}, ${lead.org||''}, ${country}). ${agent.strategy||''} JSON: {"subject":"max 8 palabras","message":"max 120 palabras","whatsapp":"max 50 palabras"}`)
-      const p = JSON.parse(r.match(/\{[\s\S]*\}/)?.[0] || '{}')
-      return { subject: p.subject || 'Propuesta Adbize', message: p.message || '', html: `<div style="font-family:Arial;padding:20px;"><p style="font-size:15px;color:#333;line-height:1.6;">${(p.message||'').replace(/\n/g,'<br>')}</p><p style="font-size:13px;color:#666;margin-top:20px;border-top:1px solid #eee;padding-top:15px;"><strong>${from}</strong><br>${role} — Adbize</p></div>`, whatsapp: p.whatsapp || '' }
-    } catch { return null }
-  }
 }
 
 export default AgentRunnerService
