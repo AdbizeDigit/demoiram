@@ -527,7 +527,7 @@ function NetworkView({ networks, onSelectPerson, agentId }) {
                   <span className="text-xs text-gray-700">{selLead.sector.replace('ai-agent:', '')}</span>
                 </div>
               </div>
-            )
+            )}
           </div>
         )}
       </div>
