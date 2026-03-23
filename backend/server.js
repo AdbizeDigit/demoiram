@@ -274,7 +274,7 @@ app.post('/api/autoplay/start', async (req, res) => {
             const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
             if (waConn.connectionStatus === 'connected') {
               const msg = await waOutreach.generateMessage({ name: lead.name, sector: lead.sector, city: '' })
-              await waConn.sendMessage(phone, msg)
+              await waConn.sendMessage(phone, msg, lead.id)
               await pool.query(
                 "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
                 [lead.id, msg]

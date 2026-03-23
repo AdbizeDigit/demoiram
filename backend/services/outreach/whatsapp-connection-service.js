@@ -17,6 +17,7 @@ class WhatsAppConnectionService extends EventEmitter {
     this.connectedPhone = null;   // connected phone number
     this.connectedName = null;    // connected profile name
     this.messageHistory = [];     // last 100 messages
+    this.jidToLead = new Map();   // maps WhatsApp JID → lead_id for matching replies
     this.retryCount = 0;
     this.maxRetries = 5;
   }
@@ -159,41 +160,53 @@ class WhatsAppConnectionService extends EventEmitter {
             // Save incoming message to DB + create notification
             try {
               const { pool } = await import('../../config/database.js');
-              // Find lead by phone — try multiple matching strategies
               const fromClean = from.replace(/\D/g, '');
               const last8 = fromClean.slice(-8);
               const last10 = fromClean.slice(-10);
-              let leadRes = await pool.query(
-                "SELECT id, name FROM leads WHERE phone LIKE $1 OR social_whatsapp LIKE $1 OR phone LIKE $2 OR social_whatsapp LIKE $2 LIMIT 1",
-                [`%${last8}%`, `%${last10}%`]
-              );
-              // Also try matching the full from number or the remoteJid
-              if (!leadRes.rows.length) {
-                leadRes = await pool.query(
-                  "SELECT id, name FROM leads WHERE social_whatsapp LIKE $1 OR phone LIKE $1 LIMIT 1",
-                  [`%${fromClean}%`]
-                );
+
+              // Strategy 1: JID map (most reliable — we saved this when sending)
+              let leadId = this.jidToLead.get(fromClean) || this.jidToLead.get(from) || null;
+              let leadName = null;
+
+              if (leadId) {
+                const lr = await pool.query("SELECT name FROM leads WHERE id = $1", [leadId]);
+                leadName = lr.rows[0]?.name || pushName;
               }
-              // Try matching by last outreach message sent to this number
-              if (!leadRes.rows.length) {
-                const msgMatch = await pool.query(
-                  "SELECT lead_id FROM outreach_messages WHERE channel = 'WHATSAPP' AND status = 'SENT' AND lead_id IS NOT NULL ORDER BY sent_at DESC LIMIT 20"
+
+              // Strategy 2: DB phone match
+              if (!leadId) {
+                const leadRes = await pool.query(
+                  "SELECT id, name FROM leads WHERE replace(replace(phone, '+', ''), ' ', '') LIKE $1 OR replace(replace(social_whatsapp, '+', ''), ' ', '') LIKE $1 LIMIT 1",
+                  [`%${last8}%`]
                 );
-                for (const row of msgMatch.rows) {
-                  const leadCheck = await pool.query("SELECT id, name, phone, social_whatsapp FROM leads WHERE id = $1", [row.lead_id]);
-                  const l = leadCheck.rows[0];
-                  if (!l) continue;
-                  const lPhone = (l.phone || '').replace(/\D/g, '');
-                  const lWa = (l.social_whatsapp || '').replace(/\D/g, '');
-                  if ((lPhone && fromClean.includes(lPhone.slice(-8))) || (lWa && fromClean.includes(lWa.slice(-8))) ||
-                      (lPhone && lPhone.includes(last8)) || (lWa && lWa.includes(last8))) {
-                    leadRes = { rows: [{ id: l.id, name: l.name }] };
-                    break;
+                if (leadRes.rows.length) {
+                  leadId = leadRes.rows[0].id;
+                  leadName = leadRes.rows[0].name;
+                }
+              }
+
+              // Strategy 3: Check sent messages history in memory
+              if (!leadId) {
+                const sentToThis = this.messageHistory.find(m => m.isFromMe && m.jid === fromClean);
+                if (sentToThis) {
+                  // Find the lead by matching the phone we sent to
+                  const toClean = (sentToThis.to || '').replace(/\D/g, '');
+                  if (toClean) {
+                    const lr = await pool.query(
+                      "SELECT id, name FROM leads WHERE replace(replace(phone, '+', ''), ' ', '') LIKE $1 OR replace(replace(social_whatsapp, '+', ''), ' ', '') LIKE $1 LIMIT 1",
+                      [`%${toClean.slice(-8)}%`]
+                    );
+                    if (lr.rows.length) {
+                      leadId = lr.rows[0].id;
+                      leadName = lr.rows[0].name;
+                      // Save to JID map for future
+                      this.jidToLead.set(fromClean, leadId);
+                    }
                   }
                 }
               }
-              const leadId = leadRes.rows[0]?.id || null;
-              const leadName = leadRes.rows[0]?.name || pushName;
+
+              if (!leadName) leadName = pushName;
               await pool.query(
                 `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
                  VALUES ($1, 'WHATSAPP', 0, $2, $3, false, 'REPLIED', NOW())`,
@@ -316,7 +329,7 @@ class WhatsAppConnectionService extends EventEmitter {
     return { status: 'disconnected' };
   }
 
-  async sendMessage(phone, text) {
+  async sendMessage(phone, text, leadId = null) {
     if (!this.socket || this.connectionStatus !== 'connected') {
       throw new Error('WhatsApp no esta conectado');
     }
@@ -329,9 +342,22 @@ class WhatsAppConnectionService extends EventEmitter {
 
     const result = await this.socket.sendMessage(jid, { text });
 
+    // Track JID → lead mapping for matching replies
+    const remoteJid = result?.key?.remoteJid || jid;
+    const jidNumber = remoteJid.split('@')[0];
+    if (leadId) {
+      this.jidToLead.set(jidNumber, leadId);
+    }
+    // Also map the clean phone number
+    const cleanPhone = phone.replace(/\D/g, '');
+    if (leadId && cleanPhone) {
+      this.jidToLead.set(cleanPhone, leadId);
+    }
+
     const entry = {
       id: result?.key?.id || Date.now().toString(),
       to: phone,
+      jid: jidNumber,
       text,
       timestamp: new Date().toISOString(),
       isFromMe: true,
@@ -342,7 +368,7 @@ class WhatsAppConnectionService extends EventEmitter {
     if (this.messageHistory.length > 100) this.messageHistory.pop();
 
     this.emit('messageSent', entry);
-    console.log(`[WhatsApp] Message sent to ${phone}: ${text.slice(0, 50)}`);
+    console.log(`[WhatsApp] Message sent to ${phone} (jid: ${jidNumber}): ${text.slice(0, 50)}`);
 
     return entry;
   }

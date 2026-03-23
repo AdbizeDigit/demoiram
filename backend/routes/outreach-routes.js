@@ -422,9 +422,7 @@ router.post('/whatsapp/send-direct', async (req, res) => {
     if (whatsappConnection.connectionStatus !== 'connected') {
       return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado. Conecta primero escaneando el QR.' });
     }
-    const result = await whatsappConnection.sendMessage(phone, message);
-
-    // Save to outreach messages DB
+    // Resolve leadId before sending so we can pass it
     let resolvedLeadId = leadId;
     if (!resolvedLeadId) {
       const cleanPhone = phone.replace(/\D/g, '');
@@ -434,6 +432,8 @@ router.post('/whatsapp/send-direct', async (req, res) => {
       );
       resolvedLeadId = leadRes.rows[0]?.id || null;
     }
+    const result = await whatsappConnection.sendMessage(phone, message, resolvedLeadId);
+
     if (resolvedLeadId) {
       await pool.query(
         `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at)
@@ -467,10 +467,13 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
 
     // Send via connected WhatsApp
     const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const result = await whatsappConnection.sendMessage(phone, message);
+    const result = await whatsappConnection.sendMessage(phone, message, leadId);
 
-    // Save to outreach messages
-    await whatsappOutreachService.saveMessage(leadId, message, null);
+    // Save to outreach messages as SENT
+    await pool.query(
+      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
+      [leadId, message]
+    );
 
     // Auto-regenerate AI report after outreach
     import('../services/scraping/lead-report-service.js')
