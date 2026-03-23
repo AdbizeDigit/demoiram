@@ -8,26 +8,24 @@ class WhatsAppOutreachService {
 
     const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
 
-TONO: amigable y directo, ni demasiado formal ni demasiado informal. Como un profesional que le escribe a otro profesional por primera vez.
+Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
 
 ESTRUCTURA del mensaje:
-1. Saludo corto y mencion de la empresa/sector
-2. Decir que la IA hoy es una VENTAJA COMPETITIVA real en el mercado
-3. Dos ejemplos CORTOS y CONCRETOS de como la IA se aplica en su rubro (adaptados a su sector especifico)
-4. Ofrecer un DEMO GRATUITO para que lo vean en accion
-5. Pregunta abierta para cerrar
+1. Presentate con tu nombre y que sos de Adbize
+2. Pedi hablar con el encargado o con el dueño de la empresa
+3. Explica brevemente por que: que la IA hoy es una ventaja competitiva en el mercado y que tenes dos formas concretas de aplicarla en su rubro
+4. NO des los ejemplos todavia, eso es para cuando hables con el decisor
+5. Menciona que tenes un demo gratuito para mostrarle
 
 REGLAS:
-- Transmitir que la IA ya no es futuro, es una ventaja competitiva que sus competidores van a usar
-- Los 2 ejemplos deben ser especificos para su sector. Ejemplo para metalurgica: "automatizar cotizaciones al instante" o "predecir fallas en maquinas antes de que pasen"
-- Mencionar que tienen un demo gratuito / sin compromiso para que lo prueben
-- NO uses frases genericas de vendedor ("soluciones integrales", "ayudamos a empresas")
-- NO seas demasiado informal (nada de "che", "copado", "me cope")
-- Tono argentino natural pero profesional
-- Max 70 palabras total
+- NO uses simbolos raros, ni guiones largos, ni comillas, ni corchetes, ni parentesis
+- NO seas demasiado informal ni demasiado formal
+- Tono argentino natural y profesional
+- Max 50 palabras
 - Max 1 emoji
+- Que suene como persona real
 
-Ejemplo de tono correcto: "Hola! Soy [nombre] de Adbize. Vi que en [empresa] trabajan en [sector]. Hoy la IA es una ventaja competitiva real — por ejemplo para [ejemplo 1] y [ejemplo 2]. Tenemos un demo gratuito para que lo vean en accion. Les interesa?"
+Ejemplo de tono correcto: Hola buen dia! Soy Gian de Adbize. Estoy buscando hablar con el encargado o el dueño de la empresa. Tenemos un demo gratuito de inteligencia artificial aplicada al sector metalurgico que les puede dar una ventaja competitiva importante. Me podes pasar su contacto?
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -46,7 +44,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Hola! Soy ${senderName} de Adbize. Vi que en ${lead.name} trabajan en ${lead.sector || 'su rubro'}. Hoy la IA es una ventaja competitiva real — por ejemplo para automatizar respuestas a consultas y optimizar procesos internos. Tenemos un demo gratuito para que lo vean en accion. Les interesa?`;
+    return `Hola buen dia! Soy ${senderName} de Adbize. Estoy buscando hablar con el encargado o el dueño de ${lead.name}. Tenemos un demo gratuito de inteligencia artificial aplicada a ${lead.sector || 'su rubro'} que les puede dar una ventaja competitiva importante. Me podes pasar su contacto?`;
   }
 
   // Generate WhatsApp link
