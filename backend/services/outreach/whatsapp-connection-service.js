@@ -177,6 +177,74 @@ class WhatsAppConnectionService extends EventEmitter {
                  VALUES ('whatsapp_reply', $1, $2, $3, $4, $5, false, NOW())`,
                 [`${leadName} respondio por WhatsApp`, text.slice(0, 200), leadId, leadName, from]
               );
+
+              // Auto-detect new contact in reply (phone or email)
+              try {
+                const phoneMatch = text.match(/(?:\+?\d{1,3}[\s-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g);
+                const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
+                const newPhone = phoneMatch?.find(p => p.replace(/\D/g, '').length >= 8 && p.replace(/\D/g, '') !== from);
+                const newEmail = emailMatch?.find(e => !e.includes('example') && !e.includes('noreply'));
+
+                if (newPhone || newEmail) {
+                  // Check if this contact already exists
+                  let exists = false;
+                  if (newPhone) {
+                    const cleanP = newPhone.replace(/\D/g, '');
+                    const ex = await pool.query("SELECT id FROM leads WHERE phone LIKE $1 LIMIT 1", [`%${cleanP.slice(-8)}%`]);
+                    if (ex.rows.length) exists = true;
+                  }
+                  if (newEmail && !exists) {
+                    const ex = await pool.query("SELECT id FROM leads WHERE email = $1 LIMIT 1", [newEmail]);
+                    if (ex.rows.length) exists = true;
+                  }
+
+                  if (!exists) {
+                    // Extract name hint from message
+                    const nameHint = text.match(/(?:(?:habla|hable|comunic|contact|llam)[a-z]*\s+(?:con|a)\s+)([A-Z][a-záéíóú]+(?:\s+[A-Z][a-záéíóú]+)*)/i)?.[1]
+                      || (leadName ? `Contacto de ${leadName}` : 'Nuevo contacto');
+
+                    // Create new lead linked to parent
+                    const newLead = await pool.query(
+                      `INSERT INTO leads (name, phone, email, sector, source_url, status, score, notes)
+                       VALUES ($1, $2, $3, $4, $5, 'new', 60, $6) RETURNING id`,
+                      [nameHint, newPhone?.replace(/[^\d+]/g, '') || null, newEmail || null,
+                       'referido', leadId ? `referido:${leadId}` : 'whatsapp-referido',
+                       JSON.stringify([{ text: `Referido por ${leadName} via WhatsApp: "${text.slice(0, 150)}"`, date: new Date().toISOString() }])]
+                    );
+                    const newLeadId = newLead.rows[0]?.id;
+
+                    // Auto-start WhatsApp outreach to new contact
+                    if (newLeadId && newPhone) {
+                      try {
+                        const { default: waOutreach } = await import('./whatsapp-outreach-service.js');
+                        const newLeadData = { name: nameHint, sector: 'referido', city: '' };
+                        const message = await waOutreach.generateMessage(newLeadData);
+                        const cleanNewPhone = newPhone.replace(/[^\d+]/g, '');
+                        await this.sendMessage(cleanNewPhone, message);
+                        await pool.query(
+                          `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at)
+                           VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())`,
+                          [newLeadId, message]
+                        );
+                        console.log(`[WhatsApp] Auto-outreach to new contact: ${nameHint} (${cleanNewPhone})`);
+                      } catch (autoErr) {
+                        console.error('[WhatsApp] Auto-outreach error:', autoErr.message);
+                      }
+                    }
+
+                    // Notification for new contact detected
+                    await pool.query(
+                      `INSERT INTO notifications (type, title, body, lead_id, lead_name, phone, read, created_at)
+                       VALUES ('new_contact', $1, $2, $3, $4, $5, false, NOW())`,
+                      [`Nuevo contacto detectado: ${nameHint}`,
+                       `${leadName} paso el contacto ${newPhone || newEmail}. Se inicio conversacion automatica.`,
+                       newLeadId, nameHint, newPhone?.replace(/[^\d+]/g, '') || null]
+                    );
+                  }
+                }
+              } catch (contactErr) {
+                console.error('[WhatsApp] Contact detection error:', contactErr.message);
+              }
             } catch (dbErr) {
               console.error('[WhatsApp] Error saving incoming msg:', dbErr.message);
             }

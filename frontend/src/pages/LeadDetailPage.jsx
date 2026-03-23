@@ -110,6 +110,7 @@ export default function LeadDetailPage() {
   const [savingNote, setSavingNote] = useState(false)
   const [notes, setNotes] = useState([])
   const [executives, setExecutives] = useState([])
+  const [derivedLeads, setDerivedLeads] = useState([])
   const [loadingExecs, setLoadingExecs] = useState(false)
   const [scanningExecs, setScanningExecs] = useState(false)
 
@@ -286,6 +287,18 @@ export default function LeadDetailPage() {
       .then(r => setExecutives(r.data?.executives || []))
       .catch(() => {})
   }, [id])
+
+  // Load derived/referred leads (contacts passed from this lead's conversation)
+  const loadDerived = useCallback(async () => {
+    if (!id) return
+    try {
+      const { data } = await api.get(`/api/leads/by-source?source=referido:${id}`)
+      setDerivedLeads(data?.leads || [])
+    } catch {}
+  }, [id])
+  useEffect(() => { loadDerived() }, [loadDerived])
+  // Refresh derived leads when messages change (new contact might have been detected)
+  useEffect(() => { loadDerived() }, [messages.length, loadDerived])
 
   // Auto-scan for executives if none found
   useEffect(() => {
@@ -1045,6 +1058,38 @@ export default function LeadDetailPage() {
                 </div>
               </div>
             </Card>
+
+            {/* Contactos derivados */}
+            {derivedLeads.length > 0 && (
+              <Card title={`Contactos Derivados (${derivedLeads.length})`} icon={Users}>
+                <div className="space-y-2">
+                  {derivedLeads.map(dl => (
+                    <a
+                      key={dl.id}
+                      href={`/admin/pipeline/${dl.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-3 p-3 bg-green-50 border border-green-100 rounded-xl hover:bg-green-100 transition-colors"
+                    >
+                      <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                        {(dl.name || '?')[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 truncate">{dl.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {dl.phone && <span className="text-[10px] text-green-700 flex items-center gap-0.5"><Phone className="w-2.5 h-2.5" />{dl.phone}</span>}
+                          {dl.email && <span className="text-[10px] text-blue-600 flex items-center gap-0.5"><Mail className="w-2.5 h-2.5" />{dl.email}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-[10px] px-2 py-0.5 bg-green-200 text-green-800 rounded-full font-medium">Referido</span>
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             {/* Historial de Emails */}
             <Card title="Historial de Emails" icon={Mail}>

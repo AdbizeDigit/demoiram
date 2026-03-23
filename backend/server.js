@@ -182,6 +182,22 @@ app.patch('/api/notifications/read-all', async (req, res) => {
   }
 })
 
+// Derived leads by source
+app.get('/api/leads/by-source', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { source } = req.query
+    if (!source) return res.json({ success: true, leads: [] })
+    const { rows } = await pool.query(
+      'SELECT * FROM leads WHERE source_url = $1 ORDER BY created_at DESC LIMIT 20',
+      [source]
+    )
+    res.json({ success: true, leads: rows })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })
