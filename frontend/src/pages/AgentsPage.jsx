@@ -272,15 +272,26 @@ const ROOT_COLORS = [
   ['#84cc16', '#16a34a'], ['#f97316', '#dc2626'],
 ]
 
-function NetworkView({ networks, onSelectPerson }) {
+function NetworkView({ networks, onSelectPerson, agentId }) {
   const containerRef = useRef(null)
   const [dims, setDims] = useState({ w: 800, h: 700 })
-  const [hovered, setHovered] = useState(null) // "root-0" or "node-0-2"
+  const [hovered, setHovered] = useState(null)
   const [selected, setSelected] = useState(null)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [zoom, setZoom] = useState(1)
   const dragging = useRef(false)
   const dragStart = useRef({ x: 0, y: 0 })
+  const [contacts, setContacts] = useState([])
+
+  // Load contacts to cross-reference with nodes
+  useEffect(() => {
+    if (!agentId) return
+    api.get(`/api/agent-runner/${agentId}/contacts`).then(({ data }) => setContacts(data.contacts || [])).catch(() => {})
+    const i = setInterval(() => {
+      api.get(`/api/agent-runner/${agentId}/contacts`).then(({ data }) => setContacts(data.contacts || [])).catch(() => {})
+    }, 8000)
+    return () => clearInterval(i)
+  }, [agentId])
 
   // Responsive
   useEffect(() => {
@@ -379,6 +390,8 @@ function NetworkView({ networks, onSelectPerson }) {
   const onMouseUp = () => { dragging.current = false }
 
   const selNode = selected ? (allRoots.find(r => r.id === selected) || allNodes.find(n => n.id === selected)) : null
+  // Cross-reference selected node with lead data
+  const selLead = selNode ? contacts.find(c => c.name && selNode.name && c.name.toLowerCase().includes(selNode.name.split(' ')[0].toLowerCase())) : null
 
   return (
     <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
@@ -509,7 +522,7 @@ function NetworkView({ networks, onSelectPerson }) {
 
         {/* Detail panel */}
         {selNode && (
-          <div className="absolute bottom-3 left-3 right-3 max-w-sm mx-auto bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-xl p-4">
+          <div className="absolute bottom-3 left-3 right-3 max-w-md mx-auto bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-xl p-4">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
                 style={{ background: `linear-gradient(135deg, ${selNode.colors[0]}, ${selNode.colors[1]})` }}>
@@ -519,15 +532,64 @@ function NetworkView({ networks, onSelectPerson }) {
                 <p className="font-bold text-sm text-gray-900">{selNode.name}</p>
                 <p className="text-xs text-gray-500">{selNode.role || selNode.relationship || ''}</p>
                 {selNode.org && <p className="text-xs text-gray-400">{selNode.org}</p>}
-                {selNode.country && <p className="text-[10px] text-gray-400">{selNode.country}</p>}
               </div>
               <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-3.5 h-3.5 text-gray-400" /></button>
             </div>
-            <div className="flex flex-wrap gap-1.5 mt-2.5">
+            {/* Badges */}
+            <div className="flex flex-wrap gap-1.5 mt-2">
               {selNode.id?.startsWith('root') && <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-semibold">Target Principal</span>}
               {selNode.parentName && <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">Red de {selNode.parentName.split(' ')[0]}</span>}
               {selNode.relationship && <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">{selNode.relationship}</span>}
             </div>
+            {/* Contact info from leads DB */}
+            {selLead ? (
+              <div className="mt-3 space-y-1.5">
+                {selLead.email && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 bg-blue-50 rounded-lg">
+                    <Mail className="w-3.5 h-3.5 text-blue-600 flex-shrink-0" />
+                    <span className="text-xs text-blue-800 truncate">{selLead.email}</span>
+                  </div>
+                )}
+                {selLead.phone && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 bg-green-50 rounded-lg">
+                    <Phone className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                    <span className="text-xs text-green-800">{selLead.phone}</span>
+                  </div>
+                )}
+                {selLead.social_linkedin && (
+                  <a href={selLead.social_linkedin} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-2.5 py-1.5 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                    <Globe className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    <span className="text-xs text-indigo-800 truncate">LinkedIn</span>
+                    <ExternalLink className="w-3 h-3 text-indigo-400 ml-auto flex-shrink-0" />
+                  </a>
+                )}
+                {selLead.website && (
+                  <a href={selLead.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
+                    <Globe className="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                    <span className="text-xs text-gray-700 truncate">{selLead.website.replace(/^https?:\/\//, '').slice(0, 40)}</span>
+                    <ExternalLink className="w-3 h-3 text-gray-400 ml-auto flex-shrink-0" />
+                  </a>
+                )}
+                {/* Messages sent */}
+                {selLead.messages && selLead.messages.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-gray-100">
+                    <p className="text-[10px] font-semibold text-gray-500 mb-1">{selLead.messages.length} mensaje{selLead.messages.length > 1 ? 's' : ''} enviado{selLead.messages.length > 1 ? 's' : ''}</p>
+                    {selLead.messages.slice(0, 2).map((m, i) => (
+                      <div key={i} className="text-[10px] text-gray-600 flex items-center gap-1.5">
+                        {m.channel === 'WHATSAPP' ? <MessageCircle className="w-2.5 h-2.5 text-green-500" /> : <Mail className="w-2.5 h-2.5 text-blue-500" />}
+                        <span className="font-medium">{m.channel}</span> — <span className={m.status === 'SENT' ? 'text-blue-600' : m.status === 'REPLIED' ? 'text-emerald-600 font-bold' : 'text-gray-400'}>{m.status}</span>
+                        <span className="text-gray-400 ml-auto">{timeAgo(m.sent_at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!selLead.email && !selLead.phone && !selLead.social_linkedin && (
+                  <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-1"><AlertCircle className="w-3 h-3" /> Buscando datos de contacto...</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1"><Clock className="w-3 h-3" /> Datos de contacto pendientes...</p>
+            )}
           </div>
         )}
       </div>
@@ -794,7 +856,7 @@ export default function AgentsPage() {
               {/* Tab content */}
               <div className="flex-1 overflow-y-auto p-4">
                 {tab === 'feed' && <LiveFeed agentId={selected.id} isRunning={selected.status === 'running'} />}
-                {tab === 'network' && <NetworkView networks={networks} onSelectPerson={(name) => { setTab('contacts') }} />}
+                {tab === 'network' && <NetworkView networks={networks} agentId={selected.id} onSelectPerson={(name) => { setTab('contacts') }} />}
                 {tab === 'contacts' && <ContactsGrid agentId={selected.id} onSelect={setSelectedContact} />}
               </div>
             </>
