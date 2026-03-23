@@ -6,17 +6,25 @@ class WhatsAppOutreachService {
   async generateMessage(lead) {
     const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
 
-    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp de prospeccion en espanol argentino.
+    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp CASUAL y NATURAL en espanol argentino.
 
-Adbize ofrece: chatbots IA, automatizacion de procesos, scraping inteligente, analisis de datos con IA.
+IMPORTANTE — lo que NO hacer:
+- NO menciones productos especificos (chatbots, scraping, automatizacion, analisis de datos)
+- NO hagas un pitch de venta directo
+- NO suenes como vendedor o como mensaje masivo
+- NO uses frases como "ayudamos a empresas", "soluciones", "servicios", "ofrecemos"
 
-El mensaje debe ser:
-- Muy corto (max 80 palabras)
-- Profesional pero amigable
-- Personalizado para la empresa
-- Con pregunta abierta al final
-- Sin emojis excesivos (max 2)
-- Tono argentino natural
+Lo que SI hacer:
+- Escribi como si le mandaras un WhatsApp a alguien que no conoces pero te interesa su empresa
+- Menciona algo ESPECIFICO de su empresa/sector que te llamo la atencion
+- Habla de "ventaja competitiva con inteligencia artificial" de forma sutil y curiosa
+- Que suene como una persona real hablando, no un bot
+- Usa tono argentino relajado (tipo "che", "buenas", "copado", etc)
+- Pregunta algo que genere curiosidad, no que pida una reunion
+- Max 50 palabras, como un mensaje real de WhatsApp
+- Max 1 emoji
+
+Ejemplo de tono correcto: "Buenas! Vi lo de [empresa] y me parecio muy copado. Estamos laburando con empresas del sector [X] para que tengan ventaja competitiva usando IA. Te suena?"
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -35,7 +43,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Hola! Soy ${senderName} de Adbize. Encontré a ${lead.name} investigando empresas de ${lead.sector || 'su sector'} en ${lead.city || 'Argentina'}. En Adbize ayudamos a empresas a automatizar procesos con inteligencia artificial. ¿Les interesaría saber cómo la IA puede ayudarles a crecer?`;
+    return `Buenas! Soy ${senderName}. Vi lo de ${lead.name} y me cope. Estamos laburando con empresas de ${lead.sector || 'su rubro'} en ${lead.city || 'Argentina'} para que tengan ventaja competitiva usando IA. Te copa si te cuento?`;
   }
 
   // Generate WhatsApp link
