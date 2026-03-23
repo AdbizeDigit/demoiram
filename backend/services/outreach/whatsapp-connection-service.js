@@ -229,65 +229,96 @@ class WhatsAppConnectionService extends EventEmitter {
 
               // Auto-detect new contact in reply (phone or email)
               try {
-                const phoneMatch = text.match(/(?:\+?\d{1,3}[\s-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}/g);
+                // Match phone numbers: standard formats + short numbers (7-15 digits)
+                const allNumbers = text.match(/\+?\d[\d\s\-().]{6,18}\d/g) || [];
+                const shortNumbers = text.match(/\b\d{7,15}\b/g) || [];
+                const phoneMatches = [...new Set([...allNumbers, ...shortNumbers])];
                 const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g);
-                const newPhone = phoneMatch?.find(p => p.replace(/\D/g, '').length >= 8 && p.replace(/\D/g, '') !== from);
+                const newPhone = phoneMatches
+                  .map(p => p.replace(/\D/g, ''))
+                  .filter(p => p.length >= 7 && p.length <= 15 && p !== fromClean)
+                  .find(p => p !== fromClean);
                 const newEmail = emailMatch?.find(e => !e.includes('example') && !e.includes('noreply'));
 
                 if (newPhone || newEmail) {
                   // Check if this contact already exists
-                  let exists = false;
+                  let existsId = null;
                   if (newPhone) {
-                    const cleanP = newPhone.replace(/\D/g, '');
-                    const ex = await pool.query("SELECT id FROM leads WHERE phone LIKE $1 LIMIT 1", [`%${cleanP.slice(-8)}%`]);
-                    if (ex.rows.length) exists = true;
+                    const ex = await pool.query("SELECT id FROM leads WHERE replace(replace(phone,'+',''),' ','') LIKE $1 OR replace(replace(social_whatsapp,'+',''),' ','') LIKE $1 LIMIT 1", [`%${newPhone.slice(-8)}%`]);
+                    if (ex.rows.length) existsId = ex.rows[0].id;
                   }
-                  if (newEmail && !exists) {
+                  if (newEmail && !existsId) {
                     const ex = await pool.query("SELECT id FROM leads WHERE email = $1 LIMIT 1", [newEmail]);
-                    if (ex.rows.length) exists = true;
+                    if (ex.rows.length) existsId = ex.rows[0].id;
                   }
 
-                  if (!exists) {
-                    // Extract name hint from message
-                    const nameHint = text.match(/(?:(?:habla|hable|comunic|contact|llam)[a-z]*\s+(?:con|a)\s+)([A-Z][a-záéíóú]+(?:\s+[A-Z][a-záéíóú]+)*)/i)?.[1]
-                      || (leadName ? `Contacto de ${leadName}` : 'Nuevo contacto');
+                  if (!existsId) {
+                    // Get parent lead info for context
+                    let parentSector = '';
+                    let parentName = leadName;
+                    if (leadId) {
+                      const parentRes = await pool.query("SELECT name, sector FROM leads WHERE id = $1", [leadId]);
+                      if (parentRes.rows[0]) {
+                        parentName = parentRes.rows[0].name || leadName;
+                        parentSector = parentRes.rows[0].sector || '';
+                      }
+                    }
+
+                    const nameHint = text.match(/(?:(?:habla|hable|comunic|contact|llam|escribi)[a-z]*\s+(?:con|a|al?)\s+)([A-Z][a-záéíóú]+(?:\s+[A-Z][a-záéíóú]+)*)/i)?.[1]
+                      || `Contacto de ${parentName}`;
 
                     // Create new lead linked to parent
                     const newLead = await pool.query(
-                      `INSERT INTO leads (name, phone, email, sector, source_url, status, score, notes)
-                       VALUES ($1, $2, $3, $4, $5, 'new', 60, $6) RETURNING id`,
-                      [nameHint, newPhone?.replace(/[^\d+]/g, '') || null, newEmail || null,
-                       'referido', leadId ? `referido:${leadId}` : 'whatsapp-referido',
-                       JSON.stringify([{ text: `Referido por ${leadName} via WhatsApp: "${text.slice(0, 150)}"`, date: new Date().toISOString() }])]
+                      `INSERT INTO leads (name, phone, email, sector, source_url, status, score, notes, social_whatsapp)
+                       VALUES ($1, $2, $3, $4, $5, 'new', 60, $6, $7) RETURNING id`,
+                      [nameHint, newPhone ? `+54${newPhone}` : null, newEmail || null,
+                       parentSector || 'referido', leadId ? `referido:${leadId}` : 'whatsapp-referido',
+                       JSON.stringify([{ text: `Referido por ${parentName} via WhatsApp: "${text.slice(0, 150)}"`, date: new Date().toISOString() }]),
+                       newPhone ? `+54${newPhone}` : null]
                     );
                     const newLeadId = newLead.rows[0]?.id;
 
-                    // Auto-start WhatsApp outreach to new contact
+                    // Auto-send WhatsApp with CONTEXT from previous conversation
                     if (newLeadId && newPhone) {
                       try {
-                        const { default: waOutreach } = await import('./whatsapp-outreach-service.js');
-                        const newLeadData = { name: nameHint, sector: 'referido', city: '' };
-                        const message = await waOutreach.generateMessage(newLeadData);
-                        const cleanNewPhone = newPhone.replace(/[^\d+]/g, '');
-                        await this.sendMessage(cleanNewPhone, message);
+                        const { analyzeWithDeepSeek } = await import('../deepseek.js');
+                        const senderName = 'Gian Franco Koch';
+                        const contextMsg = await analyzeWithDeepSeek(
+                          `Eres ${senderName} de Adbize. Te derivaron a este numero desde ${parentName}. El mensaje original decia: "${text.slice(0, 200)}".
+Genera un mensaje de WhatsApp corto en espanol argentino. Estructura:
+1. Presentate como ${senderName} de Adbize
+2. Menciona que te derivaron desde ${parentName}
+3. Explica brevemente que tenes un demo gratuito de IA aplicada a su rubro que es una ventaja competitiva
+4. Pregunta amable si podes compartirle info
+Max 50 palabras. Sin simbolos raros. Texto plano.
+Responde SOLO JSON: {"message":"texto"}`
+                        );
+                        let message;
+                        try {
+                          message = JSON.parse(contextMsg.match(/\{[\s\S]*\}/)?.[0] || '{}').message;
+                        } catch {}
+                        if (!message) message = `Hola buen dia! Soy ${senderName} de Adbize. Me derivaron desde ${parentName}. Tenemos un demo gratuito de IA aplicada al sector que es una ventaja competitiva clave. Puedo compartirte mas info?`;
+
+                        const fullPhone = `54${newPhone}`;
+                        await this.sendMessage(fullPhone, message, newLeadId);
                         await pool.query(
                           `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at)
                            VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())`,
                           [newLeadId, message]
                         );
-                        console.log(`[WhatsApp] Auto-outreach to new contact: ${nameHint} (${cleanNewPhone})`);
+                        console.log(`[WhatsApp] Auto-outreach with context to: ${nameHint} (${fullPhone})`);
                       } catch (autoErr) {
                         console.error('[WhatsApp] Auto-outreach error:', autoErr.message);
                       }
                     }
 
-                    // Notification for new contact detected
+                    // Notification with new lead ID for redirect
                     await pool.query(
                       `INSERT INTO notifications (type, title, body, lead_id, lead_name, phone, read, created_at)
                        VALUES ('new_contact', $1, $2, $3, $4, $5, false, NOW())`,
-                      [`Nuevo contacto detectado: ${nameHint}`,
-                       `${leadName} paso el contacto ${newPhone || newEmail}. Se inicio conversacion automatica.`,
-                       newLeadId, nameHint, newPhone?.replace(/[^\d+]/g, '') || null]
+                      [`Nuevo contacto: ${nameHint}`,
+                       `${parentName} derivo al ${newPhone || newEmail}. Se envio mensaje con contexto.`,
+                       newLeadId, nameHint, newPhone || null]
                     );
                   }
                 }

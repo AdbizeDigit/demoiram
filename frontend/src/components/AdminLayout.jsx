@@ -6,7 +6,7 @@ import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
   Shield, Search, Settings, BarChart3, Mail, MessageCircle, Bot, Zap,
-  Bell, X, Check, ExternalLink,
+  Bell, X, Check, ExternalLink, Users,
 } from 'lucide-react'
 
 const navItems = [
@@ -243,23 +243,32 @@ export default function AdminLayout() {
                             if (!n.read) markRead(n.id)
                             setShowNotifs(false)
                             if (n.lead_id) {
-                              navigate(`/admin/lead/${n.lead_id}`)
+                              // New contacts open in new tab, replies navigate in same tab
+                              if (n.type === 'new_contact') {
+                                window.open(`/admin/lead/${n.lead_id}`, '_blank')
+                              } else {
+                                navigate(`/admin/lead/${n.lead_id}`)
+                              }
                             } else {
-                              // Search lead by name — fire and navigate
                               api.get('/api/notifications/find-lead', { params: { name: n.lead_name || '', phone: n.phone || '' } })
                                 .then(({ data }) => {
-                                  if (data?.lead_id) navigate(`/admin/lead/${data.lead_id}`)
-                                  else navigate('/admin/pipeline')
+                                  if (data?.lead_id) {
+                                    if (n.type === 'new_contact') window.open(`/admin/lead/${data.lead_id}`, '_blank')
+                                    else navigate(`/admin/lead/${data.lead_id}`)
+                                  } else navigate('/admin/pipeline')
                                 })
                                 .catch(() => navigate('/admin/pipeline'))
                             }
                           }}
-                          className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}
+                          className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''} ${n.type === 'new_contact' ? 'bg-blue-50/50' : ''}`}
                         >
                           <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-                            n.type === 'whatsapp_reply' ? 'bg-green-100' : 'bg-blue-100'
+                            n.type === 'new_contact' ? 'bg-blue-100' : n.type === 'whatsapp_reply' ? 'bg-green-100' : 'bg-gray-100'
                           }`}>
-                            <MessageCircle className={`w-4 h-4 ${n.type === 'whatsapp_reply' ? 'text-green-600' : 'text-blue-600'}`} />
+                            {n.type === 'new_contact'
+                              ? <ExternalLink className="w-4 h-4 text-blue-600" />
+                              : <MessageCircle className={`w-4 h-4 ${n.type === 'whatsapp_reply' ? 'text-green-600' : 'text-gray-600'}`} />
+                            }
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm ${!n.read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>{n.title}</p>
