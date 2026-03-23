@@ -257,6 +257,40 @@ app.get('/api/notifications/find-lead', async (req, res) => {
   }
 })
 
+// Leads that received replies (for pipeline alert)
+app.get('/api/leads/replied', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT DISTINCT l.id, l.name, l.phone, l.email, l.sector, l.status, l.score,
+             n.body as last_message, n.created_at as replied_at
+      FROM notifications n
+      JOIN leads l ON l.id = n.lead_id
+      WHERE n.type = 'whatsapp_reply' AND n.created_at > NOW() - INTERVAL '7 days'
+      ORDER BY n.created_at DESC
+      LIMIT 20
+    `)
+    // Also get leads in EN_CONVERSACION that might not have notifications with lead_id
+    const { rows: rows2 } = await pool.query(`
+      SELECT DISTINCT l.id, l.name, l.phone, l.email, l.sector, l.status, l.score,
+             m.body as last_message, m.sent_at as replied_at
+      FROM leads l
+      JOIN outreach_messages m ON m.lead_id = l.id AND m.status = 'REPLIED'
+      WHERE m.sent_at > NOW() - INTERVAL '7 days'
+      AND l.id NOT IN (SELECT COALESCE(lead_id, '00000000-0000-0000-0000-000000000000') FROM notifications WHERE type = 'whatsapp_reply' AND lead_id IS NOT NULL)
+      ORDER BY m.sent_at DESC
+      LIMIT 20
+    `)
+    const all = [...rows, ...rows2]
+    // Dedupe by id
+    const seen = new Set()
+    const unique = all.filter(r => { if (seen.has(r.id)) return false; seen.add(r.id); return true })
+    res.json({ success: true, leads: unique })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // Derived leads by source
 app.get('/api/leads/by-source', async (req, res) => {
   try {

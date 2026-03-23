@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   GitBranch, Loader2, RefreshCw, LayoutGrid, List, ChevronDown,
   Phone, Mail, MessageCircle, Globe, ExternalLink, Zap, Eye,
   X, ArrowRight, CheckCircle2, AlertCircle, Clock, Building2,
   MapPin, Star, FileText, Send, PhoneCall, BarChart3, Users,
   TrendingUp, ChevronRight, Search, Filter, MoreVertical,
-  Copy, Check, Play, Square, Radio
+  Copy, Check, Play, Square, Radio, Bell
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -985,6 +986,7 @@ function AutoContactModal({ lead, onClose, onMoveStage }) {
 
 // ─── Main Pipeline Page ───────────────────────────────────────────────────────
 export default function PipelinePage() {
+  const navigate = useNavigate()
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('kanban')
@@ -995,6 +997,7 @@ export default function PipelinePage() {
   const [bulkLoading, setBulkLoading] = useState(false)
   const [autoPlay, setAutoPlay] = useState(false)
   const [autoProgress, setAutoProgress] = useState({ done: 0, total: 0, current: '' })
+  const [repliedLeads, setRepliedLeads] = useState([])
 
   const loadLeads = useCallback(async () => {
     setLoading(true)
@@ -1031,6 +1034,19 @@ export default function PipelinePage() {
   }, [])
 
   useEffect(() => { loadLeads() }, [loadLeads])
+
+  // Load leads that replied
+  const loadReplied = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/leads/replied')
+      setRepliedLeads(data.leads || [])
+    } catch {}
+  }, [])
+  useEffect(() => { loadReplied() }, [loadReplied])
+  useEffect(() => {
+    const iv = setInterval(loadReplied, 10000)
+    return () => clearInterval(iv)
+  }, [loadReplied])
 
   // ─── Derived data ─────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -1234,6 +1250,41 @@ export default function PipelinePage() {
           )}
         </div>
       </div>
+
+      {/* Replied Leads Alert */}
+      {repliedLeads.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-200 bg-amber-100/50">
+            <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+            <span className="text-sm font-bold text-amber-800">{repliedLeads.length} lead{repliedLeads.length > 1 ? 's' : ''} respondieron</span>
+            <span className="text-xs text-amber-600 ml-1">Requieren atencion</span>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {repliedLeads.map(rl => (
+              <div
+                key={rl.id}
+                onClick={() => navigate(`/admin/lead/${rl.id}`)}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-amber-100/50 cursor-pointer transition-colors"
+              >
+                <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                  {(rl.name || '?')[0]}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{rl.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{rl.last_message?.slice(0, 80) || 'Respondio'}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <MessageCircle className="w-4 h-4 text-green-500" />
+                  <span className="text-[10px] text-gray-400">
+                    {rl.replied_at ? new Date(rl.replied_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-gray-300" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Auto Play Progress */}
       {autoPlay && (
