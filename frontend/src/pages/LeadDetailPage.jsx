@@ -334,6 +334,27 @@ export default function LeadDetailPage() {
   const activeChatMessages = activeChat ? (derivedMessages[activeChat] || []) : messages
   const activeChatWaMessages = activeChatMessages.filter(m => (m.channel || m.type || '').toUpperCase() === 'WHATSAPP')
 
+  // Auto-send first message to derived leads that have no messages yet
+  const autoSentRef = useRef(new Set())
+  useEffect(() => {
+    derivedLeads.forEach(async (dl) => {
+      if (autoSentRef.current.has(dl.id)) return
+      const msgs = derivedMessages[dl.id] || []
+      if (msgs.length > 0) return
+      const phone = dl.social_whatsapp || dl.phone
+      if (!phone) return
+      autoSentRef.current.add(dl.id)
+      try {
+        await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: dl.id })
+        // Reload messages for this derived lead
+        setTimeout(async () => {
+          const { data } = await api.get(`/api/outreach/messages?leadId=${dl.id}`)
+          setDerivedMessages(prev => ({ ...prev, [dl.id]: data?.messages || [] }))
+        }, 1000)
+      } catch {}
+    })
+  }, [derivedLeads, derivedMessages])
+
   // Mark tab as seen when clicked
   function switchTab(tabId) {
     setActiveChat(tabId)
