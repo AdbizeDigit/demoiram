@@ -118,7 +118,7 @@ app.post('/api/webhook/email', async (req, res) => {
       // Move lead to EN_CONVERSACION
       if (leadId) {
         await pool.query(
-          "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND status IN ('new', 'NUEVO', 'CONTACTADO', 'contacted')",
+          "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND UPPER(status) IN ('NEW', 'NUEVO', 'CONTACTADO', 'CONTACTED', 'PENDING')",
           [leadId]
         ).catch(() => {})
       }

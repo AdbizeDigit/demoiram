@@ -241,7 +241,7 @@ export default function AdminLayout() {
                           key={n.id}
                           onClick={() => {
                             if (!n.read) markRead(n.id)
-                            if (n.lead_id) { navigate(`/admin/pipeline/${n.lead_id}`); setShowNotifs(false) }
+                            if (n.lead_id) { navigate(`/admin/lead/${n.lead_id}`); setShowNotifs(false) }
                           }}
                           className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}
                         >

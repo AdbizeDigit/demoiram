@@ -159,11 +159,39 @@ class WhatsAppConnectionService extends EventEmitter {
             // Save incoming message to DB + create notification
             try {
               const { pool } = await import('../../config/database.js');
-              // Find lead by phone
-              const leadRes = await pool.query(
-                "SELECT id, name FROM leads WHERE phone LIKE $1 OR social_whatsapp LIKE $1 LIMIT 1",
-                [`%${from.slice(-8)}%`]
+              // Find lead by phone — try multiple matching strategies
+              const fromClean = from.replace(/\D/g, '');
+              const last8 = fromClean.slice(-8);
+              const last10 = fromClean.slice(-10);
+              let leadRes = await pool.query(
+                "SELECT id, name FROM leads WHERE phone LIKE $1 OR social_whatsapp LIKE $1 OR phone LIKE $2 OR social_whatsapp LIKE $2 LIMIT 1",
+                [`%${last8}%`, `%${last10}%`]
               );
+              // Also try matching the full from number or the remoteJid
+              if (!leadRes.rows.length) {
+                leadRes = await pool.query(
+                  "SELECT id, name FROM leads WHERE social_whatsapp LIKE $1 OR phone LIKE $1 LIMIT 1",
+                  [`%${fromClean}%`]
+                );
+              }
+              // Try matching by last outreach message sent to this number
+              if (!leadRes.rows.length) {
+                const msgMatch = await pool.query(
+                  "SELECT lead_id FROM outreach_messages WHERE channel = 'WHATSAPP' AND status = 'SENT' AND lead_id IS NOT NULL ORDER BY sent_at DESC LIMIT 20"
+                );
+                for (const row of msgMatch.rows) {
+                  const leadCheck = await pool.query("SELECT id, name, phone, social_whatsapp FROM leads WHERE id = $1", [row.lead_id]);
+                  const l = leadCheck.rows[0];
+                  if (!l) continue;
+                  const lPhone = (l.phone || '').replace(/\D/g, '');
+                  const lWa = (l.social_whatsapp || '').replace(/\D/g, '');
+                  if ((lPhone && fromClean.includes(lPhone.slice(-8))) || (lWa && fromClean.includes(lWa.slice(-8))) ||
+                      (lPhone && lPhone.includes(last8)) || (lWa && lWa.includes(last8))) {
+                    leadRes = { rows: [{ id: l.id, name: l.name }] };
+                    break;
+                  }
+                }
+              }
               const leadId = leadRes.rows[0]?.id || null;
               const leadName = leadRes.rows[0]?.name || pushName;
               await pool.query(
@@ -174,7 +202,7 @@ class WhatsAppConnectionService extends EventEmitter {
               // Move lead to EN_CONVERSACION when they reply
               if (leadId) {
                 await pool.query(
-                  "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND status IN ('new', 'NUEVO', 'CONTACTADO', 'contacted')",
+                  "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND UPPER(status) IN ('NEW', 'NUEVO', 'CONTACTADO', 'CONTACTED', 'PENDING')",
                   [leadId]
                 );
               }
