@@ -107,12 +107,27 @@ app.post('/api/webhook/email', async (req, res) => {
 
     if (['reply', 'inbound'].includes(eventType) || (content && from)) {
       const { pool } = await import('./config/database.js')
-      const leadRes = await pool.query("SELECT id FROM leads WHERE email = $1 LIMIT 1", [from])
+      const leadRes = await pool.query("SELECT id, name FROM leads WHERE email = $1 LIMIT 1", [from])
+      const leadId = leadRes.rows[0]?.id || null
+      const leadName = leadRes.rows[0]?.name || from
       await pool.query(
         `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
          VALUES ($1, 'EMAIL', 0, $2, $3, false, 'REPLIED', NOW())`,
-        [leadRes.rows[0]?.id || null, subject ? `RE: ${subject}` : 'Respuesta', content || 'Respuesta recibida']
+        [leadId, subject ? `RE: ${subject}` : 'Respuesta', content || 'Respuesta recibida']
       )
+      // Move lead to EN_CONVERSACION
+      if (leadId) {
+        await pool.query(
+          "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND status IN ('new', 'NUEVO', 'CONTACTADO', 'contacted')",
+          [leadId]
+        ).catch(() => {})
+      }
+      // Create notification
+      await pool.query(
+        `INSERT INTO notifications (type, title, body, lead_id, lead_name, phone, read, created_at)
+         VALUES ('email_reply', $1, $2, $3, $4, NULL, false, NOW())`,
+        [`${leadName} respondio por Email`, (subject || content || '').slice(0, 200), leadId, leadName]
+      ).catch(() => {})
     }
 
     if (['opened', 'open', 'unique_opened'].includes(eventType)) {

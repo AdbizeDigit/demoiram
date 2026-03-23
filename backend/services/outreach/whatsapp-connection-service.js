@@ -171,6 +171,14 @@ class WhatsAppConnectionService extends EventEmitter {
                  VALUES ($1, 'WHATSAPP', 0, $2, $3, false, 'REPLIED', NOW())`,
                 [leadId, `De: ${pushName}`, text]
               );
+              // Move lead to EN_CONVERSACION when they reply
+              if (leadId) {
+                await pool.query(
+                  "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND status IN ('new', 'NUEVO', 'CONTACTADO', 'contacted')",
+                  [leadId]
+                );
+              }
+
               // Create notification
               await pool.query(
                 `INSERT INTO notifications (type, title, body, lead_id, lead_name, phone, read, created_at)
