@@ -6,25 +6,25 @@ class WhatsAppOutreachService {
   async generateMessage(lead) {
     const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
 
-    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp CASUAL y NATURAL en espanol argentino.
+    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
 
-IMPORTANTE — lo que NO hacer:
-- NO menciones productos especificos (chatbots, scraping, automatizacion, analisis de datos)
-- NO hagas un pitch de venta directo
-- NO suenes como vendedor o como mensaje masivo
-- NO uses frases como "ayudamos a empresas", "soluciones", "servicios", "ofrecemos"
+TONO: amigable y directo, ni demasiado formal ni demasiado informal. Como un profesional que le escribe a otro profesional por primera vez.
 
-Lo que SI hacer:
-- Escribi como si le mandaras un WhatsApp a alguien que no conoces pero te interesa su empresa
-- Menciona algo ESPECIFICO de su empresa/sector que te llamo la atencion
-- Habla de "ventaja competitiva con inteligencia artificial" de forma sutil y curiosa
-- Que suene como una persona real hablando, no un bot
-- Usa tono argentino relajado (tipo "che", "buenas", "copado", etc)
-- Pregunta algo que genere curiosidad, no que pida una reunion
-- Max 50 palabras, como un mensaje real de WhatsApp
+ESTRUCTURA del mensaje:
+1. Saludo corto y mencion de la empresa/sector
+2. Dos ejemplos CORTOS y CONCRETOS de como la IA se podria aplicar en su rubro (adaptados a su sector especifico)
+3. Pregunta abierta para cerrar
+
+REGLAS:
+- NO uses frases genericas de vendedor ("soluciones", "ayudamos a empresas", "ofrecemos servicios")
+- NO seas demasiado informal (nada de "che", "copado", "me cope")
+- SI usa tono argentino natural pero profesional
+- Los 2 ejemplos deben ser especificos para su sector, no genericos. Ejemplo para metalurgica: "automatizar cotizaciones" o "predecir mantenimiento de maquinas con IA"
+- Max 60 palabras total
 - Max 1 emoji
+- Que suene como persona real, no como bot
 
-Ejemplo de tono correcto: "Buenas! Vi lo de [empresa] y me parecio muy copado. Estamos laburando con empresas del sector [X] para que tengan ventaja competitiva usando IA. Te suena?"
+Ejemplo de tono correcto: "Hola! Soy [nombre] de Adbize. Vi que en [empresa] trabajan en [sector]. Estamos aplicando IA en empresas del rubro, por ejemplo para [ejemplo 1] y [ejemplo 2]. Les interesaria ver como funciona?"
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -43,7 +43,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Buenas! Soy ${senderName}. Vi lo de ${lead.name} y me cope. Estamos laburando con empresas de ${lead.sector || 'su rubro'} en ${lead.city || 'Argentina'} para que tengan ventaja competitiva usando IA. Te copa si te cuento?`;
+    return `Hola! Soy ${senderName} de Adbize. Vi que en ${lead.name} trabajan en ${lead.sector || 'su rubro'}. Estamos aplicando IA en empresas del sector, por ejemplo para automatizar respuestas a consultas y optimizar procesos internos. Les interesaria ver como funciona?`;
   }
 
   // Generate WhatsApp link
