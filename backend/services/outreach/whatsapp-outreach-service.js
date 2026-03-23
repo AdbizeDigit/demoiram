@@ -5,13 +5,14 @@ class WhatsAppOutreachService {
   // Generate personalized WhatsApp message with AI
   async generateMessage(lead) {
     const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
+    const senderFullName = 'Gian Franco Koch';
 
     const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
 
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
 
 ESTRUCTURA del mensaje:
-1. Saludo amable y presentate con tu nombre y que sos de Adbize
+1. Saludo amable y presentate con tu nombre completo ${senderFullName} y que sos de Adbize
 2. Comenta que estuviste viendo empresas del sector y que te parecio interesante lo que hacen
 3. Menciona que estas trabajando con empresas del rubro en temas de inteligencia artificial y que hoy es una ventaja competitiva clave
 4. Pregunta amablemente si te pueden comunicar con el encargado o el dueño para compartirle un demo gratuito sin compromiso
@@ -29,7 +30,7 @@ REGLAS:
 - Max 1 emoji
 - Texto plano sin formato
 
-Ejemplo de tono correcto: Hola buen dia! Soy Gian de Adbize. Estuve viendo empresas del sector metalurgico y me parecio muy interesante lo que hacen. Estamos trabajando con inteligencia artificial aplicada al rubro y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?
+Ejemplo de tono correcto: Hola buen dia! Soy Gian Franco Koch de Adbize. Estuve viendo empresas del sector metalurgico y me parecio muy interesante lo que hacen. Estamos trabajando con inteligencia artificial aplicada al rubro y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -48,7 +49,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Hola buen dia! Soy ${senderName} de Adbize. Estuve viendo empresas de ${lead.sector || 'su rubro'} y me parecio muy interesante lo que hacen en ${lead.name}. Estamos trabajando con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?`;
+    return `Hola buen dia! Soy ${senderFullName} de Adbize. Estuve viendo empresas de ${lead.sector || 'su rubro'} y me parecio muy interesante lo que hacen en ${lead.name}. Estamos trabajando con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?`;
   }
 
   // Generate WhatsApp link
