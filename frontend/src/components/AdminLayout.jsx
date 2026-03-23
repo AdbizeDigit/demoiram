@@ -239,17 +239,19 @@ export default function AdminLayout() {
                       notifications.slice(0, 20).map(n => (
                         <div
                           key={n.id}
-                          onClick={async () => {
+                          onClick={() => {
                             if (!n.read) markRead(n.id)
                             setShowNotifs(false)
                             if (n.lead_id) {
                               navigate(`/admin/lead/${n.lead_id}`)
                             } else {
-                              // Search lead by name
-                              try {
-                                const { data } = await api.get('/api/notifications/find-lead', { params: { name: n.lead_name, phone: n.phone } })
-                                if (data.lead_id) navigate(`/admin/lead/${data.lead_id}`)
-                              } catch {}
+                              // Search lead by name — fire and navigate
+                              api.get('/api/notifications/find-lead', { params: { name: n.lead_name || '', phone: n.phone || '' } })
+                                .then(({ data }) => {
+                                  if (data?.lead_id) navigate(`/admin/lead/${data.lead_id}`)
+                                  else navigate('/admin/pipeline')
+                                })
+                                .catch(() => navigate('/admin/pipeline'))
                             }
                           }}
                           className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}

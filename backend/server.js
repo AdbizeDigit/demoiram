@@ -203,28 +203,52 @@ app.get('/api/notifications/find-lead', async (req, res) => {
     const { pool } = await import('./config/database.js')
     const { name, phone } = req.query
 
-    // Try by phone first (most reliable)
+    // Strategy 1: phone match in leads
     if (phone) {
-      const clean = phone.replace(/\D/g, '').slice(-8)
-      if (clean.length >= 6) {
+      const clean = phone.replace(/\D/g, '')
+      // Try last 8, last 10, full number
+      for (const slice of [clean.slice(-8), clean.slice(-10), clean]) {
+        if (slice.length < 6) continue
         const r = await pool.query(
-          "SELECT id FROM leads WHERE replace(replace(phone, '+', ''), ' ', '') LIKE $1 OR replace(replace(social_whatsapp, '+', ''), ' ', '') LIKE $1 LIMIT 1",
-          [`%${clean}%`]
+          "SELECT id FROM leads WHERE replace(replace(replace(phone, '+', ''), ' ', ''), '-', '') LIKE $1 OR replace(replace(replace(social_whatsapp, '+', ''), ' ', ''), '-', '') LIKE $1 LIMIT 1",
+          [`%${slice}%`]
         )
         if (r.rows[0]) return res.json({ success: true, lead_id: r.rows[0].id })
       }
     }
 
-    // Try by name
+    // Strategy 2: name match in leads (strip emojis and special chars)
     if (name) {
-      const cleanName = name.replace(/[^\w\sáéíóúñü]/gi, '').trim()
+      const cleanName = name.replace(/[\u{1F600}-\u{1F9FF}]/gu, '').replace(/[^\w\sáéíóúñüÁÉÍÓÚÑÜ]/gi, '').trim()
       if (cleanName.length > 2) {
-        const r = await pool.query(
-          "SELECT id FROM leads WHERE name ILIKE $1 LIMIT 1",
-          [`%${cleanName}%`]
-        )
+        // Try exact-ish match first
+        const r = await pool.query("SELECT id FROM leads WHERE name ILIKE $1 LIMIT 1", [`%${cleanName}%`])
         if (r.rows[0]) return res.json({ success: true, lead_id: r.rows[0].id })
+        // Try first word only
+        const firstWord = cleanName.split(/\s+/)[0]
+        if (firstWord.length > 3) {
+          const r2 = await pool.query("SELECT id FROM leads WHERE name ILIKE $1 LIMIT 1", [`%${firstWord}%`])
+          if (r2.rows[0]) return res.json({ success: true, lead_id: r2.rows[0].id })
+        }
       }
+    }
+
+    // Strategy 3: find most recent WA message sent around the notification time
+    // This catches cases where JID doesn't match phone
+    const r3 = await pool.query(
+      "SELECT DISTINCT lead_id FROM outreach_messages WHERE channel = 'WHATSAPP' AND status = 'SENT' AND lead_id IS NOT NULL ORDER BY sent_at DESC LIMIT 30"
+    )
+    // Return the first one that has a name similar to the notification name
+    if (name && r3.rows.length) {
+      const cleanName = name.replace(/[\u{1F600}-\u{1F9FF}]/gu, '').replace(/[^\w\sáéíóúñü]/gi, '').trim().toLowerCase()
+      for (const row of r3.rows) {
+        const lr = await pool.query("SELECT id, name FROM leads WHERE id = $1", [row.lead_id])
+        if (lr.rows[0]?.name?.toLowerCase().includes(cleanName.split(/\s+/)[0]?.toLowerCase())) {
+          return res.json({ success: true, lead_id: lr.rows[0].id })
+        }
+      }
+      // If no name match, just return the most recent sent lead as fallback
+      if (r3.rows[0]) return res.json({ success: true, lead_id: r3.rows[0].lead_id })
     }
 
     res.json({ success: true, lead_id: null })
