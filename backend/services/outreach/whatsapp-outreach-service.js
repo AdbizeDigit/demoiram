@@ -11,21 +11,25 @@ class WhatsAppOutreachService {
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
 
 ESTRUCTURA del mensaje:
-1. Presentate con tu nombre y que sos de Adbize
-2. Pedi hablar con el encargado o con el dueño de la empresa
-3. Explica brevemente por que: que la IA hoy es una ventaja competitiva en el mercado y que tenes dos formas concretas de aplicarla en su rubro
-4. NO des los ejemplos todavia, eso es para cuando hables con el decisor
-5. Menciona que tenes un demo gratuito para mostrarle
+1. Saludo amable y presentate con tu nombre y que sos de Adbize
+2. Comenta que estuviste viendo empresas del sector y que te parecio interesante lo que hacen
+3. Menciona que estas trabajando con empresas del rubro en temas de inteligencia artificial y que hoy es una ventaja competitiva clave
+4. Pregunta amablemente si te pueden comunicar con el encargado o el dueño para compartirle un demo gratuito sin compromiso
+
+TONO:
+- Persuasivo y amable, no agresivo ni vendedor
+- Que genere curiosidad, no presion
+- Como alguien que genuinamente quiere compartir algo util, no vender
+- Argentino natural y profesional
 
 REGLAS:
 - NO uses simbolos raros, ni guiones largos, ni comillas, ni corchetes, ni parentesis
-- NO seas demasiado informal ni demasiado formal
-- Tono argentino natural y profesional
-- Max 50 palabras
+- NO seas demasiado directo pidiendo el contacto, que fluya naturalmente
+- Max 55 palabras
 - Max 1 emoji
-- Que suene como persona real
+- Texto plano sin formato
 
-Ejemplo de tono correcto: Hola buen dia! Soy Gian de Adbize. Estoy buscando hablar con el encargado o el dueño de la empresa. Tenemos un demo gratuito de inteligencia artificial aplicada al sector metalurgico que les puede dar una ventaja competitiva importante. Me podes pasar su contacto?
+Ejemplo de tono correcto: Hola buen dia! Soy Gian de Adbize. Estuve viendo empresas del sector metalurgico y me parecio muy interesante lo que hacen. Estamos trabajando con inteligencia artificial aplicada al rubro y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -44,7 +48,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Hola buen dia! Soy ${senderName} de Adbize. Estoy buscando hablar con el encargado o el dueño de ${lead.name}. Tenemos un demo gratuito de inteligencia artificial aplicada a ${lead.sector || 'su rubro'} que les puede dar una ventaja competitiva importante. Me podes pasar su contacto?`;
+    return `Hola buen dia! Soy ${senderName} de Adbize. Estuve viendo empresas de ${lead.sector || 'su rubro'} y me parecio muy interesante lo que hacen en ${lead.name}. Estamos trabajando con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?`;
   }
 
   // Generate WhatsApp link
