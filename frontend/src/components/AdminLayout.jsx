@@ -241,16 +241,14 @@ export default function AdminLayout() {
                           key={n.id}
                           onClick={async () => {
                             if (!n.read) markRead(n.id)
+                            setShowNotifs(false)
                             if (n.lead_id) {
-                              navigate(`/admin/lead/${n.lead_id}`); setShowNotifs(false)
-                            } else if (n.lead_name) {
-                              // Search lead by name when lead_id is missing
+                              navigate(`/admin/lead/${n.lead_id}`)
+                            } else {
+                              // Search lead by name
                               try {
-                                const { data } = await api.get('/api/scraping-engine/leads', { params: { search: n.lead_name, limit: 1 } })
-                                const leads = data.leads || data.data || []
-                                if (leads[0]?.id) {
-                                  navigate(`/admin/lead/${leads[0].id}`); setShowNotifs(false)
-                                }
+                                const { data } = await api.get('/api/notifications/find-lead', { params: { name: n.lead_name, phone: n.phone } })
+                                if (data.lead_id) navigate(`/admin/lead/${data.lead_id}`)
                               } catch {}
                             }
                           }}

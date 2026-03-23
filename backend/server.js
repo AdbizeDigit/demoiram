@@ -197,6 +197,42 @@ app.patch('/api/notifications/read-all', async (req, res) => {
   }
 })
 
+// Find lead for notification click
+app.get('/api/notifications/find-lead', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { name, phone } = req.query
+
+    // Try by phone first (most reliable)
+    if (phone) {
+      const clean = phone.replace(/\D/g, '').slice(-8)
+      if (clean.length >= 6) {
+        const r = await pool.query(
+          "SELECT id FROM leads WHERE replace(replace(phone, '+', ''), ' ', '') LIKE $1 OR replace(replace(social_whatsapp, '+', ''), ' ', '') LIKE $1 LIMIT 1",
+          [`%${clean}%`]
+        )
+        if (r.rows[0]) return res.json({ success: true, lead_id: r.rows[0].id })
+      }
+    }
+
+    // Try by name
+    if (name) {
+      const cleanName = name.replace(/[^\w\sáéíóúñü]/gi, '').trim()
+      if (cleanName.length > 2) {
+        const r = await pool.query(
+          "SELECT id FROM leads WHERE name ILIKE $1 LIMIT 1",
+          [`%${cleanName}%`]
+        )
+        if (r.rows[0]) return res.json({ success: true, lead_id: r.rows[0].id })
+      }
+    }
+
+    res.json({ success: true, lead_id: null })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // Derived leads by source
 app.get('/api/leads/by-source', async (req, res) => {
   try {
