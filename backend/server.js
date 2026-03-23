@@ -131,6 +131,57 @@ app.use('/api/outreach', outreachRoutes)
 app.use('/api/avatars', avatarRoutes)
 app.use('/api/agent-runner', agentRunnerRoutes)
 
+// ── Notifications ────────────────────────────────────────────────────────────
+// Init table
+import('./config/database.js').then(({ pool }) => {
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      type VARCHAR(50) NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      lead_id UUID,
+      lead_name VARCHAR(200),
+      phone VARCHAR(50),
+      read BOOLEAN DEFAULT false,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {})
+})
+
+app.get('/api/notifications', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(
+      'SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50'
+    )
+    const unread = rows.filter(n => !n.read).length
+    res.json({ success: true, notifications: rows, unread })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.patch('/api/notifications/:id/read', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('UPDATE notifications SET read = true WHERE id = $1', [req.params.id])
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.patch('/api/notifications/read-all', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('UPDATE notifications SET read = true WHERE read = false')
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })

@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import api from '../services/api'
 import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
   Shield, Search, Settings, BarChart3, Mail, MessageCircle, Bot, Zap,
+  Bell, X, Check, ExternalLink,
 } from 'lucide-react'
 
 const navItems = [
@@ -23,6 +25,43 @@ export default function AdminLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
+  const [notifications, setNotifications] = useState([])
+  const [unread, setUnread] = useState(0)
+  const [showNotifs, setShowNotifs] = useState(false)
+  const notifRef = useRef(null)
+
+  const loadNotifs = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/notifications')
+      setNotifications(data.notifications || [])
+      setUnread(data.unread || 0)
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadNotifs() }, [loadNotifs])
+  useEffect(() => {
+    const iv = setInterval(loadNotifs, 8000)
+    return () => clearInterval(iv)
+  }, [loadNotifs])
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => { if (notifRef.current && !notifRef.current.contains(e.target)) setShowNotifs(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  async function markRead(id) {
+    try { await api.patch(`/api/notifications/${id}/read`) } catch {}
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n))
+    setUnread(prev => Math.max(0, prev - 1))
+  }
+
+  async function markAllRead() {
+    try { await api.patch('/api/notifications/read-all') } catch {}
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
+    setUnread(0)
+  }
 
   // Redirect non-admin (check role or email)
   const isAdmin = user?.role === 'admin' || user?.email === 'contacto@adbize.com'
@@ -160,7 +199,73 @@ export default function AdminLayout() {
             <span className="text-gray-300 mx-2">|</span>
             <span className="text-sm text-gray-500">Solo acceso admin</span>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-4">
+            {/* Notification bell */}
+            <div className="relative" ref={notifRef}>
+              <button
+                onClick={() => setShowNotifs(!showNotifs)}
+                className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors"
+              >
+                <Bell className="w-5 h-5 text-gray-500" />
+                {unread > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center animate-pulse">
+                    {unread > 9 ? '9+' : unread}
+                  </span>
+                )}
+              </button>
+
+              {showNotifs && (
+                <div className="absolute right-0 top-full mt-2 w-96 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-50">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <h3 className="text-sm font-bold text-gray-800">Notificaciones</h3>
+                    <div className="flex items-center gap-2">
+                      {unread > 0 && (
+                        <button onClick={markAllRead} className="text-[10px] text-blue-600 hover:text-blue-800 font-medium">
+                          Marcar todas leidas
+                        </button>
+                      )}
+                      <button onClick={() => setShowNotifs(false)} className="p-1 hover:bg-gray-100 rounded-lg">
+                        <X className="w-3.5 h-3.5 text-gray-400" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="text-center py-8">
+                        <Bell className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                        <p className="text-sm text-gray-400">Sin notificaciones</p>
+                      </div>
+                    ) : (
+                      notifications.slice(0, 20).map(n => (
+                        <div
+                          key={n.id}
+                          onClick={() => {
+                            if (!n.read) markRead(n.id)
+                            if (n.lead_id) { navigate(`/admin/pipeline/${n.lead_id}`); setShowNotifs(false) }
+                          }}
+                          className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}
+                        >
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            n.type === 'whatsapp_reply' ? 'bg-green-100' : 'bg-blue-100'
+                          }`}>
+                            <MessageCircle className={`w-4 h-4 ${n.type === 'whatsapp_reply' ? 'text-green-600' : 'text-blue-600'}`} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm ${!n.read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>{n.title}</p>
+                            <p className="text-xs text-gray-500 truncate mt-0.5">{n.body}</p>
+                            <p className="text-[10px] text-gray-400 mt-1">
+                              {n.created_at ? new Date(n.created_at).toLocaleString('es-AR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                            </p>
+                          </div>
+                          {!n.read && <span className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0 mt-1.5" />}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <NavLink
               to="/dashboard"
               className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
