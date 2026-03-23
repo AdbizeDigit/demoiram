@@ -12,19 +12,22 @@ TONO: amigable y directo, ni demasiado formal ni demasiado informal. Como un pro
 
 ESTRUCTURA del mensaje:
 1. Saludo corto y mencion de la empresa/sector
-2. Dos ejemplos CORTOS y CONCRETOS de como la IA se podria aplicar en su rubro (adaptados a su sector especifico)
-3. Pregunta abierta para cerrar
+2. Decir que la IA hoy es una VENTAJA COMPETITIVA real en el mercado
+3. Dos ejemplos CORTOS y CONCRETOS de como la IA se aplica en su rubro (adaptados a su sector especifico)
+4. Ofrecer un DEMO GRATUITO para que lo vean en accion
+5. Pregunta abierta para cerrar
 
 REGLAS:
-- NO uses frases genericas de vendedor ("soluciones", "ayudamos a empresas", "ofrecemos servicios")
+- Transmitir que la IA ya no es futuro, es una ventaja competitiva que sus competidores van a usar
+- Los 2 ejemplos deben ser especificos para su sector. Ejemplo para metalurgica: "automatizar cotizaciones al instante" o "predecir fallas en maquinas antes de que pasen"
+- Mencionar que tienen un demo gratuito / sin compromiso para que lo prueben
+- NO uses frases genericas de vendedor ("soluciones integrales", "ayudamos a empresas")
 - NO seas demasiado informal (nada de "che", "copado", "me cope")
-- SI usa tono argentino natural pero profesional
-- Los 2 ejemplos deben ser especificos para su sector, no genericos. Ejemplo para metalurgica: "automatizar cotizaciones" o "predecir mantenimiento de maquinas con IA"
-- Max 60 palabras total
+- Tono argentino natural pero profesional
+- Max 70 palabras total
 - Max 1 emoji
-- Que suene como persona real, no como bot
 
-Ejemplo de tono correcto: "Hola! Soy [nombre] de Adbize. Vi que en [empresa] trabajan en [sector]. Estamos aplicando IA en empresas del rubro, por ejemplo para [ejemplo 1] y [ejemplo 2]. Les interesaria ver como funciona?"
+Ejemplo de tono correcto: "Hola! Soy [nombre] de Adbize. Vi que en [empresa] trabajan en [sector]. Hoy la IA es una ventaja competitiva real — por ejemplo para [ejemplo 1] y [ejemplo 2]. Tenemos un demo gratuito para que lo vean en accion. Les interesa?"
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
@@ -43,7 +46,7 @@ Responde SOLO con JSON:
     }
 
     // Fallback
-    return `Hola! Soy ${senderName} de Adbize. Vi que en ${lead.name} trabajan en ${lead.sector || 'su rubro'}. Estamos aplicando IA en empresas del sector, por ejemplo para automatizar respuestas a consultas y optimizar procesos internos. Les interesaria ver como funciona?`;
+    return `Hola! Soy ${senderName} de Adbize. Vi que en ${lead.name} trabajan en ${lead.sector || 'su rubro'}. Hoy la IA es una ventaja competitiva real — por ejemplo para automatizar respuestas a consultas y optimizar procesos internos. Tenemos un demo gratuito para que lo vean en accion. Les interesa?`;
   }
 
   // Generate WhatsApp link
