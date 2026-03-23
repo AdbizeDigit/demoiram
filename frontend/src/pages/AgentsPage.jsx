@@ -262,52 +262,194 @@ function ContactDetail({ contact, onClose }) {
   )
 }
 
-// ── Network Map Visual ──────────────────────────────────────────────────────────
+// ── Interactive Network Graph ────────────────────────────────────────────────────
+
+const NODE_COLORS = [
+  ['#6366f1', '#8b5cf6'], // indigo→violet
+  ['#3b82f6', '#6366f1'], // blue→indigo
+  ['#10b981', '#14b8a6'], // emerald→teal
+  ['#f59e0b', '#ef4444'], // amber→red
+  ['#ec4899', '#8b5cf6'], // pink→violet
+  ['#06b6d4', '#3b82f6'], // cyan→blue
+  ['#84cc16', '#10b981'], // lime→emerald
+  ['#f97316', '#f59e0b'], // orange→amber
+]
+
+function NetworkGraph({ network, index, onSelectNode }) {
+  const svgRef = useRef(null)
+  const [hovered, setHovered] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [dims, setDims] = useState({ w: 600, h: 500 })
+
+  const data = typeof network.network === 'string' ? JSON.parse(network.network) : network.network
+  const contacts = data.contacts || []
+  const root = data.target || { name: network.root_name, role: network.root_role }
+
+  // Responsive size
+  useEffect(() => {
+    const el = svgRef.current?.parentElement
+    if (!el) return
+    const obs = new ResizeObserver(entries => {
+      const { width } = entries[0].contentRect
+      setDims({ w: Math.max(400, width), h: Math.max(400, Math.min(600, width * 0.7)) })
+    })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  // Calculate positions — radial layout
+  const cx = dims.w / 2
+  const cy = dims.h / 2
+  const radius = Math.min(cx, cy) * 0.6
+  const rootR = 32
+  const nodeR = 22
+
+  const nodes = contacts.map((c, i) => {
+    const angle = (2 * Math.PI * i) / contacts.length - Math.PI / 2
+    const x = cx + radius * Math.cos(angle)
+    const y = cy + radius * Math.sin(angle)
+    const colors = NODE_COLORS[i % NODE_COLORS.length]
+    return { ...c, x, y, colors, id: i }
+  })
+
+  const handleClick = (node) => {
+    setSelected(prev => prev?.id === node.id ? null : node)
+    if (onSelectNode) onSelectNode(node)
+  }
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50 bg-gradient-to-r from-indigo-50 to-purple-50">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow">
+            {(root.name || '?')[0]}
+          </div>
+          <div>
+            <p className="text-xs font-bold text-gray-900">{root.name}</p>
+            <p className="text-[10px] text-gray-500">{root.role || ''} · {network.country || ''}</p>
+          </div>
+        </div>
+        <span className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-semibold">{contacts.length} contactos</span>
+      </div>
+
+      {/* SVG Graph */}
+      <div className="relative" style={{ height: dims.h }}>
+        <svg ref={svgRef} width={dims.w} height={dims.h} className="w-full">
+          <defs>
+            <filter id={`glow-${index}`}><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+            <radialGradient id={`rootGrad-${index}`}><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#6366f1" /></radialGradient>
+            {nodes.map((n, i) => (
+              <linearGradient key={i} id={`nodeGrad-${index}-${i}`} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor={n.colors[0]} /><stop offset="100%" stopColor={n.colors[1]} />
+              </linearGradient>
+            ))}
+          </defs>
+
+          {/* Connection lines */}
+          {nodes.map((n, i) => (
+            <g key={`line-${i}`}>
+              <line x1={cx} y1={cy} x2={n.x} y2={n.y}
+                stroke={hovered === i ? n.colors[0] : '#e0e7ff'}
+                strokeWidth={hovered === i || selected?.id === i ? 2.5 : 1.5}
+                strokeDasharray={hovered === i ? 'none' : '4 3'}
+                style={{ transition: 'all 0.3s' }}
+              />
+              {/* Animated dot on line */}
+              <circle r="2.5" fill={n.colors[0]} opacity="0.6">
+                <animateMotion dur={`${3 + i * 0.3}s`} repeatCount="indefinite"
+                  path={`M${cx},${cy} L${n.x},${n.y}`} />
+              </circle>
+            </g>
+          ))}
+
+          {/* Root node */}
+          <g style={{ cursor: 'pointer' }} onClick={() => setSelected(null)}>
+            <circle cx={cx} cy={cy} r={rootR + 4} fill="none" stroke="#c7d2fe" strokeWidth="2" strokeDasharray="4 3">
+              <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="20s" repeatCount="indefinite" />
+            </circle>
+            <circle cx={cx} cy={cy} r={rootR} fill={`url(#rootGrad-${index})`} filter={`url(#glow-${index})`} />
+            <text x={cx} y={cy - 4} textAnchor="middle" fill="white" fontSize="14" fontWeight="bold">{(root.name || '?')[0]}</text>
+            <text x={cx} y={cy + 9} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="7" fontWeight="500">ROOT</text>
+          </g>
+
+          {/* Contact nodes */}
+          {nodes.map((n, i) => {
+            const isHov = hovered === i
+            const isSel = selected?.id === i
+            const r = isHov || isSel ? nodeR + 4 : nodeR
+            return (
+              <g key={`node-${i}`} style={{ cursor: 'pointer', transition: 'all 0.3s' }}
+                onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+                onClick={() => handleClick(n)}>
+                {/* Hover ring */}
+                {(isHov || isSel) && <circle cx={n.x} cy={n.y} r={r + 5} fill="none" stroke={n.colors[0]} strokeWidth="2" opacity="0.3">
+                  <animate attributeName="r" values={`${r+3};${r+8};${r+3}`} dur="2s" repeatCount="indefinite" />
+                </circle>}
+                <circle cx={n.x} cy={n.y} r={r} fill={`url(#nodeGrad-${index}-${i})`}
+                  style={{ transition: 'all 0.2s', filter: isHov || isSel ? `drop-shadow(0 0 8px ${n.colors[0]}40)` : 'none' }} />
+                <text x={n.x} y={n.y + 1} textAnchor="middle" fill="white" fontSize={isHov || isSel ? '11' : '10'} fontWeight="bold"
+                  style={{ transition: 'all 0.2s' }}>
+                  {(n.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                </text>
+                {/* Name label below */}
+                <text x={n.x} y={n.y + r + 14} textAnchor="middle" fill="#374151" fontSize="9" fontWeight="600">
+                  {(n.name || '').length > 18 ? n.name.slice(0, 16) + '...' : n.name}
+                </text>
+                <text x={n.x} y={n.y + r + 24} textAnchor="middle" fill="#9ca3af" fontSize="7.5">
+                  {(n.role || n.relationship || '').slice(0, 25)}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+
+        {/* Detail panel overlay */}
+        {selected && (
+          <div className="absolute bottom-3 left-3 right-3 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-xl p-4 animate-in slide-in-from-bottom duration-200">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                style={{ background: `linear-gradient(135deg, ${selected.colors[0]}, ${selected.colors[1]})` }}>
+                {(selected.name || '?')[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm text-gray-900">{selected.name}</p>
+                <p className="text-xs text-gray-500">{selected.role || selected.relationship || ''}</p>
+                {selected.org && <p className="text-xs text-gray-400 mt-0.5">{selected.org}</p>}
+              </div>
+              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg flex-shrink-0"><X className="w-3.5 h-3.5 text-gray-400" /></button>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium">
+                Conexion con {root.name?.split(' ')[0]}
+              </span>
+              {selected.relationship && (
+                <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">
+                  {selected.relationship}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function NetworkView({ networks, onSelectPerson }) {
   if (!networks || networks.length === 0) return (
-    <div className="text-center py-8 text-gray-400">
-      <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
-      <p className="text-xs">El mapa de red aparecera cuando el agente encuentre targets</p>
+    <div className="text-center py-12 text-gray-400">
+      <Users className="w-10 h-10 mx-auto mb-3 opacity-20" />
+      <p className="text-sm font-medium">Mapa de Red</p>
+      <p className="text-xs mt-1">Ejecuta el agente para ver las redes de contactos</p>
     </div>
   )
 
   return (
     <div className="space-y-4">
-      {networks.map(net => {
-        const data = typeof net.network === 'string' ? JSON.parse(net.network) : net.network
-        const contacts = data.contacts || []
-        return (
-          <div key={net.id} className="bg-white border border-gray-100 rounded-2xl p-4">
-            {/* Root node */}
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shadow-lg">
-                {(net.root_name || '?')[0]}
-              </div>
-              <div>
-                <p className="font-bold text-sm text-gray-900">{net.root_name}</p>
-                <p className="text-[11px] text-gray-500">{net.root_role} · {net.country}</p>
-              </div>
-            </div>
-            {/* Network branches */}
-            <div className="ml-5 border-l-2 border-indigo-200 pl-4 space-y-2">
-              {contacts.map((c, i) => (
-                <button key={i} onClick={() => onSelectPerson(c.name)}
-                  className="flex items-center gap-2.5 w-full text-left px-3 py-2 rounded-xl hover:bg-gray-50 transition-all group">
-                  <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 group-hover:bg-indigo-100 group-hover:text-indigo-700 transition-all">
-                    {(c.name || '?')[0]}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-gray-800 truncate">{c.name}</p>
-                    <p className="text-[10px] text-gray-400 truncate">{c.role || c.relationship || ''} · {c.org || ''}</p>
-                  </div>
-                  <ChevronRight className="w-3 h-3 text-gray-300 group-hover:text-indigo-500" />
-                </button>
-              ))}
-            </div>
-          </div>
-        )
-      })}
+      {networks.map((net, i) => (
+        <NetworkGraph key={net.id} network={net} index={i} onSelectNode={n => onSelectPerson(n.name)} />
+      ))}
     </div>
   )
 }
