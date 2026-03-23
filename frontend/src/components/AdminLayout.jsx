@@ -239,9 +239,20 @@ export default function AdminLayout() {
                       notifications.slice(0, 20).map(n => (
                         <div
                           key={n.id}
-                          onClick={() => {
+                          onClick={async () => {
                             if (!n.read) markRead(n.id)
-                            if (n.lead_id) { navigate(`/admin/lead/${n.lead_id}`); setShowNotifs(false) }
+                            if (n.lead_id) {
+                              navigate(`/admin/lead/${n.lead_id}`); setShowNotifs(false)
+                            } else if (n.lead_name) {
+                              // Search lead by name when lead_id is missing
+                              try {
+                                const { data } = await api.get('/api/scraping-engine/leads', { params: { search: n.lead_name, limit: 1 } })
+                                const leads = data.leads || data.data || []
+                                if (leads[0]?.id) {
+                                  navigate(`/admin/lead/${leads[0].id}`); setShowNotifs(false)
+                                }
+                              } catch {}
+                            }
                           }}
                           className={`flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors border-b border-gray-50 ${!n.read ? 'bg-green-50/50' : ''}`}
                         >
