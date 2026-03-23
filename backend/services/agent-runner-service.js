@@ -252,8 +252,9 @@ class AgentRunnerService extends EventEmitter {
   // DEEP NETWORK EXPLORATION — recursive: contacts → sub-contacts
   // ══════════════════════════════════════════════════════════════════════════
   async _exploreDeep(agentId, person, country, ctrl, visited, depth = 1, maxDepth = 2) {
-    if (depth > maxDepth || ctrl.abort || visited.has(person.name)) return []
-    visited.add(person.name)
+    if (depth > maxDepth || ctrl.abort) return []
+    // Don't skip root person (depth 1), only skip already-explored sub-contacts
+    if (depth > 1 && visited.has(person.name)) return []
 
     const indent = '  '.repeat(depth)
     await log(agentId, 'tool_active', `${indent}🔍 Nivel ${depth}: Explorando red de ${person.name}...`, person.name, person.org)
