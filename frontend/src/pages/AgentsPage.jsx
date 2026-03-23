@@ -262,181 +262,36 @@ function ContactDetail({ contact, onClose }) {
   )
 }
 
-// ── Interactive Network Graph ────────────────────────────────────────────────────
+// ── Unified Interactive Network Graph ────────────────────────────────────────────
 
-const NODE_COLORS = [
-  ['#6366f1', '#8b5cf6'], // indigo→violet
-  ['#3b82f6', '#6366f1'], // blue→indigo
-  ['#10b981', '#14b8a6'], // emerald→teal
-  ['#f59e0b', '#ef4444'], // amber→red
-  ['#ec4899', '#8b5cf6'], // pink→violet
-  ['#06b6d4', '#3b82f6'], // cyan→blue
-  ['#84cc16', '#10b981'], // lime→emerald
-  ['#f97316', '#f59e0b'], // orange→amber
+const ROOT_COLORS = [
+  ['#6366f1', '#8b5cf6'], ['#3b82f6', '#06b6d4'], ['#10b981', '#059669'],
+  ['#f59e0b', '#ea580c'], ['#ec4899', '#a855f7'], ['#0ea5e9', '#6366f1'],
+  ['#84cc16', '#16a34a'], ['#f97316', '#dc2626'],
 ]
 
-function NetworkGraph({ network, index, onSelectNode }) {
-  const svgRef = useRef(null)
-  const [hovered, setHovered] = useState(null)
+function NetworkView({ networks, onSelectPerson }) {
+  const containerRef = useRef(null)
+  const [dims, setDims] = useState({ w: 800, h: 700 })
+  const [hovered, setHovered] = useState(null) // "root-0" or "node-0-2"
   const [selected, setSelected] = useState(null)
-  const [dims, setDims] = useState({ w: 600, h: 500 })
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const dragging = useRef(false)
+  const dragStart = useRef({ x: 0, y: 0 })
 
-  const data = typeof network.network === 'string' ? JSON.parse(network.network) : network.network
-  const contacts = data.contacts || []
-  const root = data.target || { name: network.root_name, role: network.root_role }
-
-  // Responsive size
+  // Responsive
   useEffect(() => {
-    const el = svgRef.current?.parentElement
+    const el = containerRef.current
     if (!el) return
     const obs = new ResizeObserver(entries => {
       const { width } = entries[0].contentRect
-      setDims({ w: Math.max(400, width), h: Math.max(400, Math.min(600, width * 0.7)) })
+      setDims({ w: Math.max(500, width), h: Math.max(500, Math.min(750, width * 0.75)) })
     })
     obs.observe(el)
     return () => obs.disconnect()
   }, [])
 
-  // Calculate positions — radial layout
-  const cx = dims.w / 2
-  const cy = dims.h / 2
-  const radius = Math.min(cx, cy) * 0.6
-  const rootR = 32
-  const nodeR = 22
-
-  const nodes = contacts.map((c, i) => {
-    const angle = (2 * Math.PI * i) / contacts.length - Math.PI / 2
-    const x = cx + radius * Math.cos(angle)
-    const y = cy + radius * Math.sin(angle)
-    const colors = NODE_COLORS[i % NODE_COLORS.length]
-    return { ...c, x, y, colors, id: i }
-  })
-
-  const handleClick = (node) => {
-    setSelected(prev => prev?.id === node.id ? null : node)
-    if (onSelectNode) onSelectNode(node)
-  }
-
-  return (
-    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-50 bg-gradient-to-r from-indigo-50 to-purple-50">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-xs shadow">
-            {(root.name || '?')[0]}
-          </div>
-          <div>
-            <p className="text-xs font-bold text-gray-900">{root.name}</p>
-            <p className="text-[10px] text-gray-500">{root.role || ''} · {network.country || ''}</p>
-          </div>
-        </div>
-        <span className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-semibold">{contacts.length} contactos</span>
-      </div>
-
-      {/* SVG Graph */}
-      <div className="relative" style={{ height: dims.h }}>
-        <svg ref={svgRef} width={dims.w} height={dims.h} className="w-full">
-          <defs>
-            <filter id={`glow-${index}`}><feGaussianBlur stdDeviation="3" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-            <radialGradient id={`rootGrad-${index}`}><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#6366f1" /></radialGradient>
-            {nodes.map((n, i) => (
-              <linearGradient key={i} id={`nodeGrad-${index}-${i}`} x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor={n.colors[0]} /><stop offset="100%" stopColor={n.colors[1]} />
-              </linearGradient>
-            ))}
-          </defs>
-
-          {/* Connection lines */}
-          {nodes.map((n, i) => (
-            <g key={`line-${i}`}>
-              <line x1={cx} y1={cy} x2={n.x} y2={n.y}
-                stroke={hovered === i ? n.colors[0] : '#e0e7ff'}
-                strokeWidth={hovered === i || selected?.id === i ? 2.5 : 1.5}
-                strokeDasharray={hovered === i ? 'none' : '4 3'}
-                style={{ transition: 'all 0.3s' }}
-              />
-              {/* Animated dot on line */}
-              <circle r="2.5" fill={n.colors[0]} opacity="0.6">
-                <animateMotion dur={`${3 + i * 0.3}s`} repeatCount="indefinite"
-                  path={`M${cx},${cy} L${n.x},${n.y}`} />
-              </circle>
-            </g>
-          ))}
-
-          {/* Root node */}
-          <g style={{ cursor: 'pointer' }} onClick={() => setSelected(null)}>
-            <circle cx={cx} cy={cy} r={rootR + 4} fill="none" stroke="#c7d2fe" strokeWidth="2" strokeDasharray="4 3">
-              <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="20s" repeatCount="indefinite" />
-            </circle>
-            <circle cx={cx} cy={cy} r={rootR} fill={`url(#rootGrad-${index})`} filter={`url(#glow-${index})`} />
-            <text x={cx} y={cy - 4} textAnchor="middle" fill="white" fontSize="14" fontWeight="bold">{(root.name || '?')[0]}</text>
-            <text x={cx} y={cy + 9} textAnchor="middle" fill="rgba(255,255,255,0.8)" fontSize="7" fontWeight="500">ROOT</text>
-          </g>
-
-          {/* Contact nodes */}
-          {nodes.map((n, i) => {
-            const isHov = hovered === i
-            const isSel = selected?.id === i
-            const r = isHov || isSel ? nodeR + 4 : nodeR
-            return (
-              <g key={`node-${i}`} style={{ cursor: 'pointer', transition: 'all 0.3s' }}
-                onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
-                onClick={() => handleClick(n)}>
-                {/* Hover ring */}
-                {(isHov || isSel) && <circle cx={n.x} cy={n.y} r={r + 5} fill="none" stroke={n.colors[0]} strokeWidth="2" opacity="0.3">
-                  <animate attributeName="r" values={`${r+3};${r+8};${r+3}`} dur="2s" repeatCount="indefinite" />
-                </circle>}
-                <circle cx={n.x} cy={n.y} r={r} fill={`url(#nodeGrad-${index}-${i})`}
-                  style={{ transition: 'all 0.2s', filter: isHov || isSel ? `drop-shadow(0 0 8px ${n.colors[0]}40)` : 'none' }} />
-                <text x={n.x} y={n.y + 1} textAnchor="middle" fill="white" fontSize={isHov || isSel ? '11' : '10'} fontWeight="bold"
-                  style={{ transition: 'all 0.2s' }}>
-                  {(n.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
-                </text>
-                {/* Name label below */}
-                <text x={n.x} y={n.y + r + 14} textAnchor="middle" fill="#374151" fontSize="9" fontWeight="600">
-                  {(n.name || '').length > 18 ? n.name.slice(0, 16) + '...' : n.name}
-                </text>
-                <text x={n.x} y={n.y + r + 24} textAnchor="middle" fill="#9ca3af" fontSize="7.5">
-                  {(n.role || n.relationship || '').slice(0, 25)}
-                </text>
-              </g>
-            )
-          })}
-        </svg>
-
-        {/* Detail panel overlay */}
-        {selected && (
-          <div className="absolute bottom-3 left-3 right-3 bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-xl p-4 animate-in slide-in-from-bottom duration-200">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
-                style={{ background: `linear-gradient(135deg, ${selected.colors[0]}, ${selected.colors[1]})` }}>
-                {(selected.name || '?')[0]}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm text-gray-900">{selected.name}</p>
-                <p className="text-xs text-gray-500">{selected.role || selected.relationship || ''}</p>
-                {selected.org && <p className="text-xs text-gray-400 mt-0.5">{selected.org}</p>}
-              </div>
-              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg flex-shrink-0"><X className="w-3.5 h-3.5 text-gray-400" /></button>
-            </div>
-            <div className="flex items-center gap-2 mt-3">
-              <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-medium">
-                Conexion con {root.name?.split(' ')[0]}
-              </span>
-              {selected.relationship && (
-                <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">
-                  {selected.relationship}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function NetworkView({ networks, onSelectPerson }) {
   if (!networks || networks.length === 0) return (
     <div className="text-center py-12 text-gray-400">
       <Users className="w-10 h-10 mx-auto mb-3 opacity-20" />
@@ -445,11 +300,209 @@ function NetworkView({ networks, onSelectPerson }) {
     </div>
   )
 
+  // Build unified node list from all networks
+  const allRoots = []
+  const allNodes = []
+  const allEdges = []
+
+  const cx = dims.w / 2
+  const cy = dims.h / 2
+
+  // Position roots in a circle around center
+  const rootRadius = Math.min(cx, cy) * 0.35
+  const numRoots = networks.length
+
+  networks.forEach((net, ri) => {
+    const data = typeof net.network === 'string' ? JSON.parse(net.network) : net.network
+    const contacts = data.contacts || []
+    const target = data.target || { name: net.root_name, role: net.root_role }
+    const colors = ROOT_COLORS[ri % ROOT_COLORS.length]
+
+    // Root position - spread around center
+    const rootAngle = (2 * Math.PI * ri) / Math.max(numRoots, 1) - Math.PI / 2
+    const rx = cx + (numRoots === 1 ? 0 : rootRadius * Math.cos(rootAngle))
+    const ry = cy + (numRoots === 1 ? 0 : rootRadius * Math.sin(rootAngle))
+
+    const rootId = `root-${ri}`
+    allRoots.push({ ...target, x: rx, y: ry, colors, id: rootId, ri, country: net.country })
+
+    // Contact positions - mini circle around each root
+    const contactRadius = 70 + contacts.length * 6
+    contacts.forEach((c, ci) => {
+      const cAngle = (2 * Math.PI * ci) / contacts.length - Math.PI / 2
+      const nx = rx + contactRadius * Math.cos(cAngle)
+      const ny = ry + contactRadius * Math.sin(cAngle)
+      const nodeId = `node-${ri}-${ci}`
+      allNodes.push({ ...c, x: nx, y: ny, colors, id: nodeId, rootId, parentName: target.name })
+      allEdges.push({ from: rootId, to: nodeId, fx: rx, fy: ry, tx: nx, ty: ny, colors })
+    })
+
+    // Edge from center Adbize node to each root
+    allEdges.push({ from: 'center', to: rootId, fx: cx, fy: cy, tx: rx, ty: ry, colors: ['#a5b4fc', '#a5b4fc'] })
+  })
+
+  const totalNodes = allRoots.length + allNodes.length
+
+  // Pan & zoom handlers
+  const onWheel = (e) => {
+    e.preventDefault()
+    const delta = e.deltaY > 0 ? -0.1 : 0.1
+    setZoom(z => Math.max(0.3, Math.min(3, z + delta)))
+  }
+  const onMouseDown = (e) => { if (e.target.tagName === 'svg' || e.target.tagName === 'rect') { dragging.current = true; dragStart.current = { x: e.clientX - pan.x, y: e.clientY - pan.y } } }
+  const onMouseMove = (e) => { if (dragging.current) setPan({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y }) }
+  const onMouseUp = () => { dragging.current = false }
+
+  const selNode = selected ? (allRoots.find(r => r.id === selected) || allNodes.find(n => n.id === selected)) : null
+
   return (
-    <div className="space-y-4">
-      {networks.map((net, i) => (
-        <NetworkGraph key={net.id} network={net} index={i} onSelectNode={n => onSelectPerson(n.name)} />
-      ))}
+    <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b bg-gradient-to-r from-indigo-50 to-purple-50">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-indigo-600" />
+          <span className="text-xs font-bold text-gray-900">Mapa de Red Unificado</span>
+          <span className="text-[10px] px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-semibold">{allRoots.length} targets · {allNodes.length} contactos</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setZoom(z => Math.min(3, z + 0.2))} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs hover:bg-gray-50">+</button>
+          <span className="text-[10px] text-gray-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.max(0.3, z - 0.2))} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-xs hover:bg-gray-50">−</button>
+          <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }) }} className="px-2 py-0.5 bg-white border border-gray-200 rounded text-[10px] text-gray-500 hover:bg-gray-50 ml-1">Reset</button>
+        </div>
+      </div>
+
+      {/* SVG */}
+      <div ref={containerRef} className="relative" style={{ height: dims.h, cursor: dragging.current ? 'grabbing' : 'grab' }}
+        onWheel={onWheel} onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
+        <svg width={dims.w} height={dims.h} className="w-full">
+          <defs>
+            <filter id="glow"><feGaussianBlur stdDeviation="4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+            <radialGradient id="centerGrad"><stop offset="0%" stopColor="#818cf8" /><stop offset="100%" stopColor="#4f46e5" /></radialGradient>
+            {allRoots.map(r => (
+              <linearGradient key={r.id} id={`g-${r.id}`} x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stopColor={r.colors[0]} /><stop offset="100%" stopColor={r.colors[1]} />
+              </linearGradient>
+            ))}
+          </defs>
+
+          <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
+            {/* Background grid */}
+            <rect x="0" y="0" width={dims.w} height={dims.h} fill="transparent" />
+
+            {/* All edges */}
+            {allEdges.map((e, i) => {
+              const isRootEdge = e.from === 'center'
+              const isHov = hovered === e.to || hovered === e.from
+              return (
+                <g key={`edge-${i}`}>
+                  <line x1={e.fx} y1={e.fy} x2={e.tx} y2={e.ty}
+                    stroke={isHov ? (e.colors[0] || '#a5b4fc') : (isRootEdge ? '#e0e7ff' : '#f0f0f5')}
+                    strokeWidth={isHov ? 2 : (isRootEdge ? 1.5 : 1)}
+                    strokeDasharray={isRootEdge ? '6 4' : '3 3'}
+                    opacity={isHov ? 1 : 0.6}
+                    style={{ transition: 'all 0.3s' }} />
+                  {!isRootEdge && (
+                    <circle r="2" fill={e.colors[0]} opacity="0.5">
+                      <animateMotion dur={`${4 + i * 0.2}s`} repeatCount="indefinite" path={`M${e.fx},${e.fy} L${e.tx},${e.ty}`} />
+                    </circle>
+                  )}
+                </g>
+              )
+            })}
+
+            {/* Center Adbize node */}
+            {numRoots > 1 && (
+              <g style={{ cursor: 'pointer' }} onClick={() => setSelected(null)}>
+                <circle cx={cx} cy={cy} r={28} fill="url(#centerGrad)" filter="url(#glow)" />
+                <text x={cx} y={cy - 3} textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">ADBIZE</text>
+                <text x={cx} y={cy + 8} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize="6">RED</text>
+                <circle cx={cx} cy={cy} r={33} fill="none" stroke="#c7d2fe" strokeWidth="1.5" strokeDasharray="4 3">
+                  <animateTransform attributeName="transform" type="rotate" from={`0 ${cx} ${cy}`} to={`360 ${cx} ${cy}`} dur="30s" repeatCount="indefinite" />
+                </circle>
+              </g>
+            )}
+
+            {/* Root nodes (targets) */}
+            {allRoots.map(r => {
+              const isHov = hovered === r.id
+              const isSel = selected === r.id
+              const rad = isHov || isSel ? 26 : 22
+              return (
+                <g key={r.id} style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHovered(r.id)} onMouseLeave={() => setHovered(null)}
+                  onClick={() => setSelected(r.id === selected ? null : r.id)}>
+                  {(isHov || isSel) && <circle cx={r.x} cy={r.y} r={rad + 6} fill="none" stroke={r.colors[0]} strokeWidth="2" opacity="0.3">
+                    <animate attributeName="r" values={`${rad+4};${rad+9};${rad+4}`} dur="2s" repeatCount="indefinite" />
+                  </circle>}
+                  <circle cx={r.x} cy={r.y} r={rad} fill={`url(#g-${r.id})`}
+                    style={{ transition: 'all 0.2s', filter: isHov || isSel ? `drop-shadow(0 0 10px ${r.colors[0]}50)` : 'none' }} />
+                  <text x={r.x} y={r.y + 1} textAnchor="middle" fill="white" fontSize="11" fontWeight="bold">
+                    {(r.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                  </text>
+                  <text x={r.x} y={r.y + rad + 13} textAnchor="middle" fill="#1f2937" fontSize="8.5" fontWeight="700">
+                    {(r.name || '').length > 20 ? r.name.slice(0, 18) + '..' : r.name}
+                  </text>
+                  <text x={r.x} y={r.y + rad + 23} textAnchor="middle" fill="#9ca3af" fontSize="7">
+                    {(r.role || '').slice(0, 28)}
+                  </text>
+                </g>
+              )
+            })}
+
+            {/* Contact nodes */}
+            {allNodes.map(n => {
+              const isHov = hovered === n.id
+              const isSel = selected === n.id
+              const rad = isHov || isSel ? 16 : 13
+              return (
+                <g key={n.id} style={{ cursor: 'pointer' }}
+                  onMouseEnter={() => setHovered(n.id)} onMouseLeave={() => setHovered(null)}
+                  onClick={() => setSelected(n.id === selected ? null : n.id)}>
+                  {(isHov || isSel) && <circle cx={n.x} cy={n.y} r={rad + 4} fill="none" stroke={n.colors[0]} strokeWidth="1.5" opacity="0.3" />}
+                  <circle cx={n.x} cy={n.y} r={rad} fill={n.colors[0]} opacity={isHov || isSel ? 1 : 0.75}
+                    style={{ transition: 'all 0.2s' }} />
+                  <text x={n.x} y={n.y + 1} textAnchor="middle" fill="white" fontSize="8" fontWeight="bold">
+                    {(n.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()}
+                  </text>
+                  {(isHov || isSel) && <>
+                    <text x={n.x} y={n.y + rad + 11} textAnchor="middle" fill="#374151" fontSize="7.5" fontWeight="600">
+                      {(n.name || '').slice(0, 20)}
+                    </text>
+                    <text x={n.x} y={n.y + rad + 20} textAnchor="middle" fill="#9ca3af" fontSize="6.5">
+                      {(n.role || n.relationship || '').slice(0, 25)}
+                    </text>
+                  </>}
+                </g>
+              )
+            })}
+          </g>
+        </svg>
+
+        {/* Detail panel */}
+        {selNode && (
+          <div className="absolute bottom-3 left-3 right-3 max-w-sm mx-auto bg-white/95 backdrop-blur-sm rounded-xl border border-gray-200 shadow-xl p-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+                style={{ background: `linear-gradient(135deg, ${selNode.colors[0]}, ${selNode.colors[1]})` }}>
+                {(selNode.name || '?')[0]}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm text-gray-900">{selNode.name}</p>
+                <p className="text-xs text-gray-500">{selNode.role || selNode.relationship || ''}</p>
+                {selNode.org && <p className="text-xs text-gray-400">{selNode.org}</p>}
+                {selNode.country && <p className="text-[10px] text-gray-400">{selNode.country}</p>}
+              </div>
+              <button onClick={() => setSelected(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-3.5 h-3.5 text-gray-400" /></button>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
+              {selNode.id?.startsWith('root') && <span className="text-[10px] px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full font-semibold">Target Principal</span>}
+              {selNode.parentName && <span className="text-[10px] px-2 py-0.5 bg-purple-50 text-purple-700 rounded-full font-medium">Red de {selNode.parentName.split(' ')[0]}</span>}
+              {selNode.relationship && <span className="text-[10px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full font-medium">{selNode.relationship}</span>}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
