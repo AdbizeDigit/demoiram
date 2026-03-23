@@ -213,6 +213,103 @@ app.get('/api/leads/by-source', async (req, res) => {
   }
 })
 
+// ── Auto-Play Engine (server-side, survives page reload) ─────────────────────
+const autoPlayState = { running: false, done: 0, total: 0, current: '', startedAt: null }
+
+app.get('/api/autoplay/status', (req, res) => {
+  res.json({ success: true, ...autoPlayState })
+})
+
+app.post('/api/autoplay/start', async (req, res) => {
+  if (autoPlayState.running) return res.json({ success: false, error: 'Ya esta corriendo' })
+  autoPlayState.running = true
+  autoPlayState.done = 0
+  autoPlayState.total = 0
+  autoPlayState.current = ''
+  autoPlayState.startedAt = new Date().toISOString()
+  res.json({ success: true, message: 'Auto-play iniciado' })
+
+  // Run in background
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows: leads } = await pool.query(
+      "SELECT id, name, email, phone, social_whatsapp, sector FROM leads WHERE status IN ('new', 'NUEVO') AND (email IS NOT NULL OR phone IS NOT NULL) ORDER BY score DESC NULLS LAST LIMIT 100"
+    )
+    autoPlayState.total = leads.length
+
+    for (let i = 0; i < leads.length; i++) {
+      if (!autoPlayState.running) break
+      const lead = leads[i]
+      autoPlayState.done = i
+      autoPlayState.current = lead.name || 'Lead'
+
+      try {
+        // Generate report
+        try {
+          const { default: reportService } = await import('./services/scraping/lead-report-service.js')
+          await reportService.generateReport(lead.id)
+        } catch {}
+
+        // Send email
+        if (lead.email) {
+          try {
+            const { emailOutreachService } = await import('./services/outreach/email-outreach-service.js')
+            const leadObj = { name: lead.name || 'Contacto', sector: lead.sector || 'general', city: '', state: '', email: lead.email, website: '', score: 70 }
+            const email = await emailOutreachService.generateEmail(leadObj, 'introduction', 1)
+            if (email?.subject && email?.body) {
+              await emailOutreachService.sendEmail(lead.email, email.subject, email.body)
+              await pool.query(
+                "INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at) VALUES ($1, 'EMAIL', 1, $2, $3, true, 'SENT', NOW())",
+                [lead.id, email.subject, email.body]
+              )
+            }
+          } catch (e) { console.error('[AutoPlay] Email error:', e.message) }
+        }
+
+        // Send WhatsApp
+        const phone = lead.social_whatsapp || lead.phone
+        if (phone) {
+          try {
+            const { default: waOutreach } = await import('./services/outreach/whatsapp-outreach-service.js')
+            const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
+            if (waConn.connectionStatus === 'connected') {
+              const msg = await waOutreach.generateMessage({ name: lead.name, sector: lead.sector, city: '' })
+              await waConn.sendMessage(phone, msg)
+              await pool.query(
+                "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
+                [lead.id, msg]
+              )
+            }
+          } catch (e) { console.error('[AutoPlay] WA error:', e.message) }
+        }
+
+        // Move to CONTACTADO
+        await pool.query("UPDATE leads SET status = 'CONTACTADO' WHERE id = $1", [lead.id])
+      } catch (e) { console.error('[AutoPlay] Lead error:', e.message) }
+
+      // 3s delay between contacts
+      if (autoPlayState.running && i < leads.length - 1) {
+        await new Promise(r => setTimeout(r, 3000))
+      }
+    }
+
+    autoPlayState.done = autoPlayState.total
+    autoPlayState.current = ''
+    autoPlayState.running = false
+    console.log(`[AutoPlay] Finished: ${autoPlayState.done}/${autoPlayState.total} leads contacted`)
+  } catch (err) {
+    console.error('[AutoPlay] Fatal error:', err.message)
+    autoPlayState.running = false
+    autoPlayState.current = ''
+  }
+})
+
+app.post('/api/autoplay/stop', (req, res) => {
+  autoPlayState.running = false
+  autoPlayState.current = ''
+  res.json({ success: true, message: 'Auto-play detenido' })
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })

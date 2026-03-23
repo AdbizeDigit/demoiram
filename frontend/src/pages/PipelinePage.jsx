@@ -995,7 +995,6 @@ export default function PipelinePage() {
   const [bulkLoading, setBulkLoading] = useState(false)
   const [autoPlay, setAutoPlay] = useState(false)
   const [autoProgress, setAutoProgress] = useState({ done: 0, total: 0, current: '' })
-  const autoRef = useRef(false)
 
   const loadLeads = useCallback(async () => {
     setLoading(true)
@@ -1107,51 +1106,34 @@ export default function PipelinePage() {
     setBulkLoading(false)
   }
 
-  async function startAutoPlay() {
-    if (autoRef.current) return
-    autoRef.current = true
-    setAutoPlay(true)
-
-    // Get leads in NUEVO stage, max 100 per day
-    const nuevos = leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp))
-    const batch = nuevos.slice(0, 100)
-    setAutoProgress({ done: 0, total: batch.length, current: '' })
-
-    for (let i = 0; i < batch.length; i++) {
-      if (!autoRef.current) break
-      const lead = batch[i]
-      setAutoProgress({ done: i, total: batch.length, current: lead.company || lead.name })
-
+  // Poll auto-play status from backend
+  useEffect(() => {
+    const poll = async () => {
       try {
-        // Generate report
-        await api.post(`/api/scraping-engine/leads/${lead.id}/report`).catch(() => {})
-        // Send email
-        if (lead.email) {
-          await api.post('/api/outreach/email/send', { leadId: lead.id }).catch(() => {})
-        }
-        // Send WhatsApp
-        if (lead.phone || lead.whatsapp) {
-          await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id }).catch(() => {})
-        }
-        // Move to CONTACTADO
-        handleMoveStage(lead.id, 'CONTACTADO')
+        const { data } = await api.get('/api/autoplay/status')
+        setAutoPlay(data.running)
+        setAutoProgress({ done: data.done, total: data.total, current: data.current || '' })
+        if (!data.running && data.done > 0 && data.done >= data.total) loadLeads()
       } catch {}
-
-      // Delay between contacts (3s to avoid spam)
-      if (autoRef.current && i < batch.length - 1) {
-        await new Promise(r => setTimeout(r, 3000))
-      }
     }
+    poll()
+    const iv = setInterval(poll, 2000)
+    return () => clearInterval(iv)
+  }, [loadLeads])
 
-    setAutoProgress(prev => ({ ...prev, done: prev.total, current: '' }))
-    autoRef.current = false
-    setAutoPlay(false)
-    loadLeads()
+  async function startAutoPlay() {
+    try {
+      await api.post('/api/autoplay/start')
+      setAutoPlay(true)
+    } catch {}
   }
 
-  function stopAutoPlay() {
-    autoRef.current = false
-    setAutoPlay(false)
+  async function stopAutoPlay() {
+    try {
+      await api.post('/api/autoplay/stop')
+      setAutoPlay(false)
+      loadLeads()
+    } catch {}
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
