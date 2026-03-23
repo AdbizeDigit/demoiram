@@ -4,7 +4,7 @@ import {
   Star, Landmark, Rocket, Briefcase, Loader2, Radio, X, ChevronDown,
   Mail, MessageCircle, Globe, User, MapPin, Sparkles, AlertCircle,
   CheckCircle, Eye, Zap, ArrowRight, Clock, ChevronRight, ChevronLeft,
-  ExternalLink, Phone, Send,
+  ExternalLink, Phone, Send, Pencil,
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -79,10 +79,17 @@ function timeAgo(d) {
 
 // ── Create Modal ────────────────────────────────────────────────────────────────
 
-function CreateModal({ onClose, onCreate, avatars }) {
+function CreateModal({ onClose, onCreate, avatars, editData }) {
+  const isEdit = !!editData
   const [form, setForm] = useState({
-    name: '', avatar_id: '', target_type: 'business_owners', country: 'Mexico',
-    search_keywords: '', strategy: '', max_contacts_per_run: 10, tools: TOOLS.map(t => t.id),
+    name: editData?.name || '',
+    avatar_id: editData?.avatar_id || '',
+    target_type: editData?.target_type || 'business_owners',
+    country: editData?.country || 'Mexico',
+    search_keywords: editData?.search_keywords ? (Array.isArray(editData.search_keywords) ? editData.search_keywords.join(', ') : editData.search_keywords) : '',
+    strategy: editData?.strategy || '',
+    max_contacts_per_run: editData?.max_contacts_per_run || 10,
+    tools: editData?.tools || TOOLS.map(t => t.id),
   })
   const [saving, setSaving] = useState(false)
   const [aiPrompt, setAiPrompt] = useState('')
@@ -123,7 +130,7 @@ function CreateModal({ onClose, onCreate, avatars }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-base font-bold flex items-center gap-2"><Bot className="w-5 h-5 text-blue-600" /> Nuevo Agente</h2>
+          <h2 className="text-base font-bold flex items-center gap-2"><Bot className="w-5 h-5 text-blue-600" /> {isEdit ? 'Editar Agente' : 'Nuevo Agente'}</h2>
           <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-4 h-4" /></button>
         </div>
         {/* AI */}
@@ -193,7 +200,7 @@ function CreateModal({ onClose, onCreate, avatars }) {
             </div>
           </div>
           <button type="submit" disabled={saving || !form.name.trim()} className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold text-sm disabled:opacity-50">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Crear Agente'}
+            {saving ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : isEdit ? 'Guardar Cambios' : 'Crear Agente'}
           </button>
         </form>
       </div>
@@ -433,6 +440,7 @@ export default function AgentsPage() {
   const [tab, setTab] = useState('feed') // feed | network | contacts
   const [selectedContact, setSelectedContact] = useState(null)
   const [networks, setNetworks] = useState([])
+  const [editAgent, setEditAgent] = useState(null)
 
   const loadAgents = useCallback(async () => {
     try { const { data } = await api.get('/api/agent-runner'); setAgents(data.agents || []) } catch {} setLoading(false)
@@ -528,6 +536,8 @@ export default function AgentsPage() {
                     <button onClick={e => { e.stopPropagation(); api.post(`/api/agent-runner/${a.id}/start`).then(loadAgents); setSelectedId(a.id); setTab('feed') }}
                       className="flex-1 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-semibold hover:bg-emerald-100 flex items-center justify-center gap-1"><Play className="w-3 h-3" />Ejecutar</button>
                   )}
+                  <button onClick={e => { e.stopPropagation(); setEditAgent(a) }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-blue-500 hover:bg-blue-50"><Pencil className="w-3 h-3" /></button>
                   <button onClick={e => { e.stopPropagation(); api.delete(`/api/agent-runner/${a.id}`).then(loadAgents); if(selectedId===a.id) setSelectedId(null) }}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50"><Trash2 className="w-3 h-3" /></button>
                 </div>
@@ -576,6 +586,7 @@ export default function AgentsPage() {
       </div>
 
       {showCreate && <CreateModal onClose={() => setShowCreate(false)} onCreate={async d => { await api.post('/api/agent-runner', d); loadAgents() }} avatars={avatars} />}
+      {editAgent && <CreateModal editData={editAgent} onClose={() => setEditAgent(null)} onCreate={async d => { await api.put(`/api/agent-runner/${editAgent.id}`, d); setEditAgent(null); loadAgents() }} avatars={avatars} />}
       {selectedContact && <ContactDetail contact={selectedContact} onClose={() => setSelectedContact(null)} />}
     </div>
   )

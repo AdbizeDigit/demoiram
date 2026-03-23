@@ -74,20 +74,22 @@ router.post('/', async (req, res) => {
 // PUT /:id - Update agent
 router.put('/:id', async (req, res) => {
   try {
-    const { name, avatar_id, target_type, search_keywords, strategy, channels, max_contacts_per_run } = req.body
+    const { name, avatar_id, target_type, country, search_keywords, strategy, channels, max_contacts_per_run, tools } = req.body
     const result = await pool.query(
       `UPDATE ai_agents SET
         name = COALESCE($1, name),
         avatar_id = $2,
         target_type = COALESCE($3, target_type),
-        search_keywords = COALESCE($4, search_keywords),
-        strategy = COALESCE($5, strategy),
-        channels = COALESCE($6, channels),
-        max_contacts_per_run = COALESCE($7, max_contacts_per_run),
+        country = COALESCE($4, country),
+        search_keywords = COALESCE($5, search_keywords),
+        strategy = COALESCE($6, strategy),
+        channels = COALESCE($7, channels),
+        max_contacts_per_run = COALESCE($8, max_contacts_per_run),
+        tools = COALESCE($9, tools),
         updated_at = NOW()
-       WHERE id = $8
+       WHERE id = $10
        RETURNING *`,
-      [name, avatar_id || null, target_type, search_keywords, strategy, channels, max_contacts_per_run, req.params.id]
+      [name, avatar_id || null, target_type, country, search_keywords, strategy, channels, max_contacts_per_run, tools, req.params.id]
     )
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'No encontrado' })
     res.json({ success: true, agent: result.rows[0] })
