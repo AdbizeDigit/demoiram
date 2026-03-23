@@ -177,21 +177,77 @@ class AgentRunnerService extends EventEmitter {
         const leads = []
         for (const c of allContacts) {
           if (ctrl.abort) break
+          await log(id, 'searching', `Buscando contacto de ${c.name}...`, c.name, c.org)
+
           const info = await this._findContactInfo(c, country, id)
           const leadId = await this._saveAsLead({ ...c, ...info }, id)
           if (!leadId) continue
 
+          // Hunter: find email by domain if missing
           if (!info.email && info.website) {
             try {
               const { hunterService } = await import('./hunter-service.js')
               const domain = info.website.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0]
               const hr = await hunterService.findByDomain(domain, c.name)
-              if (hr.emails?.[0]) { info.email = hr.emails[0].email; await pool.query('UPDATE leads SET email=$1 WHERE id=$2 AND email IS NULL', [info.email, leadId]) }
+              if (hr.emails?.[0]) {
+                info.email = hr.emails[0].email
+                await pool.query('UPDATE leads SET email=$1 WHERE id=$2 AND email IS NULL', [info.email, leadId])
+                await log(id, 'hunter_found', `🎯 Hunter: ${info.email} para ${c.name}`, c.name, c.org)
+              }
             } catch {}
           }
 
-          const s = [info.email ? `📧${info.email}` : null, info.phone ? `📱${info.phone}` : null, info.linkedin ? '💼LI' : null].filter(Boolean).join(' | ')
-          await log(id, s ? 'found_target' : 'no_contact', s ? `✅ ${c.name}: ${s}` : `⚠️ ${c.name}: sin contacto`, c.name, c.org, info)
+          // Validate email
+          if (info.email) {
+            try {
+              const { emailValidator } = await import('./email-validator.js')
+              const valid = await emailValidator.validateComplete(info.email)
+              if (valid?.valid === false) {
+                await log(id, 'email_invalid', `❌ Email invalido: ${info.email}`, c.name, c.org)
+                info.email = null
+              } else {
+                await log(id, 'email_valid', `✓ Email valido: ${info.email}`, c.name, c.org)
+              }
+            } catch {}
+          }
+
+          // Check WhatsApp
+          if (info.phone) {
+            try {
+              const { default: wa } = await import('./outreach/whatsapp-connection-service.js')
+              if (wa.connectionStatus === 'connected') {
+                const hasWA = await wa.checkWhatsApp(info.phone).catch(() => false)
+                info.hasWhatsApp = !!hasWA
+                if (hasWA) {
+                  await log(id, 'whatsapp_found', `✓ WhatsApp confirmado: ${info.phone}`, c.name, c.org)
+                  await pool.query('UPDATE leads SET social_whatsapp=$1 WHERE id=$2', [info.phone, leadId])
+                } else {
+                  await log(id, 'no_contact', `WhatsApp no encontrado para ${info.phone}`, c.name, c.org)
+                }
+              }
+            } catch {}
+          }
+
+          // Update lead with all found data
+          await pool.query(
+            `UPDATE leads SET email=COALESCE($1,email), phone=COALESCE($2,phone),
+             social_linkedin=COALESCE($3,social_linkedin), website=COALESCE($4,website)
+             WHERE id=$5`,
+            [info.email, info.phone, info.linkedin, info.website, leadId]
+          ).catch(() => {})
+
+          const s = [
+            info.email ? `📧${info.email}` : null,
+            info.phone ? `📱${info.phone}` : null,
+            info.hasWhatsApp ? '💬WA' : null,
+            info.linkedin ? '💼LinkedIn' : null,
+            info.twitter ? '🐦Twitter' : null,
+            info.website ? '🌐Web' : null,
+          ].filter(Boolean).join(' | ')
+
+          await log(id, s ? 'found_target' : 'no_contact',
+            s ? `✅ ${c.name}: ${s}` : `⚠️ ${c.name}: sin datos de contacto`,
+            c.name, c.org, info)
           await pool.query('UPDATE ai_agents SET contacts_found = contacts_found + 1, updated_at = NOW() WHERE id = $1', [id])
           leads.push({ ...c, ...info, leadId })
           await sleep(1500)
@@ -337,51 +393,145 @@ Solo personas REALES. No inventes.`
     } catch { return null }
   }
 
-  // ── Find contact info ─────────────────────────────────────────────────────
+  // ── Find ALL contact info (email, phone, WhatsApp, LinkedIn, Twitter, Instagram, website) ──
   async _findContactInfo(contact, country) {
-    const info = { email: null, phone: null, linkedin: null, website: null, twitter: null }
+    const info = { email: null, phone: null, linkedin: null, website: null, twitter: null, instagram: null, facebook: null, whatsapp: null }
+
+    // 1. General search
     try {
-      const results = await this._searchDDGLite(`${contact.name} ${contact.org || ''} ${country} contacto`)
-      for (const r of results.slice(0, 5)) {
+      const results = await this._searchDDGLite(`${contact.name} ${contact.org || ''} ${country} contacto email`)
+      for (const r of results.slice(0, 6)) {
         if (r.url.includes('linkedin.com/in')) info.linkedin = r.url
         if (r.url.includes('twitter.com/') || r.url.includes('x.com/')) info.twitter = r.url
-        if (!info.website && !r.url.includes('wikipedia') && !r.url.includes('linkedin') && !r.url.includes('twitter') && !r.url.includes('facebook')) info.website = r.url
+        if (r.url.includes('instagram.com/')) info.instagram = r.url
+        if (r.url.includes('facebook.com/')) info.facebook = r.url
+        if (!info.website && !r.url.includes('wikipedia') && !r.url.includes('linkedin') &&
+            !r.url.includes('twitter') && !r.url.includes('facebook') && !r.url.includes('instagram') && !r.url.includes('youtube')) {
+          info.website = r.url
+        }
       }
     } catch {}
 
+    // 2. LinkedIn specific search
     if (!info.linkedin) {
       try {
         const li = await this._searchDDGLite(`site:linkedin.com/in "${contact.name}" ${country}`)
         const f = li.find(r => r.url.includes('linkedin.com/in'))
         if (f) info.linkedin = f.url
       } catch {}
+      await sleep(1000)
     }
 
+    // 3. Twitter/X specific search
+    if (!info.twitter) {
+      try {
+        const tw = await this._searchDDGLite(`site:twitter.com OR site:x.com "${contact.name}" ${country}`)
+        const f = tw.find(r => r.url.includes('twitter.com/') || r.url.includes('x.com/'))
+        if (f) info.twitter = f.url
+      } catch {}
+      await sleep(1000)
+    }
+
+    // 4. Instagram specific search
+    if (!info.instagram) {
+      try {
+        const ig = await this._searchDDGLite(`site:instagram.com "${contact.name}" ${country}`)
+        const f = ig.find(r => r.url.includes('instagram.com/'))
+        if (f) info.instagram = f.url
+      } catch {}
+      await sleep(1000)
+    }
+
+    // 5. Scrape website for email, phone, WhatsApp link
     if (info.website) {
       try {
         const resp = await axios.get(info.website, { headers: { 'User-Agent': UA }, timeout: 8000, maxContentLength: 500000 })
-        const $ = cheerio.load(resp.data); const text = $('body').text()
+        const $ = cheerio.load(resp.data)
+        const text = $('body').text()
+        const html = resp.data
+
+        // Emails
         const emails = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || []
-        info.email = emails.filter(e => !e.includes('example') && !e.includes('.png') && !e.includes('sentry'))[0] || null
+        info.email = emails.filter(e => !e.includes('example') && !e.includes('.png') && !e.includes('sentry') && !e.includes('wordpress') && !e.includes('wix'))[0] || null
+
+        // Phones
         const phones = text.match(/(?:\+?(?:52|54|55|57|1)\s?)?(?:\(?\d{2,3}\)?\s?)?\d{3,4}[\s.-]?\d{4}/g) || []
         info.phone = phones[0]?.replace(/\s/g, '') || null
+
+        // WhatsApp links (wa.me or api.whatsapp.com)
+        const waMatch = html.match(/(?:wa\.me|api\.whatsapp\.com\/send\?phone=)\/?\+?(\d{8,15})/i)
+        if (waMatch) info.whatsapp = waMatch[1]
+
+        // Social links from page
         $('a[href]').each((_, el) => {
           const h = $(el).attr('href') || ''
           if (!info.linkedin && h.includes('linkedin.com/in')) info.linkedin = h
+          if (!info.twitter && (h.includes('twitter.com/') || h.includes('x.com/'))) info.twitter = h
+          if (!info.instagram && h.includes('instagram.com/')) info.instagram = h
+          if (!info.facebook && h.includes('facebook.com/')) info.facebook = h
+          if (!info.whatsapp && h.includes('wa.me/')) {
+            const num = h.match(/wa\.me\/\+?(\d+)/)?.[1]
+            if (num) info.whatsapp = num
+          }
         })
       } catch {}
     }
 
-    if (!info.email && !info.phone) {
+    // 6. Search for email specifically
+    if (!info.email) {
       try {
-        const ai = await analyzeWithDeepSeek(`Contacto PUBLICO de ${contact.name} (${contact.role || ''}, ${contact.org || ''}, ${country}). JSON: {"email":"o null","phone":"o null","linkedin":"o null","twitter":"o null","website":"o null"} Solo datos REALES.`)
+        const emailResults = await this._searchDDGLite(`"${contact.name}" email ${contact.org || ''} ${country}`)
+        for (const r of emailResults.slice(0, 3)) {
+          try {
+            const resp = await axios.get(r.url, { headers: { 'User-Agent': UA }, timeout: 6000, maxContentLength: 300000 })
+            const emails = resp.data.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || []
+            const good = emails.filter(e => !e.includes('example') && !e.includes('.png') && !e.includes('sentry'))[0]
+            if (good) { info.email = good; break }
+          } catch {}
+          await sleep(800)
+        }
+      } catch {}
+    }
+
+    // 7. Search for phone/WhatsApp specifically
+    if (!info.phone && !info.whatsapp) {
+      try {
+        const phoneResults = await this._searchDDGLite(`"${contact.name}" telefono whatsapp ${contact.org || ''} ${country}`)
+        for (const r of phoneResults.slice(0, 3)) {
+          try {
+            const resp = await axios.get(r.url, { headers: { 'User-Agent': UA }, timeout: 6000, maxContentLength: 300000 })
+            const text = resp.data
+            const phones = text.match(/(?:\+?(?:52|54|55|57|1)\s?)?(?:\(?\d{2,3}\)?\s?)?\d{3,4}[\s.-]?\d{4}/g) || []
+            if (phones[0]) { info.phone = phones[0].replace(/\s/g, ''); break }
+            const waMatch = text.match(/(?:wa\.me|api\.whatsapp\.com\/send\?phone=)\/?\+?(\d{8,15})/i)
+            if (waMatch) { info.whatsapp = waMatch[1]; break }
+          } catch {}
+          await sleep(800)
+        }
+      } catch {}
+    }
+
+    // 8. AI as last resort — ask for ALL known contact data
+    if (!info.email && !info.phone && !info.linkedin) {
+      try {
+        const ai = await analyzeWithDeepSeek(
+          `Busca TODA la informacion de contacto PUBLICA conocida de ${contact.name} (${contact.role || ''}, ${contact.org || ''}, ${country}).
+Responde SOLO JSON: {"email":"o null","phone":"o null","whatsapp":"o null","linkedin":"url o null","twitter":"url o null","instagram":"url o null","website":"url o null"}
+Solo datos REALES y PUBLICOS. Si no sabes, pon null.`)
         const p = JSON.parse(ai.match(/\{[\s\S]*\}/)?.[0] || '{}')
         if (p.email && p.email !== 'null') info.email = p.email
         if (p.phone && p.phone !== 'null') info.phone = p.phone
+        if (p.whatsapp && p.whatsapp !== 'null') info.whatsapp = p.whatsapp
         if (p.linkedin && p.linkedin !== 'null' && !info.linkedin) info.linkedin = p.linkedin
+        if (p.twitter && p.twitter !== 'null' && !info.twitter) info.twitter = p.twitter
+        if (p.instagram && p.instagram !== 'null' && !info.instagram) info.instagram = p.instagram
         if (p.website && p.website !== 'null' && !info.website) info.website = p.website
       } catch {}
     }
+
+    // Use WhatsApp number as phone fallback
+    if (!info.phone && info.whatsapp) info.phone = info.whatsapp
+
     return info
   }
 
