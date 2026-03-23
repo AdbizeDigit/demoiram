@@ -6,7 +6,7 @@ import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
   Shield, Search, Settings, BarChart3, Mail, MessageCircle, Bot, Zap,
-  Bell, X, Check, ExternalLink, Users,
+  Bell, X, Check, ExternalLink,
 } from 'lucide-react'
 
 const navItems = [
