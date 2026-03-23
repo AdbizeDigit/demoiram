@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertCircle, Clock, ChevronDown, MapPin,
   Zap, Calendar, Tag, TrendingUp, Hash, RefreshCw,
   Facebook, Instagram, Linkedin, Twitter, Save, Plus,
-  ChevronRight, Users, Search
+  ChevronRight, Users, Search, Square
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -102,7 +102,10 @@ export default function LeadDetailPage() {
   const [stageDropdownOpen, setStageDropdownOpen] = useState(false)
   const [waInput, setWaInput] = useState('')
   const [waSending, setWaSending] = useState(false)
+  const [waAutoMode, setWaAutoMode] = useState(false)
+  const [waAutoRunning, setWaAutoRunning] = useState(false)
   const waEndRef = useRef(null)
+  const waAutoRef = useRef(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [notes, setNotes] = useState([])
@@ -207,6 +210,56 @@ export default function LeadDetailPage() {
     }
     setWaSending(false)
   }
+
+  async function startWaAuto() {
+    if (waAutoRef.current) return
+    waAutoRef.current = true
+    setWaAutoMode(true)
+    setWaAutoRunning(true)
+    try {
+      // Send initial AI message
+      await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
+      setTimeout(loadMessages, 500)
+      // Move stage to CONTACTADO
+      try { await api.patch(`/api/scraping-engine/leads/${lead.id}`, { status: 'CONTACTADO' }) } catch {}
+      setLead(prev => prev ? { ...prev, stage: 'CONTACTADO' } : prev)
+    } catch (err) {
+      setActionResult({ type: 'whatsapp', success: false, message: err.response?.data?.error || 'Error iniciando WhatsApp IA' })
+    }
+    setWaAutoRunning(false)
+  }
+
+  function stopWaAuto() {
+    waAutoRef.current = false
+    setWaAutoMode(false)
+    setWaAutoRunning(false)
+  }
+
+  // Auto-reply when in auto mode and we receive a response
+  useEffect(() => {
+    if (!waAutoRef.current || !lead) return
+    const replied = waMessages.filter(m => (m.status || '').toUpperCase() === 'REPLIED')
+    if (replied.length === 0) return
+    const lastReply = replied[0] // most recent (messages are newest-first from API)
+    const lastReplyTime = new Date(lastReply.sentAt || lastReply.createdAt).getTime()
+    // Check if we already replied after this
+    const sentAfter = waMessages.filter(m => {
+      const s = (m.status || '').toUpperCase()
+      return s !== 'REPLIED' && new Date(m.sentAt || m.createdAt).getTime() > lastReplyTime
+    })
+    if (sentAfter.length > 0) return // already replied
+    // Auto-reply with AI
+    const timer = setTimeout(async () => {
+      if (!waAutoRef.current) return
+      setWaAutoRunning(true)
+      try {
+        await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
+        setTimeout(loadMessages, 500)
+      } catch {}
+      setWaAutoRunning(false)
+    }, 3000)
+    return () => clearTimeout(timer)
+  }, [waMessages, lead])
 
   // Auto-generate report if lead has no report
   useEffect(() => {
@@ -582,15 +635,21 @@ export default function LeadDetailPage() {
                     <MessageCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-gray-400">WhatsApp</p>
-                      <a href={`https://wa.me/${normalizePhone(lead.whatsapp || lead.phone)?.replace('+', '')}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="text-sm text-gray-800 font-medium hover:text-green-600">{lead.whatsapp || lead.phone}</a>
+                      <p className="text-sm text-gray-800 font-medium">{lead.whatsapp || lead.phone}</p>
                     </div>
-                    <a href={`https://wa.me/${normalizePhone(lead.whatsapp || lead.phone)?.replace('+', '')}`}
-                      target="_blank" rel="noopener noreferrer"
-                      className="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors">
-                      Enviar
-                    </a>
+                    {waAutoMode ? (
+                      <button onClick={stopWaAuto}
+                        className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg text-xs font-medium hover:bg-red-200 transition-colors flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        Detener IA
+                      </button>
+                    ) : (
+                      <button onClick={startWaAuto} disabled={waAutoRunning}
+                        className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+                        {waAutoRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                        Iniciar IA
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -858,10 +917,12 @@ export default function LeadDetailPage() {
                   Enviar Secuencia 5 Emails
                 </button>
 
-                <button onClick={() => handleAction('whatsapp')} disabled={actionLoading === 'whatsapp'}
-                  className="flex items-center justify-center gap-2 w-full py-3 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50">
-                  {actionLoading === 'whatsapp' ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageCircle className="w-4 h-4" />}
-                  Enviar WhatsApp IA
+                <button onClick={() => waAutoMode ? stopWaAuto() : startWaAuto()} disabled={waAutoRunning}
+                  className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
+                    waAutoMode ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}>
+                  {waAutoRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : waAutoMode ? <Square className="w-4 h-4" /> : <Zap className="w-4 h-4" />}
+                  {waAutoMode ? 'Detener WhatsApp IA' : 'Iniciar WhatsApp IA'}
                 </button>
 
                 <button onClick={() => handleAction('call')} disabled={actionLoading === 'call'}
@@ -890,10 +951,31 @@ export default function LeadDetailPage() {
                     <p className="text-sm font-semibold text-white truncate">{lead.company || lead.name}</p>
                     <p className="text-[10px] text-green-100">{lead.whatsapp || lead.phone || 'Sin telefono'}</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-300 animate-pulse" />
-                    <span className="text-[10px] text-green-100">En vivo</span>
-                  </div>
+                  {/* Auto/Manual toggle */}
+                  <button
+                    onClick={() => waAutoMode ? stopWaAuto() : startWaAuto()}
+                    disabled={waAutoRunning}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-colors ${
+                      waAutoMode
+                        ? 'bg-amber-400 text-amber-900 hover:bg-amber-300'
+                        : 'bg-white/20 text-white hover:bg-white/30'
+                    }`}
+                  >
+                    {waAutoRunning ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : waAutoMode ? (
+                      <>
+                        <Zap className="w-3 h-3" />
+                        IA AUTO
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-pulse" />
+                      </>
+                    ) : (
+                      <>
+                        <MessageCircle className="w-3 h-3" />
+                        MANUAL
+                      </>
+                    )}
+                  </button>
                 </div>
 
                 {/* Messages area */}
