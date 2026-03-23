@@ -404,6 +404,37 @@ app.post('/api/autoplay/stop', (req, res) => {
   res.json({ success: true, message: 'Auto-play detenido' })
 })
 
+// ── PDF Designer AI ──────────────────────────────────────────────────────────
+app.post('/api/pdf-designer/generate', async (req, res) => {
+  try {
+    const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+    const { prompt, template, clientName } = req.body
+
+    const aiPrompt = `Genera el contenido para un PDF de ${template || 'propuesta comercial'} de Adbize para ${clientName || 'un cliente'}.
+
+Contexto del usuario: ${prompt}
+
+Adbize ofrece: apps web, mobile, chatbots IA, machine learning, deep learning, vision artificial, LLMs, automatizacion de procesos, scraping inteligente.
+Precios: chatbot desde USD 500, app web USD 1500-5000, app mobile USD 2000-8000, automatizacion USD 800-3000, integral USD 5000-15000.
+Pago por hito o mensual, bajo contrato de servicio.
+
+Responde SOLO JSON:
+{
+  "title": "titulo del documento",
+  "subtitle": "subtitulo",
+  "intro": "parrafo introductorio personalizado (50 palabras)",
+  "services": [{"name": "servicio", "price": "rango USD"}],
+  "whyUs": "por que elegir Adbize (40 palabras)"
+}`
+
+    const response = await analyzeWithDeepSeek(aiPrompt)
+    const parsed = JSON.parse(response.match(/\{[\s\S]*\}/)?.[0] || '{}')
+    res.json({ success: true, pdfData: parsed })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Server is running' })
