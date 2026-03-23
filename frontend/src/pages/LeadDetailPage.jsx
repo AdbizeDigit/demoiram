@@ -111,6 +111,9 @@ export default function LeadDetailPage() {
   const [notes, setNotes] = useState([])
   const [executives, setExecutives] = useState([])
   const [derivedLeads, setDerivedLeads] = useState([])
+  const [activeChat, setActiveChat] = useState(null) // null = main lead, or derived lead id
+  const [derivedMessages, setDerivedMessages] = useState({})
+  const [seenTabs, setSeenTabs] = useState(new Set())
   const [loadingExecs, setLoadingExecs] = useState(false)
   const [scanningExecs, setScanningExecs] = useState(false)
 
@@ -198,12 +201,14 @@ export default function LeadDetailPage() {
 
   async function handleWaSend() {
     if (!waInput.trim() || waSending) return
-    const phone = lead.whatsapp || lead.phone
+    const target = activeChat ? derivedLeads.find(d => d.id === activeChat) : lead
+    if (!target) return
+    const phone = target.social_whatsapp || target.whatsapp || target.phone
     if (!phone) return
     setWaSending(true)
     try {
       const clean = phone.replace(/[^\d+]/g, '')
-      await api.post('/api/outreach/whatsapp/send-direct', { phone: clean, message: waInput.trim(), leadId: lead.id })
+      await api.post('/api/outreach/whatsapp/send-direct', { phone: clean, message: waInput.trim(), leadId: target.id })
       setWaInput('')
       setTimeout(loadMessages, 500)
     } catch (err) {
@@ -297,8 +302,50 @@ export default function LeadDetailPage() {
     } catch {}
   }, [id])
   useEffect(() => { loadDerived() }, [loadDerived])
-  // Refresh derived leads when messages change (new contact might have been detected)
   useEffect(() => { loadDerived() }, [messages.length, loadDerived])
+
+  // Load messages for derived leads
+  useEffect(() => {
+    if (!derivedLeads.length) return
+    derivedLeads.forEach(async (dl) => {
+      try {
+        const { data } = await api.get(`/api/outreach/messages?leadId=${dl.id}`)
+        setDerivedMessages(prev => ({ ...prev, [dl.id]: data?.messages || [] }))
+      } catch {}
+    })
+  }, [derivedLeads])
+
+  // Poll derived messages
+  useEffect(() => {
+    if (!derivedLeads.length) return
+    const iv = setInterval(() => {
+      derivedLeads.forEach(async (dl) => {
+        try {
+          const { data } = await api.get(`/api/outreach/messages?leadId=${dl.id}`)
+          setDerivedMessages(prev => ({ ...prev, [dl.id]: data?.messages || [] }))
+        } catch {}
+      })
+    }, 5000)
+    return () => clearInterval(iv)
+  }, [derivedLeads])
+
+  // Get active chat data
+  const activeChatLead = activeChat ? derivedLeads.find(d => d.id === activeChat) : lead
+  const activeChatMessages = activeChat ? (derivedMessages[activeChat] || []) : messages
+  const activeChatWaMessages = activeChatMessages.filter(m => (m.channel || m.type || '').toUpperCase() === 'WHATSAPP')
+
+  // Mark tab as seen when clicked
+  function switchTab(tabId) {
+    setActiveChat(tabId)
+    setSeenTabs(prev => new Set([...prev, tabId || 'main']))
+  }
+
+  // Check if a tab has unseen messages
+  function hasUnseenMessages(tabId) {
+    if (seenTabs.has(tabId || 'main')) return false
+    const msgs = tabId ? (derivedMessages[tabId] || []) : messages
+    return msgs.some(m => (m.status || '').toUpperCase() === 'REPLIED')
+  }
 
   // Auto-scan for executives if none found
   useEffect(() => {
@@ -952,83 +999,84 @@ export default function LeadDetailPage() {
               </div>
             </Card>
 
-            {/* WhatsApp Chat en Vivo */}
+            {/* WhatsApp Chat con Tabs */}
             <Card title="" className="!p-0 overflow-hidden">
-              <div className="flex flex-col" style={{ height: '500px' }}>
+              <div className="flex flex-col" style={{ height: '520px' }}>
+                {/* Tabs */}
+                {derivedLeads.length > 0 && (
+                  <div className="flex items-center gap-0.5 px-2 pt-2 pb-0 bg-gray-100 overflow-x-auto">
+                    <button
+                      onClick={() => switchTab(null)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors relative ${
+                        activeChat === null ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {(lead.company || lead.name || '?').slice(0, 20)}
+                      {hasUnseenMessages(null) && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+                    </button>
+                    {derivedLeads.map(dl => {
+                      const dlMsgs = derivedMessages[dl.id] || []
+                      const hasUnseen = !seenTabs.has(dl.id) && dlMsgs.length > 0
+                      return (
+                        <button
+                          key={dl.id}
+                          onClick={() => switchTab(dl.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                            activeChat === dl.id ? 'bg-green-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                          }`}
+                        >
+                          {hasUnseen && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse flex-shrink-0" />}
+                          {(dl.name || '?').slice(0, 20)}
+                          <span className={`text-[9px] px-1 py-0 rounded ${activeChat === dl.id ? 'bg-white/20' : 'bg-blue-100 text-blue-700'}`}>Derivado</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+
                 {/* Chat header */}
-                <div className="flex items-center gap-3 px-4 py-3 bg-green-600">
-                  <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm">
-                    {(lead.company || lead.name || '?')[0]}
+                <div className="flex items-center gap-3 px-4 py-2.5 bg-green-600">
+                  <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-sm">
+                    {(activeChatLead?.company || activeChatLead?.name || '?')[0]}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-white truncate">{lead.company || lead.name}</p>
-                    <p className="text-[10px] text-green-100">{lead.whatsapp || lead.phone || 'Sin telefono'}</p>
+                    <p className="text-sm font-semibold text-white truncate">{activeChatLead?.company || activeChatLead?.name}</p>
+                    <p className="text-[10px] text-green-100">{activeChatLead?.social_whatsapp || activeChatLead?.whatsapp || activeChatLead?.phone || 'Sin telefono'}</p>
                   </div>
-                  {/* Auto/Manual toggle */}
-                  <button
-                    onClick={() => waAutoMode ? stopWaAuto() : startWaAuto()}
-                    disabled={waAutoRunning}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-colors ${
-                      waAutoMode
-                        ? 'bg-amber-400 text-amber-900 hover:bg-amber-300'
-                        : 'bg-white/20 text-white hover:bg-white/30'
-                    }`}
-                  >
-                    {waAutoRunning ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : waAutoMode ? (
-                      <>
-                        <Zap className="w-3 h-3" />
-                        IA AUTO
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-700 animate-pulse" />
-                      </>
-                    ) : (
-                      <>
-                        <MessageCircle className="w-3 h-3" />
-                        MANUAL
-                      </>
-                    )}
-                  </button>
+                  {activeChat === null && (
+                    <button
+                      onClick={() => waAutoMode ? stopWaAuto() : startWaAuto()}
+                      disabled={waAutoRunning}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold transition-colors ${
+                        waAutoMode ? 'bg-amber-400 text-amber-900' : 'bg-white/20 text-white hover:bg-white/30'
+                      }`}
+                    >
+                      {waAutoRunning ? <Loader2 className="w-3 h-3 animate-spin" /> : waAutoMode ? <><Zap className="w-3 h-3" />IA AUTO</> : <><MessageCircle className="w-3 h-3" />MANUAL</>}
+                    </button>
+                  )}
                 </div>
 
                 {/* Messages area */}
                 <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2" style={{ background: '#e5ddd5', backgroundImage: 'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M30 0L60 30L30 60L0 30z\' fill=\'%23d4cfc6\' fill-opacity=\'0.1\'/%3E%3C/svg%3E")' }}>
-                  {waMessages.length === 0 && (
+                  {activeChatWaMessages.length === 0 && (
                     <div className="text-center py-12">
                       <MessageCircle className="w-12 h-12 text-green-200 mx-auto mb-3" />
                       <p className="text-sm text-gray-500">Sin mensajes de WhatsApp</p>
-                      <p className="text-xs text-gray-400 mt-1">Envia un mensaje con el boton de abajo o usa "Enviar WhatsApp IA"</p>
                     </div>
                   )}
-                  {waMessages.slice().reverse().map((msg, i) => {
+                  {activeChatWaMessages.slice().reverse().map((msg, i) => {
                     const status = (msg.status || '').toUpperCase()
                     const isFromMe = status !== 'REPLIED'
                     const text = msg.content || msg.message || msg.body || ''
                     const senderName = msg.subject?.startsWith('De: ') ? msg.subject.replace('De: ', '') : null
                     return (
                       <div key={msg.id || i} className={`flex ${isFromMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-xl px-3 py-2 shadow-sm ${
-                          isFromMe
-                            ? 'bg-green-100 rounded-tr-sm'
-                            : 'bg-white rounded-tl-sm'
-                        }`}>
-                          {!isFromMe && senderName && (
-                            <p className="text-[10px] font-bold text-green-700 mb-0.5">{senderName}</p>
-                          )}
+                        <div className={`max-w-[80%] rounded-xl px-3 py-2 shadow-sm ${isFromMe ? 'bg-green-100 rounded-tr-sm' : 'bg-white rounded-tl-sm'}`}>
+                          {!isFromMe && senderName && <p className="text-[10px] font-bold text-green-700 mb-0.5">{senderName}</p>}
                           <p className="text-[13px] text-gray-800 whitespace-pre-wrap leading-relaxed">{text}</p>
                           <div className="flex items-center justify-end gap-1 mt-1">
                             <span className="text-[10px] text-gray-400">{timeAgo(msg.sentAt || msg.createdAt)}</span>
-                            {isFromMe && (
-                              <span className="text-[10px]">
-                                {status === 'SENT' || status === 'DELIVERED' ? (
-                                  <CheckCircle2 className="w-3 h-3 text-blue-500 inline" />
-                                ) : status === 'FAILED' || status === 'ERROR' ? (
-                                  <AlertCircle className="w-3 h-3 text-red-400 inline" />
-                                ) : (
-                                  <Clock className="w-3 h-3 text-gray-400 inline" />
-                                )}
-                              </span>
-                            )}
+                            {isFromMe && <span className="text-[10px]">{status === 'SENT' || status === 'DELIVERED' ? <CheckCircle2 className="w-3 h-3 text-blue-500 inline" /> : <Clock className="w-3 h-3 text-gray-400 inline" />}</span>}
                           </div>
                         </div>
                       </div>
@@ -1046,50 +1094,18 @@ export default function LeadDetailPage() {
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleWaSend()}
                     placeholder="Escribe un mensaje..."
                     className="flex-1 px-4 py-2.5 bg-white rounded-full text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    disabled={!(lead.whatsapp || lead.phone)}
+                    disabled={!(activeChatLead?.whatsapp || activeChatLead?.phone || activeChatLead?.social_whatsapp)}
                   />
                   <button
                     onClick={handleWaSend}
-                    disabled={!waInput.trim() || waSending || !(lead.whatsapp || lead.phone)}
-                    className="w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+                    disabled={!waInput.trim() || waSending || !(activeChatLead?.whatsapp || activeChatLead?.phone || activeChatLead?.social_whatsapp)}
+                    className="w-10 h-10 rounded-full bg-green-600 text-white flex items-center justify-center hover:bg-green-700 transition-colors disabled:opacity-40 flex-shrink-0"
                   >
                     {waSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 </div>
               </div>
             </Card>
-
-            {/* Contactos derivados */}
-            {derivedLeads.length > 0 && (
-              <Card title={`Contactos Derivados (${derivedLeads.length})`} icon={Users}>
-                <div className="space-y-2">
-                  {derivedLeads.map(dl => (
-                    <a
-                      key={dl.id}
-                      href={`/admin/pipeline/${dl.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-3 bg-green-50 border border-green-100 rounded-xl hover:bg-green-100 transition-colors"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                        {(dl.name || '?')[0]}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{dl.name}</p>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          {dl.phone && <span className="text-[10px] text-green-700 flex items-center gap-0.5"><Phone className="w-2.5 h-2.5" />{dl.phone}</span>}
-                          {dl.email && <span className="text-[10px] text-blue-600 flex items-center gap-0.5"><Mail className="w-2.5 h-2.5" />{dl.email}</span>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <span className="text-[10px] px-2 py-0.5 bg-green-200 text-green-800 rounded-full font-medium">Referido</span>
-                        <ExternalLink className="w-3.5 h-3.5 text-gray-400" />
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              </Card>
-            )}
 
             {/* Historial de Emails */}
             <Card title="Historial de Emails" icon={Mail}>
