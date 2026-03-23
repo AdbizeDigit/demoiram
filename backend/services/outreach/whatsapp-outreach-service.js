@@ -7,6 +7,44 @@ class WhatsAppOutreachService {
     const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
     const senderFullName = 'Gian Franco Koch';
 
+    // Check if this is a referred/derived lead
+    const isReferido = (lead.source_url || lead.sourceUrl || '').startsWith('referido:');
+    let parentName = '';
+    if (isReferido) {
+      try {
+        const parentId = (lead.source_url || lead.sourceUrl || '').replace('referido:', '');
+        const pr = await pool.query("SELECT name FROM leads WHERE id = $1", [parentId]);
+        parentName = pr.rows[0]?.name || '';
+      } catch {}
+    }
+
+    if (isReferido && parentName) {
+      const referidoPrompt = `Eres ${senderFullName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino.
+
+Este numero te lo pasaron desde ${parentName}. El mensaje debe:
+1. Empezar diciendo que te pasaron este numero desde ${parentName}
+2. Presentarte como ${senderFullName} de Adbize
+3. Mencionar brevemente que la IA es una ventaja competitiva clave hoy
+4. Preguntar si podes compartirle un demo gratuito sin compromiso
+
+REGLAS:
+- NO uses simbolos raros ni comillas ni corchetes
+- Amable y directo
+- Max 45 palabras
+- Texto plano
+
+Ejemplo: Hola buen dia! Me pasaron este numero desde ${parentName}. Soy ${senderFullName} de Adbize, trabajamos con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Puedo compartirte un demo gratuito?
+
+Responde SOLO JSON: {"message":"texto"}`;
+
+      try {
+        const resp = await analyzeWithDeepSeek(referidoPrompt);
+        const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}');
+        if (parsed.message) return parsed.message;
+      } catch {}
+      return `Hola buen dia! Me pasaron este numero desde ${parentName}. Soy ${senderFullName} de Adbize, trabajamos con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Puedo compartirte un demo gratuito?`;
+    }
+
     const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
 
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
