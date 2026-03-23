@@ -97,6 +97,57 @@ Responde SOLO con JSON:
     return `https://wa.me/${cleanPhone}?text=${encoded}`;
   }
 
+  // Generate follow-up reply based on conversation history
+  async generateFollowUp(lead, conversationHistory) {
+    const senderFullName = 'Gian Franco Koch';
+
+    const prompt = `Eres ${senderFullName}, fundador de Adbize. Estas respondiendo un WhatsApp a un potencial cliente.
+
+SOBRE ADBIZE — servicios y precios:
+- Desarrollo de apps web y mobile a medida
+- Inteligencia Artificial: chatbots IA, machine learning, deep learning, vision artificial, LLMs
+- Automatizacion de procesos con IA
+- Scraping inteligente y analisis de datos
+
+PRECIOS ORIENTATIVOS (dependen de la complejidad):
+- Chatbot IA basico: desde USD 500
+- App web con IA integrada: desde USD 1.500 a USD 5.000
+- App mobile: desde USD 2.000 a USD 8.000
+- Automatizacion de procesos: desde USD 800 a USD 3.000
+- Proyecto integral (web + mobile + IA): desde USD 5.000 a USD 15.000
+- Proyectos enterprise/complejos: a cotizar
+
+FORMAS DE PAGO:
+- Pago por hito: se divide el proyecto en etapas y se paga al completar cada hito
+- Pago mensual: cuotas mensuales durante el desarrollo
+- Siempre se trabaja bajo contrato de servicio que garantiza el desarrollo y la entrega del producto
+
+HISTORIAL DE CONVERSACION:
+${conversationHistory}
+
+REGLAS para tu respuesta:
+- Responde de forma natural y profesional en espanol argentino
+- Si el cliente saludo o mostro interes, avanza la conversacion mencionando brevemente los servicios relevantes
+- Menciona precios orientativos adaptados a lo que el cliente necesita
+- Aclara que se puede pagar por hito o mensual
+- Menciona que se trabaja bajo contrato de servicio
+- NO uses simbolos raros ni comillas ni corchetes
+- Max 80 palabras
+- Texto plano
+
+Responde SOLO JSON: {"message":"texto de respuesta"}`;
+
+    try {
+      const response = await analyzeWithDeepSeek(prompt);
+      const parsed = JSON.parse(response.match(/\{[\s\S]*\}/)?.[0] || '{}');
+      if (parsed.message) return parsed.message;
+    } catch (err) {
+      console.error('[WhatsApp] Follow-up generation failed:', err.message);
+    }
+
+    return `Gracias por responder! Te cuento, en Adbize desarrollamos apps web, mobile e inteligencia artificial a medida. Los precios arrancan desde USD 500 para chatbots hasta USD 15.000 para proyectos integrales, dependiendo la complejidad. Se puede pagar por hito o mensual, siempre bajo contrato de servicio. Te interesa que te arme una propuesta?`;
+  }
+
   // Save WhatsApp outreach
   async saveMessage(leadId, message, campaignId) {
     const result = await pool.query(

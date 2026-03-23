@@ -462,8 +462,24 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
     const phone = lead.social_whatsapp || lead.phone;
     if (!phone) return res.status(400).json({ success: false, error: 'Lead no tiene telefono/WhatsApp' });
 
-    // Generate AI message
-    const message = await whatsappOutreachService.generateMessage(lead);
+    // Check if there's existing conversation history
+    const historyRes = await pool.query(
+      "SELECT status, body, subject, sent_at FROM outreach_messages WHERE lead_id = $1 AND channel = 'WHATSAPP' ORDER BY sent_at ASC NULLS LAST LIMIT 20",
+      [leadId]
+    );
+    const hasHistory = historyRes.rows.length > 0;
+
+    let message;
+    if (hasHistory) {
+      // Build conversation history string
+      const history = historyRes.rows.map(m => {
+        const who = m.status === 'REPLIED' ? (m.subject?.replace('De: ', '') || 'Cliente') : 'Gian Franco Koch';
+        return `${who}: ${(m.body || '').slice(0, 200)}`;
+      }).join('\n');
+      message = await whatsappOutreachService.generateFollowUp(lead, history);
+    } else {
+      message = await whatsappOutreachService.generateMessage(lead);
+    }
 
     // Send via connected WhatsApp
     const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
