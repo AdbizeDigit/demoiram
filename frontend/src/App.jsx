@@ -51,6 +51,7 @@ const LeadsPage = lazy(() => import('./pages/LeadsPage'))
 const AgentsPage = lazy(() => import('./pages/AgentsPage'))
 const PdfDesignerPage = lazy(() => import('./pages/PdfDesignerPage'))
 const SalesDashboardPage = lazy(() => import('./pages/SalesDashboardPage'))
+const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -121,6 +122,7 @@ function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="pdf-designer" element={<PdfDesignerPage />} />
             <Route path="sales-dashboard" element={<SalesDashboardPage />} />
+            <Route path="linkedin" element={<LinkedInPage />} />
             <Route path="*" element={<DetectionEnginePage />} />
           </Route>
         </Routes>
