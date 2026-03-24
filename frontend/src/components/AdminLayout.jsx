@@ -18,6 +18,7 @@ const navItems = [
   { path: '/admin/avatars', icon: Bot, label: 'Avatares IA' },
   { path: '/admin/agents', icon: Zap, label: 'Agentes Autonomos' },
   { path: '/admin/pdf-designer', icon: FileText, label: 'Diseño PDF' },
+  { path: '/admin/sales-dashboard', icon: BarChart3, label: 'Metricas' },
   { path: '/admin/logs', icon: Activity, label: 'Actividad' },
 ]
 

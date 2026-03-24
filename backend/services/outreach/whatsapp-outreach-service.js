@@ -45,6 +45,26 @@ Responde SOLO JSON: {"message":"texto"}`;
       return `Hola buen dia! Me pasaron este numero desde ${parentName}. Soy ${senderFullName} de Adbize, trabajamos con inteligencia artificial aplicada al sector y hoy es una ventaja competitiva clave. Puedo compartirte un demo gratuito?`;
     }
 
+    const context = `Empresa: ${lead.name}\nSector: ${lead.sector || 'general'}\nCiudad: ${lead.city || ''}\nWebsite: ${lead.website || ''}`;
+
+    // Generate sector-specific AI integration ideas
+    const sectorIdeas = {
+      metalurgica: 'Por ejemplo, usar IA para automatizar cotizaciones en segundos o predecir mantenimiento de maquinas antes de que fallen',
+      automotriz: 'Por ejemplo, usar IA para responder consultas de clientes 24/7 o predecir que vehiculos se van a vender mas',
+      alimentos: 'Por ejemplo, usar IA para optimizar rutas de distribucion o predecir demanda de productos por temporada',
+      farmaceutica: 'Por ejemplo, usar IA para gestionar inventario inteligente o automatizar pedidos recurrentes',
+      textil: 'Por ejemplo, usar IA para predecir tendencias de moda o automatizar el seguimiento de pedidos',
+      inmobiliaria: 'Por ejemplo, usar IA para calificar compradores automaticamente o generar descripciones de propiedades con fotos',
+      construccion: 'Por ejemplo, usar IA para estimar costos de obra en minutos o monitorear avance de proyectos',
+      tecnologia: 'Por ejemplo, usar IA para automatizar soporte tecnico o analizar metricas de producto en tiempo real',
+      comercio: 'Por ejemplo, usar IA para personalizar ofertas a cada cliente o predecir que productos reponer',
+      gastronomia: 'Por ejemplo, usar IA para gestionar reservas inteligentes o analizar reviews para mejorar el menu',
+      quimica: 'Por ejemplo, usar IA para optimizar formulas de produccion o automatizar control de calidad',
+      servicios: 'Por ejemplo, usar IA para automatizar agendamiento de citas o responder consultas frecuentes 24/7',
+    }
+    const sector = (lead.sector || '').toLowerCase().replace('ai-agent:', '')
+    const ideas = sectorIdeas[sector] || Object.values(sectorIdeas).find(v => sector.includes(Object.keys(sectorIdeas).find(k => sector.includes(k)) || '')) || 'Por ejemplo, usar IA para automatizar procesos repetitivos o mejorar la atencion al cliente'
+
     const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
 
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
@@ -52,7 +72,7 @@ Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda algui
 ESTRUCTURA del mensaje:
 1. Saludo amable y presentate con tu nombre completo ${senderFullName} y que sos de Adbize
 2. Comenta que estuviste viendo empresas del sector y que te parecio interesante lo que hacen
-3. Menciona que estas trabajando con empresas del rubro en temas de inteligencia artificial y que hoy es una ventaja competitiva clave
+3. Menciona que estas trabajando con empresas del rubro en temas de inteligencia artificial y que hoy es una ventaja competitiva clave. Da 2 ideas concretas de como la IA se aplica a su sector: ${ideas}
 4. Pregunta amablemente si te pueden comunicar con el encargado o el dueño para compartirle un demo gratuito sin compromiso
 
 TONO:
@@ -68,12 +88,10 @@ REGLAS:
 - Max 1 emoji
 - Texto plano sin formato
 
-Ejemplo de tono correcto: Hola buen dia! Soy Gian Franco Koch de Adbize. Estuve viendo empresas del sector metalurgico y me parecio muy interesante lo que hacen. Estamos trabajando con inteligencia artificial aplicada al rubro y hoy es una ventaja competitiva clave. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?
+Ejemplo de tono correcto: Hola buen dia! Soy Gian Franco Koch de Adbize. Estuve viendo empresas del sector metalurgico y me parecio muy interesante lo que hacen. Estamos trabajando con inteligencia artificial aplicada al rubro y hoy es una ventaja competitiva clave. ${ideas}. Tendran algun encargado o responsable con quien pueda compartir un demo gratuito?
 
 Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
-
-    const context = `Empresa: ${lead.name}\nSector: ${lead.sector || 'general'}\nCiudad: ${lead.city || ''}\nWebsite: ${lead.website || ''}`;
 
     try {
       const response = await analyzeWithDeepSeek(`${systemPrompt}\n\n${context}`);
