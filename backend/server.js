@@ -404,6 +404,28 @@ app.post('/api/autoplay/stop', (req, res) => {
   res.json({ success: true, message: 'Auto-play detenido' })
 })
 
+// ── WhatsApp IA Auto Mode (persists across page reloads) ─────────────────────
+const waAutoLeads = new Set() // lead IDs with IA auto mode active
+global.waAutoLeads = waAutoLeads // expose to WhatsApp service for auto-reply
+
+app.get('/api/wa-auto/status/:leadId', (req, res) => {
+  res.json({ success: true, active: waAutoLeads.has(req.params.leadId) })
+})
+
+app.post('/api/wa-auto/start/:leadId', (req, res) => {
+  waAutoLeads.add(req.params.leadId)
+  res.json({ success: true })
+})
+
+app.post('/api/wa-auto/stop/:leadId', (req, res) => {
+  waAutoLeads.delete(req.params.leadId)
+  res.json({ success: true })
+})
+
+app.get('/api/wa-auto/list', (req, res) => {
+  res.json({ success: true, leads: [...waAutoLeads] })
+})
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {

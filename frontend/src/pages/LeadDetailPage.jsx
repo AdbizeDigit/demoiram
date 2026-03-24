@@ -105,7 +105,6 @@ export default function LeadDetailPage() {
   const [waAutoMode, setWaAutoMode] = useState(false)
   const [waAutoRunning, setWaAutoRunning] = useState(false)
   const waEndRef = useRef(null)
-  const waAutoRef = useRef(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [notes, setNotes] = useState([])
@@ -217,55 +216,37 @@ export default function LeadDetailPage() {
     setWaSending(false)
   }
 
+  // Load IA auto mode from server (persists across reloads)
+  useEffect(() => {
+    if (!id) return
+    api.get(`/api/wa-auto/status/${id}`).then(({ data }) => {
+      setWaAutoMode(data.active || false)
+    }).catch(() => {})
+  }, [id])
+
   async function startWaAuto() {
-    if (waAutoRef.current) return
-    waAutoRef.current = true
     setWaAutoMode(true)
     setWaAutoRunning(true)
     try {
-      // Send initial AI message
-      await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
-      setTimeout(loadMessages, 500)
-      // Move stage to CONTACTADO
-      try { await api.patch(`/api/scraping-engine/leads/${lead.id}`, { status: 'CONTACTADO' }) } catch {}
-      setLead(prev => prev ? { ...prev, stage: 'CONTACTADO' } : prev)
+      await api.post(`/api/wa-auto/start/${lead.id}`)
+      // Send initial AI message if no messages yet
+      const waMsgs = messages.filter(m => (m.channel || m.type || '').toUpperCase() === 'WHATSAPP')
+      if (waMsgs.length === 0) {
+        await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
+        setTimeout(loadMessages, 500)
+        try { await api.patch(`/api/scraping-engine/leads/${lead.id}`, { status: 'CONTACTADO' }) } catch {}
+      }
     } catch (err) {
       setActionResult({ type: 'whatsapp', success: false, message: err.response?.data?.error || 'Error iniciando WhatsApp IA' })
     }
     setWaAutoRunning(false)
   }
 
-  function stopWaAuto() {
-    waAutoRef.current = false
+  async function stopWaAuto() {
     setWaAutoMode(false)
     setWaAutoRunning(false)
+    try { await api.post(`/api/wa-auto/stop/${lead.id}`) } catch {}
   }
-
-  // Auto-reply when in auto mode and we receive a response
-  useEffect(() => {
-    if (!waAutoRef.current || !lead) return
-    const replied = waMessages.filter(m => (m.status || '').toUpperCase() === 'REPLIED')
-    if (replied.length === 0) return
-    const lastReply = replied[0] // most recent (messages are newest-first from API)
-    const lastReplyTime = new Date(lastReply.sentAt || lastReply.createdAt).getTime()
-    // Check if we already replied after this
-    const sentAfter = waMessages.filter(m => {
-      const s = (m.status || '').toUpperCase()
-      return s !== 'REPLIED' && new Date(m.sentAt || m.createdAt).getTime() > lastReplyTime
-    })
-    if (sentAfter.length > 0) return // already replied
-    // Auto-reply with AI
-    const timer = setTimeout(async () => {
-      if (!waAutoRef.current) return
-      setWaAutoRunning(true)
-      try {
-        await api.post('/api/outreach/whatsapp/send-to-lead', { leadId: lead.id })
-        setTimeout(loadMessages, 500)
-      } catch {}
-      setWaAutoRunning(false)
-    }, 3000)
-    return () => clearTimeout(timer)
-  }, [waMessages, lead])
 
   // Auto-generate report if lead has no report
   useEffect(() => {

@@ -218,6 +218,41 @@ class WhatsAppConnectionService extends EventEmitter {
                   "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND UPPER(status) IN ('NEW', 'NUEVO', 'CONTACTADO', 'CONTACTED', 'PENDING')",
                   [leadId]
                 );
+
+                // Server-side IA auto-reply if lead has auto mode active
+                try {
+                  const waAutoModule = await import('../../server.js?waAutoLeads');
+                } catch {}
+                // Use global waAutoLeads set (injected from server)
+                if (global.waAutoLeads && global.waAutoLeads.has(leadId)) {
+                  setTimeout(async () => {
+                    try {
+                      const { default: waOutreach } = await import('./whatsapp-outreach-service.js');
+                      // Get conversation history
+                      const histRes = await pool.query(
+                        "SELECT status, body, subject FROM outreach_messages WHERE lead_id = $1 AND channel = 'WHATSAPP' ORDER BY sent_at ASC NULLS LAST LIMIT 20",
+                        [leadId]
+                      );
+                      const history = histRes.rows.map(m => {
+                        const who = m.status === 'REPLIED' ? (m.subject?.replace('De: ', '') || 'Cliente') : 'Gian Franco Koch';
+                        return `${who}: ${(m.body || '').slice(0, 200)}`;
+                      }).join('\n');
+                      const leadRes2 = await pool.query("SELECT * FROM leads WHERE id = $1", [leadId]);
+                      const reply = await waOutreach.generateFollowUp(leadRes2.rows[0], history);
+                      const phone2 = leadRes2.rows[0]?.social_whatsapp || leadRes2.rows[0]?.phone;
+                      if (phone2 && reply) {
+                        await this.sendMessage(phone2, reply, leadId);
+                        await pool.query(
+                          "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
+                          [leadId, reply]
+                        );
+                        console.log(`[WhatsApp] IA Auto-reply to ${leadName}: ${reply.slice(0, 50)}`);
+                      }
+                    } catch (autoErr) {
+                      console.error('[WhatsApp] IA auto-reply error:', autoErr.message);
+                    }
+                  }, 5000); // 5s delay before auto-replying
+                }
               }
 
               // Create notification
