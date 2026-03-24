@@ -342,7 +342,7 @@ app.post('/api/autoplay/start', async (req, res) => {
        AND (l.source_url IS NULL OR l.source_url NOT LIKE 'referido:%')
        AND NOT EXISTS (SELECT 1 FROM outreach_messages m WHERE m.lead_id = l.id)
        ORDER BY l.score DESC NULLS LAST, l.created_at DESC
-       LIMIT 100`
+       LIMIT 30`
     )
     autoPlayState.total = leads.length
 
@@ -404,9 +404,9 @@ app.post('/api/autoplay/start', async (req, res) => {
         await pool.query("UPDATE leads SET status = 'CONTACTADO' WHERE id = $1", [lead.id])
       } catch (e) { console.error('[AutoPlay] Lead error:', e.message) }
 
-      // 3s delay between contacts
+      // 45s delay between contacts (30 leads in ~22min, avoids WhatsApp ban)
       if (autoPlayState.running && i < leads.length - 1) {
-        await new Promise(r => setTimeout(r, 3000))
+        await new Promise(r => setTimeout(r, 45000))
       }
     }
 
