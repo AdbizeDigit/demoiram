@@ -68,6 +68,8 @@ export default function LinkedInPage() {
   const [liPass, setLiPass] = useState('')
   const [liError, setLiError] = useState('')
   const [showLogin, setShowLogin] = useState(false)
+  const [liNeedsCode, setLiNeedsCode] = useState(false)
+  const [liCode, setLiCode] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -644,39 +646,65 @@ export default function LinkedInPage() {
               <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
                 <p className="text-[11px] text-amber-700 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Tus credenciales se guardan encriptadas. La sesion se mantiene con cookies para no volver a loguear.</p>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Email de LinkedIn</label>
-                <input type="email" value={liEmail} onChange={e => setLiEmail(e.target.value)} placeholder="tu@email.com"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">Password</label>
-                <input type="password" value={liPass} onChange={e => setLiPass(e.target.value)} placeholder="********"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-              </div>
+              {!liNeedsCode ? (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Email de LinkedIn</label>
+                    <input type="email" value={liEmail} onChange={e => setLiEmail(e.target.value)} placeholder="tu@email.com"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Password</label>
+                    <input type="password" value={liPass} onChange={e => setLiPass(e.target.value)} placeholder="********"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl mb-3">
+                    <p className="text-xs text-blue-700">LinkedIn envio un codigo de verificacion a tu email o telefono. Ingresalo abajo:</p>
+                  </div>
+                  <label className="text-xs text-gray-500 mb-1 block">Codigo de verificacion</label>
+                  <input type="text" value={liCode} onChange={e => setLiCode(e.target.value)} placeholder="123456"
+                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-blue-500/30" maxLength={8} />
+                </div>
+              )}
               {liError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded-lg">{liError}</p>}
             </div>
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
-              <button onClick={() => setShowLogin(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl">Cancelar</button>
+              <button onClick={() => { setShowLogin(false); setLiNeedsCode(false); setLiCode('') }} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl">Cancelar</button>
               <button
                 onClick={async () => {
-                  if (!selected?.id || !liEmail || !liPass) return
+                  if (!selected?.id) return
                   setLiConnecting(true); setLiError('')
                   try {
-                    const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/connect`, { email: liEmail, password: liPass })
-                    if (data.success) {
-                      setLiConnected(true); setShowLogin(false); setLiEmail(''); setLiPass('')
+                    if (liNeedsCode) {
+                      const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/verify`, { code: liCode })
+                      if (data.success) {
+                        setLiConnected(true); setShowLogin(false); setLiNeedsCode(false); setLiCode('')
+                      } else {
+                        setLiError(data.message || 'Codigo incorrecto')
+                      }
                     } else {
-                      setLiError(data.message || 'Error al conectar')
+                      const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/connect`, { email: liEmail, password: liPass })
+                      if (data.success) {
+                        setLiConnected(true); setShowLogin(false); setLiEmail(''); setLiPass('')
+                      } else if (data.needsVerification) {
+                        setLiNeedsCode(true)
+                        setLiError('')
+                      } else {
+                        setLiError(data.message || 'Error al conectar')
+                      }
                     }
                   } catch (err) {
                     setLiError(err.response?.data?.error || 'Error de conexion')
                   }
                   setLiConnecting(false)
                 }}
-                disabled={liConnecting || !liEmail || !liPass}
+                disabled={liConnecting || (!liNeedsCode && (!liEmail || !liPass)) || (liNeedsCode && !liCode)}
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
-                {liConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Linkedin className="w-4 h-4" />} Conectar
+                {liConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Linkedin className="w-4 h-4" />}
+                {liNeedsCode ? 'Verificar' : 'Conectar'}
               </button>
             </div>
           </div>

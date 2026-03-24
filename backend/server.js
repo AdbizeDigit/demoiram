@@ -732,6 +732,19 @@ app.get('/api/linkedin-profiles/:id/connection-status', async (req, res) => {
   }
 })
 
+app.post('/api/linkedin-profiles/:id/verify', async (req, res) => {
+  try {
+    const { code } = req.body
+    if (!code) return res.status(400).json({ success: false, error: 'Codigo requerido' })
+
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const result = await linkedinBrowser.submitVerification(req.params.id, code)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 app.post('/api/linkedin-profiles/:id/disconnect', async (req, res) => {
   try {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')

@@ -361,6 +361,83 @@ class LinkedInBrowserService extends EventEmitter {
   }
 
   // Get connection status
+  // Submit verification code
+  async submitVerification(profileId, code) {
+    const session = this.sessions.get(profileId)
+    if (!session?.page) return { success: false, message: 'No hay sesion activa' }
+
+    try {
+      const { page } = session
+      await sleep(1000, 2000)
+
+      // Try different verification input selectors
+      const selectors = [
+        'input[name="pin"]',
+        'input#input__email_verification_pin',
+        'input#input__phone_verification_pin',
+        'input[type="text"]',
+        'input[id*="verification"]',
+        'input[id*="pin"]',
+        'input[name="verificationCode"]',
+      ]
+
+      let typed = false
+      for (const sel of selectors) {
+        const input = await page.$(sel)
+        if (input) {
+          await input.click()
+          await sleep(300, 600)
+          await input.type(code, { delay: 80 + Math.random() * 50 })
+          typed = true
+          break
+        }
+      }
+
+      if (!typed) {
+        // Fallback: type in whatever focused input
+        await page.keyboard.type(code, { delay: 80 + Math.random() * 50 })
+      }
+
+      await sleep(1000, 2000)
+
+      // Click submit button
+      const submitSelectors = [
+        'button[type="submit"]',
+        'button#two-step-submit-button',
+        'button[data-litms-control-urn*="submit"]',
+        'form button',
+      ]
+      for (const sel of submitSelectors) {
+        const btn = await page.$(sel)
+        if (btn) { await btn.click(); break }
+      }
+
+      await sleep(5000, 10000)
+
+      // Check if we're now on the feed
+      const url = page.url()
+      const isLogged = url.includes('/feed') || await page.evaluate(() => !!document.querySelector('.global-nav')).catch(() => false)
+
+      if (isLogged) {
+        // Save cookies
+        const cookies = await page.cookies()
+        const { pool } = await import('../../config/database.js')
+        await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(cookies)), profileId])
+
+        session.loggedIn = true
+        session.needsVerification = false
+        this.emit('status', { profileId, status: 'connected' })
+        console.log(`[LinkedIn] Verification successful for ${profileId}`)
+        return { success: true, message: 'Verificacion exitosa. Conectado a LinkedIn.' }
+      }
+
+      return { success: false, message: 'Codigo incorrecto o expiro. Intenta de nuevo.' }
+    } catch (err) {
+      console.error('[LinkedIn] Verification error:', err.message)
+      return { success: false, message: err.message }
+    }
+  }
+
   getStatus(profileId) {
     const session = this.sessions.get(profileId)
     return {
