@@ -10,35 +10,48 @@ import fs from 'fs'
 puppeteer.use(StealthPlugin())
 puppeteer.use(AdblockerPlugin({ blockTrackers: true }))
 
-// Ensure Chrome is downloaded
+// Ensure Chrome is downloaded (persistent across deploys)
 let chromePath = null
+const CHROME_DIR = '/app/chrome-data'
+
 async function ensureChrome() {
   if (chromePath && fs.existsSync(chromePath)) return chromePath
 
-  // Check common locations
-  const paths = [
-    '/app/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
-    '/app/backend/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
-    '/tmp/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
-  ]
-  for (const p of paths) {
-    if (fs.existsSync(p)) { chromePath = p; return p }
+  // Check persistent storage first
+  try {
+    const result = execSync(`find ${CHROME_DIR} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8', timeout: 5000 }).trim()
+    if (result && fs.existsSync(result)) {
+      chromePath = result
+      console.log('[LinkedIn] Chrome found in persistent storage:', result)
+      return result
+    }
+  } catch {}
+
+  // Check other locations
+  const searchDirs = ['/app/.cache/puppeteer', '/tmp/puppeteer']
+  for (const dir of searchDirs) {
+    try {
+      const result = execSync(`find ${dir} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8', timeout: 5000 }).trim()
+      if (result && fs.existsSync(result)) { chromePath = result; return result }
+    } catch {}
   }
 
-  // Download Chrome to /tmp (writable in runtime)
-  console.log('[LinkedIn] Downloading Chrome...')
+  // Download to persistent storage
+  console.log('[LinkedIn] Downloading Chrome to persistent storage...')
   try {
-    const cacheDir = '/tmp/puppeteer'
-    process.env.PUPPETEER_CACHE_DIR = cacheDir
+    fs.mkdirSync(CHROME_DIR, { recursive: true })
     execSync('npx puppeteer browsers install chrome', {
       cwd: '/app/backend',
-      env: { ...process.env, PUPPETEER_CACHE_DIR: cacheDir, PATH: process.env.PATH },
-      timeout: 120000,
+      env: { ...process.env, PUPPETEER_CACHE_DIR: CHROME_DIR, PATH: process.env.PATH },
+      timeout: 180000,
       stdio: 'pipe'
     })
-    // Find the downloaded chrome
-    const result = execSync(`find ${cacheDir} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8' }).trim()
-    if (result) { chromePath = result; return result }
+    const result = execSync(`find ${CHROME_DIR} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8' }).trim()
+    if (result) {
+      chromePath = result
+      console.log('[LinkedIn] Chrome downloaded to:', result)
+      return result
+    }
   } catch (e) {
     console.error('[LinkedIn] Chrome download error:', e.message)
   }
