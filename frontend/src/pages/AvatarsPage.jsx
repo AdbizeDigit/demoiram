@@ -94,6 +94,18 @@ export default function AvatarsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [specialtyInput, setSpecialtyInput] = useState('')
 
+  // LinkedIn state
+  const [liPostTopic, setLiPostTopic] = useState('')
+  const [liGeneratedPost, setLiGeneratedPost] = useState('')
+  const [liHashtags, setLiHashtags] = useState([])
+  const [liGenerating, setLiGenerating] = useState(false)
+  const [liCalendar, setLiCalendar] = useState([])
+  const [liCalLoading, setLiCalLoading] = useState(false)
+  const [liPosts, setLiPosts] = useState([])
+  const [liDmTarget, setLiDmTarget] = useState({ name: '', role: '', company: '' })
+  const [liDmMessage, setLiDmMessage] = useState('')
+  const [liDmGenerating, setLiDmGenerating] = useState(false)
+
   // Preview & Test state
   const [previewSector, setPreviewSector] = useState('tecnologia')
   const [previewCompany, setPreviewCompany] = useState('Empresa Demo SA')
@@ -681,6 +693,7 @@ export default function AvatarsPage() {
                 { key: 'identity', label: 'Identidad', icon: User },
                 { key: 'personality', label: 'Personalidad', icon: Palette },
                 { key: 'signature', label: 'Firma Email', icon: FileText },
+                { key: 'linkedin', label: 'LinkedIn', icon: Linkedin },
                 { key: 'preview', label: 'Preview & Test', icon: Eye },
               ].map(tab => (
                 <button
@@ -1109,6 +1122,160 @@ export default function AvatarsPage() {
               )}
 
               {/* Tab 4: Preview & Test */}
+              {activeTab === 'linkedin' && (
+                <div className="space-y-6">
+                  {/* LinkedIn Profile */}
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <Linkedin className="w-4 h-4 text-blue-600" /> Perfil de LinkedIn
+                    </h3>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">URL de LinkedIn</label>
+                        <input type="text" value={formData.linkedin_url || ''} onChange={e => setFormData(p => ({ ...p, linkedin_url: e.target.value }))}
+                          placeholder="https://linkedin.com/in/usuario" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">Username</label>
+                        <input type="text" value={formData.linkedin_username || ''} onChange={e => setFormData(p => ({ ...p, linkedin_username: e.target.value }))}
+                          placeholder="@usuario" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Generate Post */}
+                  <div className="bg-blue-50 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-blue-800 mb-2 flex items-center gap-2">
+                      <Zap className="w-4 h-4" /> Generar Post con IA
+                    </h3>
+                    <input type="text" value={liPostTopic} onChange={e => setLiPostTopic(e.target.value)}
+                      placeholder="Tema del post... ej: Como la IA esta transformando las PyMEs"
+                      className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                    <button
+                      onClick={async () => {
+                        if (!editingAvatar?.id) return
+                        setLiGenerating(true)
+                        try {
+                          const { data } = await api.post(`/api/avatars/${editingAvatar.id}/linkedin/generate-post`, { topic: liPostTopic })
+                          if (data.post) { setLiGeneratedPost(data.post); setLiHashtags(data.hashtags || []) }
+                        } catch {}
+                        setLiGenerating(false)
+                      }}
+                      disabled={liGenerating || !liPostTopic.trim()}
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                    >
+                      {liGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                      Generar Post
+                    </button>
+                    {liGeneratedPost && (
+                      <div className="mt-3 space-y-2">
+                        <textarea value={liGeneratedPost} onChange={e => setLiGeneratedPost(e.target.value)} rows={8}
+                          className="w-full px-3 py-2 border border-blue-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                        {liHashtags.length > 0 && (
+                          <div className="flex gap-1.5">{liHashtags.map((h, i) => <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">#{h}</span>)}</div>
+                        )}
+                        <div className="flex gap-2">
+                          <button onClick={() => { navigator.clipboard.writeText(liGeneratedPost + '\n\n' + liHashtags.map(h => '#' + h).join(' ')) }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200">
+                            <Copy className="w-3 h-3" /> Copiar
+                          </button>
+                          <button onClick={async () => {
+                            if (!editingAvatar?.id) return
+                            await api.post(`/api/avatars/${editingAvatar.id}/linkedin/save-post`, { post: liGeneratedPost, hashtags: liHashtags, status: 'draft' })
+                            setNotification({ type: 'success', msg: 'Post guardado como borrador' })
+                          }}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs font-medium hover:bg-emerald-200">
+                            <Save className="w-3 h-3" /> Guardar Borrador
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Content Calendar */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-gray-400" /> Calendario de Contenido
+                      </h3>
+                      <button
+                        onClick={async () => {
+                          if (!editingAvatar?.id) return
+                          setLiCalLoading(true)
+                          try {
+                            const { data } = await api.post(`/api/avatars/${editingAvatar.id}/linkedin/content-calendar`)
+                            if (data.calendar) setLiCalendar(data.calendar)
+                          } catch {}
+                          setLiCalLoading(false)
+                        }}
+                        disabled={liCalLoading}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs font-medium hover:bg-purple-200 disabled:opacity-40"
+                      >
+                        {liCalLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        Generar Semana
+                      </button>
+                    </div>
+                    {liCalendar.length > 0 && (
+                      <div className="space-y-2">
+                        {liCalendar.map((d, i) => (
+                          <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                            <span className="text-xs font-bold text-purple-600 w-16">{d.day}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-800 truncate">{d.topic}</p>
+                              <p className="text-[10px] text-gray-400">{d.hook}</p>
+                            </div>
+                            <span className="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">{d.type}</span>
+                            <button onClick={() => { setLiPostTopic(d.topic); setActiveTab('linkedin') }}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-medium">Generar</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Generate DM */}
+                  <div className="bg-indigo-50 rounded-xl p-4">
+                    <h3 className="text-sm font-semibold text-indigo-800 mb-2 flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4" /> Generar Mensaje Directo
+                    </h3>
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <input type="text" value={liDmTarget.name} onChange={e => setLiDmTarget(p => ({ ...p, name: e.target.value }))}
+                        placeholder="Nombre" className="px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                      <input type="text" value={liDmTarget.role} onChange={e => setLiDmTarget(p => ({ ...p, role: e.target.value }))}
+                        placeholder="Cargo" className="px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                      <input type="text" value={liDmTarget.company} onChange={e => setLiDmTarget(p => ({ ...p, company: e.target.value }))}
+                        placeholder="Empresa" className="px-3 py-2 border border-indigo-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!editingAvatar?.id) return
+                        setLiDmGenerating(true)
+                        try {
+                          const { data } = await api.post(`/api/avatars/${editingAvatar.id}/linkedin/generate-message`, liDmTarget)
+                          if (data.message) setLiDmMessage(data.message)
+                        } catch {}
+                        setLiDmGenerating(false)
+                      }}
+                      disabled={liDmGenerating || !liDmTarget.name.trim()}
+                      className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 transition-colors"
+                    >
+                      {liDmGenerating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                      Generar Mensaje
+                    </button>
+                    {liDmMessage && (
+                      <div className="mt-3">
+                        <textarea value={liDmMessage} onChange={e => setLiDmMessage(e.target.value)} rows={4}
+                          className="w-full px-3 py-2 border border-indigo-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                        <button onClick={() => navigator.clipboard.writeText(liDmMessage)}
+                          className="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-200">
+                          <Copy className="w-3 h-3" /> Copiar Mensaje
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {activeTab === 'preview' && (
                 <div className="space-y-4">
                   {!editingAvatar ? (

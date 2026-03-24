@@ -260,4 +260,120 @@ Responde SOLO con JSON valido.`;
   }
 });
 
+// ── LinkedIn Integration ──────────────────────────────────────────────────
+
+// POST /avatars/:id/linkedin/generate-post - Generate LinkedIn post with AI
+router.post('/:id/linkedin/generate-post', protect, adminOnly, async (req, res) => {
+  try {
+    const { topic, style } = req.body
+    const avatar = await pool.query('SELECT * FROM avatars WHERE id = $1', [req.params.id])
+    if (!avatar.rows.length) return res.status(404).json({ success: false, error: 'Avatar not found' })
+    const av = avatar.rows[0]
+
+    const { analyzeWithDeepSeek } = await import('../services/deepseek.js')
+    const prompt = `Eres ${av.name}, ${av.role} en ${av.company}. Genera un post de LinkedIn en espanol.
+
+Tema: ${topic || 'inteligencia artificial aplicada a negocios'}
+Estilo: ${style || 'informativo y profesional'}
+
+El post debe:
+- Tener un hook fuerte en la primera linea que capture atencion
+- Desarrollar la idea en 3-5 parrafos cortos
+- Incluir un call to action al final
+- Usar saltos de linea para facilitar lectura
+- NO usar hashtags excesivos (max 3 al final)
+- Tono profesional pero cercano
+- Max 200 palabras
+
+Responde SOLO JSON: {"post":"texto del post","hashtags":["tag1","tag2","tag3"]}`
+
+    const response = await analyzeWithDeepSeek(prompt)
+    const parsed = JSON.parse(response.match(/\{[\s\S]*\}/)?.[0] || '{}')
+    res.json({ success: true, post: parsed.post, hashtags: parsed.hashtags })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// POST /avatars/:id/linkedin/generate-message - Generate LinkedIn DM
+router.post('/:id/linkedin/generate-message', protect, adminOnly, async (req, res) => {
+  try {
+    const { targetName, targetRole, targetCompany, purpose } = req.body
+    const avatar = await pool.query('SELECT * FROM avatars WHERE id = $1', [req.params.id])
+    if (!avatar.rows.length) return res.status(404).json({ success: false, error: 'Avatar not found' })
+    const av = avatar.rows[0]
+
+    const { analyzeWithDeepSeek } = await import('../services/deepseek.js')
+    const prompt = `Eres ${av.name}, ${av.role} en ${av.company}. Genera un mensaje directo de LinkedIn en espanol argentino.
+
+Destinatario: ${targetName || 'contacto'} - ${targetRole || ''} en ${targetCompany || ''}
+Proposito: ${purpose || 'networking y presentacion de servicios de IA'}
+
+El mensaje debe:
+- Ser corto y directo (max 80 palabras)
+- Personalizado para el destinatario
+- Profesional pero amigable
+- Mencionar algo especifico de su perfil o empresa
+- Terminar con una pregunta abierta
+- Sin simbolos raros ni emojis excesivos
+
+Responde SOLO JSON: {"message":"texto del mensaje"}`
+
+    const response = await analyzeWithDeepSeek(prompt)
+    const parsed = JSON.parse(response.match(/\{[\s\S]*\}/)?.[0] || '{}')
+    res.json({ success: true, message: parsed.message })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// POST /avatars/:id/linkedin/save-post - Save generated post to history
+router.post('/:id/linkedin/save-post', protect, adminOnly, async (req, res) => {
+  try {
+    const { post, hashtags, status } = req.body
+    const newPost = { post, hashtags, status: status || 'draft', createdAt: new Date().toISOString() }
+    await pool.query(
+      "UPDATE avatars SET linkedin_posts = COALESCE(linkedin_posts, '[]'::jsonb) || $1::jsonb WHERE id = $2",
+      [JSON.stringify(newPost), req.params.id]
+    )
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// GET /avatars/:id/linkedin/posts - Get post history
+router.get('/:id/linkedin/posts', protect, adminOnly, async (req, res) => {
+  try {
+    const r = await pool.query('SELECT linkedin_posts FROM avatars WHERE id = $1', [req.params.id])
+    res.json({ success: true, posts: r.rows[0]?.linkedin_posts || [] })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// POST /avatars/:id/linkedin/content-calendar - Generate week of content
+router.post('/:id/linkedin/content-calendar', protect, adminOnly, async (req, res) => {
+  try {
+    const avatar = await pool.query('SELECT * FROM avatars WHERE id = $1', [req.params.id])
+    if (!avatar.rows.length) return res.status(404).json({ success: false, error: 'Avatar not found' })
+    const av = avatar.rows[0]
+
+    const { analyzeWithDeepSeek } = await import('../services/deepseek.js')
+    const prompt = `Eres ${av.name}, ${av.role} en ${av.company} (${av.specialties?.join(', ') || 'IA, tecnologia'}).
+
+Genera un calendario de contenido para LinkedIn de 5 dias (Lun-Vie).
+Cada dia debe tener un tema diferente relacionado con IA aplicada a negocios.
+
+Responde SOLO JSON array:
+[{"day":"Lunes","topic":"tema","type":"post/articulo/encuesta/carrusel","hook":"primera linea del post"}]`
+
+    const response = await analyzeWithDeepSeek(prompt)
+    const parsed = JSON.parse(response.match(/\[[\s\S]*\]/)?.[0] || '[]')
+    res.json({ success: true, calendar: parsed })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 export default router;

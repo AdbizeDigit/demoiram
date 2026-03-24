@@ -36,6 +36,12 @@ class AvatarService {
       )
     `);
 
+    await pool.query('ALTER TABLE avatars ADD COLUMN IF NOT EXISTS linkedin_username VARCHAR(255)').catch(() => {})
+    await pool.query('ALTER TABLE avatars ADD COLUMN IF NOT EXISTS linkedin_token TEXT').catch(() => {})
+    await pool.query('ALTER TABLE avatars ADD COLUMN IF NOT EXISTS linkedin_posts JSONB DEFAULT \'[]\'').catch(() => {})
+    await pool.query('ALTER TABLE avatars ADD COLUMN IF NOT EXISTS linkedin_connections INTEGER DEFAULT 0').catch(() => {})
+    await pool.query('ALTER TABLE avatars ADD COLUMN IF NOT EXISTS linkedin_auto_post BOOLEAN DEFAULT false').catch(() => {})
+
     // Add avatar_id to outreach_messages if not exists
     await pool.query('ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS avatar_id UUID');
 
@@ -77,7 +83,8 @@ class AvatarService {
 
     const allowed = ['name','role','company','email','phone','photo_url','signature_html',
       'personality','tone','language','system_prompt','greeting_style','closing_style',
-      'emoji_usage','formality','specialties','bio','linkedin_url','calendar_url','is_default','is_active'];
+      'emoji_usage','formality','specialties','bio','linkedin_url','calendar_url','is_default','is_active',
+      'linkedin_username','linkedin_token','linkedin_posts','linkedin_connections','linkedin_auto_post'];
 
     for (const [key, val] of Object.entries(data)) {
       if (allowed.includes(key)) {
