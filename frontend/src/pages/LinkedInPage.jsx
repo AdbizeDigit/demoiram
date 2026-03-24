@@ -239,6 +239,8 @@ export default function LinkedInPage() {
                         {t.label}
                       </button>
                     ))}
+                    <button onClick={() => { setForm({ name: selected.name, avatar_id: selected.avatar_id || '', linkedin_url: selected.linkedin_url || '', username: selected.username || '', headline: selected.headline || '' }); setShowCreate('edit') }}
+                      className="p-2 text-gray-300 hover:text-blue-500 transition-colors"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => deleteProfile(selected.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -573,7 +575,7 @@ export default function LinkedInPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowCreate(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
-              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Linkedin className="w-5 h-5 text-blue-600" /> Nuevo Perfil LinkedIn</h3>
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Linkedin className="w-5 h-5 text-blue-600" /> {showCreate === 'edit' ? 'Editar Perfil' : 'Nuevo Perfil'}</h3>
               <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="p-5 space-y-3">
@@ -595,9 +597,15 @@ export default function LinkedInPage() {
             </div>
             <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
               <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl">Cancelar</button>
-              <button onClick={createProfile} disabled={saving || !form.name.trim()}
+              <button onClick={async () => {
+                  if (showCreate === 'edit' && selected?.id) {
+                    setSaving(true)
+                    try { await api.put(`/api/linkedin-profiles/${selected.id}`, form); load() } catch {}
+                    setSaving(false); setShowCreate(false)
+                  } else { createProfile() }
+                }} disabled={saving || !form.name.trim()}
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} Crear Perfil
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : showCreate === 'edit' ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {showCreate === 'edit' ? 'Guardar' : 'Crear Perfil'}
               </button>
             </div>
           </div>
