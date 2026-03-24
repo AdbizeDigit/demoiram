@@ -11,7 +11,8 @@
     "migrate": "node scripts/add-custom-chatbot-column.js",
     "init-agent": "node scripts/init-agent-tables.js",
     "migrate-opportunity": "node scripts/add-opportunity-detection-column.js",
-    "init-automation": "node scripts/init-automation-tables.js"
+    "init-automation": "node scripts/init-automation-tables.js",
+    "postinstall": "npx puppeteer browsers install chrome || true"
   },
   "dependencies": {
     "@getbrevo/brevo": "^5.0.1",
