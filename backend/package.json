@@ -12,7 +12,7 @@
     "init-agent": "node scripts/init-agent-tables.js",
     "migrate-opportunity": "node scripts/add-opportunity-detection-column.js",
     "init-automation": "node scripts/init-automation-tables.js",
-    "postinstall": "PUPPETEER_CACHE_DIR=/app/chrome-data npx puppeteer browsers install chrome || true"
+    "postinstall": "echo 'Chrome will be downloaded at runtime to persistent storage'"
   },
   "dependencies": {
     "@getbrevo/brevo": "^5.0.1",

@@ -693,6 +693,29 @@ app.post('/api/linkedin-profiles/:id/generate-image', async (req, res) => {
 })
 
 // ── LinkedIn Browser Automation ───────────────────────────────────────────────
+// Pre-download Chrome on startup (runs in background)
+setTimeout(async () => {
+  try {
+    const { execSync } = await import('child_process')
+    const { existsSync } = await import('fs')
+    const cacheDir = '/app/chrome-data'
+    // Check if chrome already exists
+    try {
+      const found = execSync(`find ${cacheDir} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8', timeout: 5000 }).trim()
+      if (found) { console.log('[LinkedIn] Chrome already in persistent storage:', found); return }
+    } catch {}
+    console.log('[LinkedIn] Pre-downloading Chrome to persistent storage...')
+    execSync(`npx puppeteer browsers install chrome`, {
+      cwd: '/app/backend',
+      env: { ...process.env, PUPPETEER_CACHE_DIR: cacheDir },
+      timeout: 180000,
+      stdio: 'inherit'
+    })
+    console.log('[LinkedIn] Chrome downloaded successfully')
+  } catch (e) {
+    console.log('[LinkedIn] Chrome pre-download skipped:', e.message?.slice(0, 100))
+  }
+}, 10000) // Start 10s after boot
 
 // Add cookies + encrypted credentials columns
 import('./config/database.js').then(({ pool }) => {
