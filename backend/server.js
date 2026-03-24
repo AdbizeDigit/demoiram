@@ -327,7 +327,15 @@ app.post('/api/autoplay/start', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
     const { rows: leads } = await pool.query(
-      "SELECT id, name, email, phone, social_whatsapp, sector FROM leads WHERE UPPER(status) IN ('NEW', 'NUEVO') AND (email IS NOT NULL OR phone IS NOT NULL) AND sector NOT LIKE 'ai-agent:%' AND (source_url IS NULL OR source_url NOT LIKE 'referido:%') ORDER BY score DESC NULLS LAST, created_at DESC LIMIT 100"
+      `SELECT l.id, l.name, l.email, l.phone, l.social_whatsapp, l.sector
+       FROM leads l
+       WHERE UPPER(l.status) IN ('NEW', 'NUEVO')
+       AND (l.email IS NOT NULL OR l.phone IS NOT NULL)
+       AND l.sector NOT LIKE 'ai-agent:%'
+       AND (l.source_url IS NULL OR l.source_url NOT LIKE 'referido:%')
+       AND NOT EXISTS (SELECT 1 FROM outreach_messages m WHERE m.lead_id = l.id)
+       ORDER BY l.score DESC NULLS LAST, l.created_at DESC
+       LIMIT 100`
     )
     autoPlayState.total = leads.length
 

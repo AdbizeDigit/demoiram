@@ -60,6 +60,16 @@ router.post('/email/send', async (req, res) => {
   try {
     const { leadId, campaignId } = req.body;
 
+    // Anti-spam: don't send email if already sent without reply
+    if (leadId) {
+      const emailCheck = await pool.query(
+        "SELECT count(*) as sent FROM outreach_messages WHERE lead_id = $1 AND channel = 'EMAIL' AND status = 'SENT'", [leadId]
+      );
+      if (parseInt(emailCheck.rows[0].sent) > 0) {
+        return res.json({ success: true, message: 'Email ya enviado, esperando respuesta', skipped: true });
+      }
+    }
+
     // Create default campaign if none
     let cid = campaignId;
     if (!cid) {
@@ -461,6 +471,22 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
 
     const phone = lead.social_whatsapp || lead.phone;
     if (!phone) return res.status(400).json({ success: false, error: 'Lead no tiene telefono/WhatsApp' });
+
+    // Anti-spam: don't send if we already sent and got no reply
+    const spamCheck = await pool.query(
+      `SELECT
+        (SELECT count(*) FROM outreach_messages WHERE lead_id = $1 AND channel = 'WHATSAPP' AND status = 'SENT') as sent,
+        (SELECT count(*) FROM outreach_messages WHERE lead_id = $1 AND channel = 'WHATSAPP' AND status = 'REPLIED') as replied`,
+      [leadId]
+    );
+    const { sent, replied } = spamCheck.rows[0];
+    if (parseInt(sent) > 0 && parseInt(replied) === 0) {
+      return res.json({ success: true, message: 'Ya se envio mensaje, esperando respuesta', skipped: true });
+    }
+    // Don't send more than 2 messages without reply
+    if (parseInt(sent) - parseInt(replied) >= 2) {
+      return res.json({ success: true, message: 'Demasiados mensajes sin respuesta', skipped: true });
+    }
 
     // Check if there's existing conversation history
     const historyRes = await pool.query(
