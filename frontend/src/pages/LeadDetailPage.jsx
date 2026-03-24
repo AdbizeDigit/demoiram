@@ -104,6 +104,7 @@ export default function LeadDetailPage() {
   const [waSending, setWaSending] = useState(false)
   const [waAutoMode, setWaAutoMode] = useState(false)
   const [waAutoRunning, setWaAutoRunning] = useState(false)
+  const [waConnected, setWaConnected] = useState(true)
   const waEndRef = useRef(null)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
@@ -186,6 +187,14 @@ export default function LeadDetailPage() {
     loadMessages()
   }, [loadLead, loadReport, loadMessages])
 
+  // Check WhatsApp connection status
+  useEffect(() => {
+    const check = () => api.get('/api/outreach/whatsapp/status').then(({ data }) => setWaConnected(data.status === 'connected')).catch(() => setWaConnected(false))
+    check()
+    const iv = setInterval(check, 15000)
+    return () => clearInterval(iv)
+  }, [])
+
   // Poll for new messages every 5 seconds
   useEffect(() => {
     const interval = setInterval(() => { loadMessages() }, 5000)
@@ -207,11 +216,20 @@ export default function LeadDetailPage() {
     setWaSending(true)
     try {
       const clean = phone.replace(/[^\d+]/g, '')
-      await api.post('/api/outreach/whatsapp/send-direct', { phone: clean, message: waInput.trim(), leadId: target.id })
-      setWaInput('')
-      setTimeout(loadMessages, 500)
+      const { data } = await api.post('/api/outreach/whatsapp/send-direct', { phone: clean, message: waInput.trim(), leadId: target.id })
+      if (data?.success) {
+        setWaInput('')
+        setTimeout(loadMessages, 500)
+      } else {
+        setActionResult({ type: 'whatsapp', success: false, message: data?.error || 'Error enviando' })
+      }
     } catch (err) {
-      setActionResult({ type: 'whatsapp', success: false, message: err.response?.data?.error || 'Error enviando WhatsApp' })
+      const msg = err.response?.data?.error || ''
+      if (msg.includes('no esta conectado') || msg.includes('QR')) {
+        setActionResult({ type: 'whatsapp', success: false, message: 'WhatsApp desconectado. Anda a WhatsApp Outreach y escanea el QR para reconectar.' })
+      } else {
+        setActionResult({ type: 'whatsapp', success: false, message: msg || 'Error enviando WhatsApp' })
+      }
     }
     setWaSending(false)
   }
@@ -1043,7 +1061,10 @@ export default function LeadDetailPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white truncate">{activeChatLead?.company || activeChatLead?.name}</p>
-                    <p className="text-[10px] text-green-100">{activeChatLead?.social_whatsapp || activeChatLead?.whatsapp || activeChatLead?.phone || 'Sin telefono'}</p>
+                    <p className="text-[10px] text-green-100 flex items-center gap-1.5">
+                      {activeChatLead?.social_whatsapp || activeChatLead?.whatsapp || activeChatLead?.phone || 'Sin telefono'}
+                      {!waConnected && <span className="px-1.5 py-0.5 bg-red-500 text-white rounded text-[8px] font-bold">DESCONECTADO</span>}
+                    </p>
                   </div>
                   {activeChat === null && (
                     <button
@@ -1094,9 +1115,9 @@ export default function LeadDetailPage() {
                     value={waInput}
                     onChange={e => setWaInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleWaSend()}
-                    placeholder="Escribe un mensaje..."
+                    placeholder={waConnected ? "Escribe un mensaje..." : "WhatsApp desconectado - escanea QR en WhatsApp Outreach"}
                     className="flex-1 px-4 py-2.5 bg-white rounded-full text-sm border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    disabled={!(activeChatLead?.whatsapp || activeChatLead?.phone || activeChatLead?.social_whatsapp)}
+                    disabled={!waConnected || !(activeChatLead?.whatsapp || activeChatLead?.phone || activeChatLead?.social_whatsapp)}
                   />
                   <button
                     onClick={handleWaSend}
