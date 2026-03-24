@@ -426,6 +426,85 @@ app.get('/api/wa-auto/list', (req, res) => {
   res.json({ success: true, leads: [...waAutoLeads] })
 })
 
+// ── Auto-detect new contacts in replies (runs every 30s) ─────────────────────
+setInterval(async () => {
+  try {
+    const { pool } = await import('./config/database.js')
+    // Find REPLIED messages with phone numbers that haven't been processed
+    const { rows } = await pool.query(`
+      SELECT m.id, m.lead_id, m.body, l.name as lead_name, l.sector as lead_sector
+      FROM outreach_messages m
+      LEFT JOIN leads l ON l.id = m.lead_id
+      WHERE m.status = 'REPLIED' AND m.channel = 'WHATSAPP'
+      AND m.body ~ '\\d{7,15}'
+      AND NOT EXISTS (SELECT 1 FROM leads WHERE source_url = 'referido:' || m.lead_id::text AND m.lead_id IS NOT NULL)
+      AND m.lead_id IS NOT NULL
+      ORDER BY m.sent_at DESC LIMIT 10
+    `)
+
+    for (const msg of rows) {
+      // Extract phone numbers from message
+      const numbers = (msg.body || '').match(/\+?\d[\d\s\-().]{6,18}\d/g) || []
+      const shorts = (msg.body || '').match(/\b\d{7,15}\b/g) || []
+      const allNums = [...new Set([...numbers, ...shorts].map(n => n.replace(/\D/g, '')).filter(n => n.length >= 7 && n.length <= 15))]
+
+      for (const num of allNums) {
+        // Check if lead already exists for this number
+        const exists = await pool.query(
+          "SELECT id FROM leads WHERE replace(replace(phone,'+',''),' ','') LIKE $1 OR replace(replace(social_whatsapp,'+',''),' ','') LIKE $1 LIMIT 1",
+          [`%${num.slice(-8)}%`]
+        )
+        if (exists.rows.length) continue
+
+        // Also check it's not the same lead's phone
+        if (msg.lead_id) {
+          const parentLead = await pool.query("SELECT phone, social_whatsapp FROM leads WHERE id = $1", [msg.lead_id])
+          const parentPhone = (parentLead.rows[0]?.phone || '').replace(/\D/g, '')
+          const parentWa = (parentLead.rows[0]?.social_whatsapp || '').replace(/\D/g, '')
+          if (parentPhone.includes(num.slice(-8)) || parentWa.includes(num.slice(-8))) continue
+        }
+
+        // Create derived lead
+        const phoneFormatted = num.startsWith('54') ? `+${num}` : `+54${num}`
+        const nameHint = `Contacto de ${msg.lead_name || 'Lead'}`
+        const newLead = await pool.query(
+          `INSERT INTO leads (name, phone, social_whatsapp, sector, source_url, status, score)
+           VALUES ($1, $2, $2, $3, $4, 'new', 60) RETURNING id`,
+          [nameHint, phoneFormatted, msg.lead_sector || 'referido', `referido:${msg.lead_id}`]
+        )
+        const newLeadId = newLead.rows[0]?.id
+        if (!newLeadId) continue
+
+        // Auto-send WhatsApp with context
+        try {
+          const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
+          const { default: waOutreach } = await import('./services/outreach/whatsapp-outreach-service.js')
+          if (waConn.connectionStatus === 'connected') {
+            const message = await waOutreach.generateMessage({ name: nameHint, sector: msg.lead_sector, source_url: `referido:${msg.lead_id}` })
+            await waConn.sendMessage(phoneFormatted, message, newLeadId)
+            await pool.query(
+              "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
+              [newLeadId, message]
+            )
+          }
+        } catch {}
+
+        // Create notification
+        await pool.query(
+          `INSERT INTO notifications (type, title, body, lead_id, lead_name, phone, read, created_at)
+           VALUES ('new_contact', $1, $2, $3, $4, $5, false, NOW())`,
+          [`Nuevo contacto: ${nameHint}`, `${msg.lead_name} paso el numero ${phoneFormatted}. Se inicio conversacion.`, newLeadId, nameHint, phoneFormatted]
+        )
+
+        console.log(`[AutoDetect] New contact created: ${nameHint} (${phoneFormatted}) from ${msg.lead_name}`)
+        break // Only create one derived lead per message
+      }
+    }
+  } catch (err) {
+    // Silent fail
+  }
+}, 30000) // Every 30 seconds
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {
