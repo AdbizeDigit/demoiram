@@ -61,6 +61,14 @@ export default function LinkedInPage() {
   const [imgPrompt, setImgPrompt] = useState(null)
   const [imgLoading, setImgLoading] = useState(false)
 
+  // LinkedIn connection
+  const [liConnected, setLiConnected] = useState(false)
+  const [liConnecting, setLiConnecting] = useState(false)
+  const [liEmail, setLiEmail] = useState('')
+  const [liPass, setLiPass] = useState('')
+  const [liError, setLiError] = useState('')
+  const [showLogin, setShowLogin] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -102,10 +110,11 @@ export default function LinkedInPage() {
 
   const avatarForProfile = selected ? avatars.find(a => a.id === selected.avatar_id) : null
 
-  // Load automation status
+  // Load automation + connection status
   useEffect(() => {
     if (!selected?.id) return
     api.get(`/api/linkedin-profiles/${selected.id}/automation/status`).then(({ data }) => setAutoStatus(data)).catch(() => {})
+    api.get(`/api/linkedin-profiles/${selected.id}/connection-status`).then(({ data }) => setLiConnected(data.connected)).catch(() => setLiConnected(false))
   }, [selected?.id])
 
   async function genPostAI() {
@@ -239,6 +248,17 @@ export default function LinkedInPage() {
                         {t.label}
                       </button>
                     ))}
+                    {/* LinkedIn connection status */}
+                    {liConnected ? (
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Conectado
+                      </span>
+                    ) : (
+                      <button onClick={() => setShowLogin(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-full text-[10px] font-bold hover:bg-blue-700">
+                        <Linkedin className="w-3 h-3" /> Conectar LinkedIn
+                      </button>
+                    )}
                     <button onClick={() => { setForm({ name: selected.name, avatar_id: selected.avatar_id || '', linkedin_url: selected.linkedin_url || '', username: selected.username || '', headline: selected.headline || '' }); setShowCreate('edit') }}
                       className="p-2 text-gray-300 hover:text-blue-500 transition-colors"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => deleteProfile(selected.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -606,6 +626,57 @@ export default function LinkedInPage() {
                 }} disabled={saving || !form.name.trim()}
                 className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : showCreate === 'edit' ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {showCreate === 'edit' ? 'Guardar' : 'Crear Perfil'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LinkedIn Login Modal */}
+      {showLogin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowLogin(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2"><Linkedin className="w-5 h-5 text-blue-600" /> Conectar LinkedIn</h3>
+              <button onClick={() => setShowLogin(false)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                <p className="text-[11px] text-amber-700 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Tus credenciales se guardan encriptadas. La sesion se mantiene con cookies para no volver a loguear.</p>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Email de LinkedIn</label>
+                <input type="email" value={liEmail} onChange={e => setLiEmail(e.target.value)} placeholder="tu@email.com"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Password</label>
+                <input type="password" value={liPass} onChange={e => setLiPass(e.target.value)} placeholder="********"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+              </div>
+              {liError && <p className="text-xs text-red-600 bg-red-50 p-2 rounded-lg">{liError}</p>}
+            </div>
+            <div className="flex justify-end gap-2 p-5 border-t border-gray-100">
+              <button onClick={() => setShowLogin(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-xl">Cancelar</button>
+              <button
+                onClick={async () => {
+                  if (!selected?.id || !liEmail || !liPass) return
+                  setLiConnecting(true); setLiError('')
+                  try {
+                    const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/connect`, { email: liEmail, password: liPass })
+                    if (data.success) {
+                      setLiConnected(true); setShowLogin(false); setLiEmail(''); setLiPass('')
+                    } else {
+                      setLiError(data.message || 'Error al conectar')
+                    }
+                  } catch (err) {
+                    setLiError(err.response?.data?.error || 'Error de conexion')
+                  }
+                  setLiConnecting(false)
+                }}
+                disabled={liConnecting || !liEmail || !liPass}
+                className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-40">
+                {liConnecting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Linkedin className="w-4 h-4" />} Conectar
               </button>
             </div>
           </div>

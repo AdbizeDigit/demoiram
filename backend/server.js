@@ -692,6 +692,89 @@ app.post('/api/linkedin-profiles/:id/generate-image', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// ── LinkedIn Browser Automation ───────────────────────────────────────────────
+
+// Add cookies + encrypted credentials columns
+import('./config/database.js').then(({ pool }) => {
+  pool.query('ALTER TABLE linkedin_profiles ADD COLUMN IF NOT EXISTS cookies TEXT').catch(() => {})
+  pool.query('ALTER TABLE linkedin_profiles ADD COLUMN IF NOT EXISTS email_encrypted TEXT').catch(() => {})
+  pool.query('ALTER TABLE linkedin_profiles ADD COLUMN IF NOT EXISTS pass_encrypted TEXT').catch(() => {})
+})
+
+app.post('/api/linkedin-profiles/:id/connect', async (req, res) => {
+  try {
+    const { email, password } = req.body
+    if (!email || !password) return res.status(400).json({ success: false, error: 'Email y password requeridos' })
+
+    const { pool } = await import('./config/database.js')
+    const { encrypt } = await import('./services/linkedin/linkedin-browser-service.js')
+
+    // Save encrypted credentials
+    await pool.query('UPDATE linkedin_profiles SET email_encrypted = $1, pass_encrypted = $2 WHERE id = $3',
+      [encrypt(email), encrypt(password), req.params.id])
+
+    // Try login
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const result = await linkedinBrowser.login(req.params.id, email, password)
+
+    res.json({ success: result.success, message: result.message, needsVerification: result.needsVerification })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.get('/api/linkedin-profiles/:id/connection-status', async (req, res) => {
+  try {
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    res.json({ success: true, ...linkedinBrowser.getStatus(req.params.id) })
+  } catch (err) {
+    res.json({ success: true, connected: false })
+  }
+})
+
+app.post('/api/linkedin-profiles/:id/disconnect', async (req, res) => {
+  try {
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    await linkedinBrowser.disconnect(req.params.id)
+    res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.post('/api/linkedin-profiles/:id/post', async (req, res) => {
+  try {
+    const { text } = req.body
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const result = await linkedinBrowser.createPost(req.params.id, text)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.post('/api/linkedin-profiles/:id/send-connection', async (req, res) => {
+  try {
+    const { targetUrl, note } = req.body
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const result = await linkedinBrowser.sendConnection(req.params.id, targetUrl, note)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.post('/api/linkedin-profiles/:id/send-message', async (req, res) => {
+  try {
+    const { targetUrl, message } = req.body
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const result = await linkedinBrowser.sendMessage(req.params.id, targetUrl, message)
+    res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {
