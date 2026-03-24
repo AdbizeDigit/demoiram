@@ -605,6 +605,93 @@ app.post('/api/linkedin-profiles/:id/save-post', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// ── LinkedIn Automation ───────────────────────────────────────────────────────
+
+// Get automation status + limits for a profile
+app.get('/api/linkedin-profiles/:id/automation/status', async (req, res) => {
+  try {
+    const { linkedinAutomation } = await import('./services/linkedin/linkedin-automation-service.js')
+    res.json({ success: true, ...linkedinAutomation.getStatus(req.params.id) })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Queue actions for a profile
+app.post('/api/linkedin-profiles/:id/automation/queue', async (req, res) => {
+  try {
+    const { linkedinAutomation } = await import('./services/linkedin/linkedin-automation-service.js')
+    const { actions } = req.body // [{type:'connect',target:'name'}, {type:'message',target:'name',text:'msg'}]
+    const scheduled = linkedinAutomation.generateSchedule(req.params.id, actions || [])
+    for (const a of scheduled) {
+      if (a.scheduledAt) linkedinAutomation.queueAction(req.params.id, a)
+    }
+    res.json({ success: true, scheduled, queueSize: linkedinAutomation.getQueue(req.params.id).length })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Get action queue
+app.get('/api/linkedin-profiles/:id/automation/queue', async (req, res) => {
+  try {
+    const { linkedinAutomation } = await import('./services/linkedin/linkedin-automation-service.js')
+    res.json({ success: true, queue: linkedinAutomation.getQueue(req.params.id) })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Clear queue
+app.delete('/api/linkedin-profiles/:id/automation/queue', async (req, res) => {
+  try {
+    const { linkedinAutomation } = await import('./services/linkedin/linkedin-automation-service.js')
+    linkedinAutomation.clearQueue(req.params.id)
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Optimize profile with Gemini
+app.post('/api/linkedin-profiles/:id/optimize', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company
+      FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1`, [req.params.id])
+    if (!rows.length) return res.status(404).json({ success: false, error: 'Profile not found' })
+    const p = rows[0]
+
+    // Try Gemini first, fallback to DeepSeek
+    try {
+      const { geminiImageService } = await import('./services/linkedin/gemini-image-service.js')
+      const result = await geminiImageService.optimizeProfile({
+        name: p.name, headline: p.headline, role: p.avatar_role, company: p.avatar_company
+      })
+      return res.json({ success: true, optimization: result, provider: 'gemini' })
+    } catch {}
+
+    // Fallback to DeepSeek
+    const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+    const resp = await analyzeWithDeepSeek(`
+      Optimiza este perfil de LinkedIn. Nombre: ${p.name}, Headline: ${p.headline || ''}, Rol: ${p.avatar_role || ''}, Empresa: ${p.avatar_company || ''}.
+      Responde JSON: {"headline":"headline optimizado max 120 chars","about":"seccion acerca de max 200 palabras con keywords","keywords":["kw1","kw2","kw3","kw4","kw5"],"contentSuggestion":"sugerencia semanal"}
+    `)
+    const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
+    res.json({ success: true, optimization: parsed, provider: 'deepseek' })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Generate image prompt with Gemini
+app.post('/api/linkedin-profiles/:id/generate-image', async (req, res) => {
+  try {
+    const { postContent, style } = req.body
+    try {
+      const { geminiImageService } = await import('./services/linkedin/gemini-image-service.js')
+      const result = await geminiImageService.generateImagePrompt(postContent, style)
+      return res.json({ success: true, imagePrompt: result })
+    } catch {}
+    // Fallback
+    const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+    const resp = await analyzeWithDeepSeek(`Generate a detailed image prompt for this LinkedIn post: "${(postContent||'').slice(0,300)}". JSON: {"prompt":"image description","style":"${style||'professional'}","colors":["c1","c2"]}`)
+    const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
+    res.json({ success: true, imagePrompt: parsed })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {

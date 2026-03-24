@@ -3,7 +3,8 @@ import {
   Linkedin, Zap, Send, Copy, Check, Loader2, Calendar, FileText,
   MessageSquare, Users, RefreshCw, Star, TrendingUp, Clock, Eye,
   Plus, Trash2, Save, X, Hash, Edit3, Link, ToggleLeft, ToggleRight,
-  ChevronRight, User, Briefcase,
+  ChevronRight, User, Briefcase, Image, Settings, Shield, Play,
+  AlertCircle, Target,
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -53,6 +54,13 @@ export default function LinkedInPage() {
   const [dmMsg, setDmMsg] = useState('')
   const [dmGen, setDmGen] = useState(false)
 
+  // Automation
+  const [autoStatus, setAutoStatus] = useState(null)
+  const [optimizing, setOptimizing] = useState(false)
+  const [optimization, setOptimization] = useState(null)
+  const [imgPrompt, setImgPrompt] = useState(null)
+  const [imgLoading, setImgLoading] = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -93,6 +101,12 @@ export default function LinkedInPage() {
   }
 
   const avatarForProfile = selected ? avatars.find(a => a.id === selected.avatar_id) : null
+
+  // Load automation status
+  useEffect(() => {
+    if (!selected?.id) return
+    api.get(`/api/linkedin-profiles/${selected.id}/automation/status`).then(({ data }) => setAutoStatus(data)).catch(() => {})
+  }, [selected?.id])
 
   async function genPostAI() {
     const avId = selected?.avatar_id || avatars[0]?.id
@@ -233,10 +247,12 @@ export default function LinkedInPage() {
               {/* Tabs */}
               <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
                 {[
-                  { key: 'posts', label: 'Generar Posts', icon: Zap },
+                  { key: 'posts', label: 'Posts', icon: Zap },
                   { key: 'calendar', label: 'Calendario', icon: Calendar },
                   { key: 'dm', label: 'Mensajes', icon: MessageSquare },
-                  { key: 'saved', label: `Borradores (${(selected.posts || []).length})`, icon: FileText },
+                  { key: 'profile', label: 'Optimizar Perfil', icon: Target },
+                  { key: 'automation', label: 'Automatizacion', icon: Settings },
+                  { key: 'saved', label: `(${(selected.posts || []).length})`, icon: FileText },
                 ].map(t => (
                   <button key={t.key} onClick={() => setTab(t.key)}
                     className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-medium transition-all ${tab === t.key ? 'bg-white shadow-sm text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -359,6 +375,169 @@ export default function LinkedInPage() {
               )}
 
               {/* Tab: Saved */}
+              {/* Tab: Profile Optimization */}
+              {tab === 'profile' && (
+                <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-700">Optimizar Perfil con IA</h3>
+                    <button onClick={async () => {
+                      if (!selected?.id) return
+                      setOptimizing(true)
+                      try {
+                        const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/optimize`)
+                        if (data.optimization) setOptimization(data.optimization)
+                      } catch {}
+                      setOptimizing(false)
+                    }} disabled={optimizing}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-medium hover:bg-emerald-700 disabled:opacity-40">
+                      {optimizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />} Optimizar
+                    </button>
+                  </div>
+
+                  {optimization ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-blue-50 rounded-xl">
+                        <p className="text-xs font-bold text-blue-700 mb-1">Headline Optimizado</p>
+                        <p className="text-sm text-gray-800">{optimization.headline}</p>
+                        <button onClick={() => copy(optimization.headline, 'hl')} className="mt-1 text-[10px] text-blue-600 hover:text-blue-800">
+                          {copied === 'hl' ? 'Copiado!' : 'Copiar'}
+                        </button>
+                      </div>
+                      <div className="p-4 bg-emerald-50 rounded-xl">
+                        <p className="text-xs font-bold text-emerald-700 mb-1">Seccion "Acerca de"</p>
+                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{optimization.about}</p>
+                        <button onClick={() => copy(optimization.about, 'about')} className="mt-1 text-[10px] text-emerald-600 hover:text-emerald-800">
+                          {copied === 'about' ? 'Copiado!' : 'Copiar'}
+                        </button>
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-gray-600 mb-2">Keywords Recomendadas</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(optimization.keywords || []).map((k, i) => <span key={i} className="text-xs px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full">{k}</span>)}
+                        </div>
+                      </div>
+                      <div className="p-4 bg-amber-50 rounded-xl">
+                        <p className="text-xs font-bold text-amber-700 mb-1">Sugerencia de Contenido</p>
+                        <p className="text-sm text-gray-700">{optimization.contentSuggestion}</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <Target className="w-12 h-12 text-gray-200 mx-auto mb-2" />
+                      <p className="text-sm text-gray-400">La IA analizara tu perfil y generara sugerencias de optimizacion</p>
+                    </div>
+                  )}
+
+                  {/* Image Generator for Posts */}
+                  <div className="border-t border-gray-100 pt-4">
+                    <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <Image className="w-4 h-4 text-purple-500" /> Generar Imagen para Post
+                    </h3>
+                    {genPost ? (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-2">Basada en tu ultimo post generado:</p>
+                        <button onClick={async () => {
+                          setImgLoading(true)
+                          try {
+                            const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/generate-image`, { postContent: genPost, style: 'professional' })
+                            if (data.imagePrompt) setImgPrompt(data.imagePrompt)
+                          } catch {}
+                          setImgLoading(false)
+                        }} disabled={imgLoading}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-40">
+                          {imgLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Image className="w-4 h-4" />} Generar Prompt de Imagen
+                        </button>
+                        {imgPrompt && (
+                          <div className="mt-3 p-4 bg-purple-50 rounded-xl">
+                            <p className="text-xs font-bold text-purple-700 mb-1">Prompt para generar imagen</p>
+                            <p className="text-sm text-gray-700">{imgPrompt.prompt}</p>
+                            <div className="flex gap-1.5 mt-2">
+                              {(imgPrompt.colors || []).map((c, i) => <span key={i} className="text-[10px] px-2 py-0.5 bg-white rounded-full">{c}</span>)}
+                            </div>
+                            <button onClick={() => copy(imgPrompt.prompt, 'img')} className="mt-2 flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800">
+                              {copied === 'img' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />} {copied === 'img' ? 'Copiado!' : 'Copiar para usar en DALL-E, Midjourney, etc'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400">Genera un post primero para crear una imagen</p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Automation */}
+              {tab === 'automation' && (
+                <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-blue-500" /> Limites Anti-Ban de LinkedIn
+                    </h3>
+                    <button onClick={async () => {
+                      try {
+                        const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/automation/status`)
+                        setAutoStatus(data)
+                      } catch {}
+                    }} className="text-xs text-gray-500 hover:text-gray-700"><RefreshCw className="w-3 h-3 inline" /> Actualizar</button>
+                  </div>
+
+                  {autoStatus ? (
+                    <div className="space-y-4">
+                      {/* Daily limits */}
+                      <div className="grid grid-cols-3 gap-3">
+                        {[
+                          { label: 'Conexiones', used: autoStatus.dailyCounts?.connections || 0, max: autoStatus.limits?.connectionsPerDay || 25, color: 'blue' },
+                          { label: 'Mensajes', used: autoStatus.dailyCounts?.messages || 0, max: autoStatus.limits?.messagesPerDay || 30, color: 'indigo' },
+                          { label: 'Posts', used: autoStatus.dailyCounts?.posts || 0, max: autoStatus.limits?.postsPerDay || 2, color: 'emerald' },
+                          { label: 'Vistas', used: autoStatus.dailyCounts?.views || 0, max: autoStatus.limits?.profileViewsPerDay || 50, color: 'amber' },
+                          { label: 'Likes', used: autoStatus.dailyCounts?.likes || 0, max: autoStatus.limits?.likesPerDay || 50, color: 'pink' },
+                          { label: 'Comentarios', used: autoStatus.dailyCounts?.comments || 0, max: autoStatus.limits?.commentsPerDay || 15, color: 'purple' },
+                        ].map((l, i) => (
+                          <div key={i} className="p-3 bg-gray-50 rounded-xl">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[10px] font-medium text-gray-500">{l.label}</span>
+                              <span className="text-xs font-bold text-gray-700">{l.used}/{l.max}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-1.5">
+                              <div className={`h-1.5 rounded-full bg-${l.color}-500`} style={{ width: `${Math.min(100, (l.used / l.max) * 100)}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Safety rules */}
+                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                        <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> Reglas de Seguridad Activas</p>
+                        <ul className="text-[11px] text-amber-700 space-y-1">
+                          <li>Delay aleatorio de 3-12s entre cada accion</li>
+                          <li>Sesion maxima de 45 min, luego 15 min de descanso</li>
+                          <li>Max 25 conexiones/dia, 30 DMs/dia, 2 posts/dia</li>
+                          <li>Sin actividad entre 22:00 y 07:00</li>
+                          <li>Patron de uso que imita comportamiento humano</li>
+                        </ul>
+                      </div>
+
+                      {/* Queue info */}
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                        <span className="text-sm text-gray-600">{autoStatus.queueSize || 0} acciones en cola</span>
+                        {autoStatus.queueSize > 0 && (
+                          <button onClick={async () => {
+                            await api.delete(`/api/linkedin-profiles/${selected.id}/automation/queue`)
+                            setAutoStatus(s => s ? { ...s, queueSize: 0 } : s)
+                          }} className="text-xs text-red-500 hover:text-red-700">Limpiar cola</button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-10">
+                      <Settings className="w-12 h-12 text-gray-200 mx-auto mb-2" />
+                      <p className="text-sm text-gray-400">Cargando estado de automatizacion...</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {tab === 'saved' && (
                 <div className="bg-white rounded-2xl border border-gray-100 p-5">
                   {(selected.posts || []).length === 0 ? (
