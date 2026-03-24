@@ -3,10 +3,48 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth'
 import AdblockerPlugin from 'puppeteer-extra-plugin-adblocker'
 import { EventEmitter } from 'events'
 import crypto from 'crypto'
+import { execSync } from 'child_process'
+import fs from 'fs'
 
 // Anti-detection plugins
 puppeteer.use(StealthPlugin())
 puppeteer.use(AdblockerPlugin({ blockTrackers: true }))
+
+// Ensure Chrome is downloaded
+let chromePath = null
+async function ensureChrome() {
+  if (chromePath && fs.existsSync(chromePath)) return chromePath
+
+  // Check common locations
+  const paths = [
+    '/app/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
+    '/app/backend/.cache/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
+    '/tmp/puppeteer/chrome/linux-146.0.7680.153/chrome-linux64/chrome',
+  ]
+  for (const p of paths) {
+    if (fs.existsSync(p)) { chromePath = p; return p }
+  }
+
+  // Download Chrome to /tmp (writable in runtime)
+  console.log('[LinkedIn] Downloading Chrome...')
+  try {
+    const cacheDir = '/tmp/puppeteer'
+    process.env.PUPPETEER_CACHE_DIR = cacheDir
+    execSync('npx puppeteer browsers install chrome', {
+      cwd: '/app/backend',
+      env: { ...process.env, PUPPETEER_CACHE_DIR: cacheDir, PATH: process.env.PATH },
+      timeout: 120000,
+      stdio: 'pipe'
+    })
+    // Find the downloaded chrome
+    const result = execSync(`find ${cacheDir} -name "chrome" -type f 2>/dev/null | head -1`, { encoding: 'utf8' }).trim()
+    if (result) { chromePath = result; return result }
+  } catch (e) {
+    console.error('[LinkedIn] Chrome download error:', e.message)
+  }
+
+  return null
+}
 
 const ENCRYPT_KEY = process.env.ENCRYPT_KEY || 'adbize-linkedin-key-2026-secure'
 
@@ -80,15 +118,16 @@ class LinkedInBrowserService extends EventEmitter {
     const proxy = process.env.LINKEDIN_PROXY
     if (proxy) args.push(`--proxy-server=${proxy}`)
 
+    const execPath = await ensureChrome()
+
     const launchOptions = {
       headless: 'new',
       args,
       defaultViewport: { width: 1366, height: 768 },
     }
-    // Use system Chrome if available, otherwise puppeteer's bundled one
-    if (process.env.CHROMIUM_PATH) {
-      launchOptions.executablePath = process.env.CHROMIUM_PATH
-    }
+    if (execPath) launchOptions.executablePath = execPath
+    if (process.env.CHROMIUM_PATH) launchOptions.executablePath = process.env.CHROMIUM_PATH
+
     const browser = await puppeteer.launch(launchOptions)
 
     return browser
