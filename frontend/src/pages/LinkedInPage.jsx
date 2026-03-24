@@ -70,6 +70,19 @@ export default function LinkedInPage() {
   const [showLogin, setShowLogin] = useState(false)
   const [liNeedsCode, setLiNeedsCode] = useState(false)
   const [liCode, setLiCode] = useState('')
+  const [autoRunning, setAutoRunning] = useState(false)
+  const [autoConfig, setAutoConfig] = useState({
+    postTopics: ['Inteligencia artificial para empresas', 'Automatizacion de procesos con IA', 'Chatbots y atencion al cliente', 'Ventaja competitiva con tecnologia'],
+    postFrequency: 1,
+    targetRoles: ['CEO', 'Dueño', 'Gerente General', 'Director Comercial', 'Encargado de Compras', 'CTO', 'COO'],
+    targetIndustries: ['Tecnologia', 'Manufactura', 'Comercio', 'Servicios', 'Gastronomia', 'Inmobiliaria'],
+    connectionNote: 'Hola! Vi tu perfil y me parecio muy interesante. En Adbize trabajamos con IA aplicada a empresas. Me encantaria conectar.',
+    dailyConnections: 15,
+    dailyPosts: 1,
+  })
+  const [newTopic, setNewTopic] = useState('')
+  const [newRole, setNewRole] = useState('')
+  const [newIndustry, setNewIndustry] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -493,72 +506,143 @@ export default function LinkedInPage() {
 
               {/* Tab: Automation */}
               {tab === 'automation' && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                      <Shield className="w-4 h-4 text-blue-500" /> Limites Anti-Ban de LinkedIn
-                    </h3>
-                    <button onClick={async () => {
-                      try {
-                        const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/automation/status`)
-                        setAutoStatus(data)
-                      } catch {}
-                    }} className="text-xs text-gray-500 hover:text-gray-700"><RefreshCw className="w-3 h-3 inline" /> Actualizar</button>
+                <div className="space-y-4">
+                  {/* Play/Stop Control */}
+                  <div className={`rounded-2xl border-2 p-5 ${autoRunning ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-100'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                          {autoRunning ? <><span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" /> Automatizacion Activa</> : <><Settings className="w-5 h-5 text-gray-400" /> Automatizacion</>}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {autoRunning ? `Publicando y conectando automaticamente (${autoConfig.dailyConnections} conexiones, ${autoConfig.dailyPosts} posts/dia)` : 'Configura y dale Play para empezar'}
+                        </p>
+                      </div>
+                      <button onClick={async () => {
+                        if (autoRunning) {
+                          setAutoRunning(false)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/stop`) } catch {}
+                        } else {
+                          if (!liConnected) { setLiError('Conecta LinkedIn primero'); setShowLogin(true); return }
+                          setAutoRunning(true)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/start`, { config: autoConfig }) } catch {}
+                        }
+                      }} className={`flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-bold transition-all ${
+                        autoRunning ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                      }`}>
+                        {autoRunning ? <><X className="w-4 h-4" /> Detener</> : <><Play className="w-4 h-4" /> Iniciar</>}
+                      </button>
+                    </div>
                   </div>
 
-                  {autoStatus ? (
-                    <div className="space-y-4">
-                      {/* Daily limits */}
-                      <div className="grid grid-cols-3 gap-3">
-                        {[
-                          { label: 'Conexiones', used: autoStatus.dailyCounts?.connections || 0, max: autoStatus.limits?.connectionsPerDay || 25, color: 'blue' },
-                          { label: 'Mensajes', used: autoStatus.dailyCounts?.messages || 0, max: autoStatus.limits?.messagesPerDay || 30, color: 'indigo' },
-                          { label: 'Posts', used: autoStatus.dailyCounts?.posts || 0, max: autoStatus.limits?.postsPerDay || 2, color: 'emerald' },
-                          { label: 'Vistas', used: autoStatus.dailyCounts?.views || 0, max: autoStatus.limits?.profileViewsPerDay || 50, color: 'amber' },
-                          { label: 'Likes', used: autoStatus.dailyCounts?.likes || 0, max: autoStatus.limits?.likesPerDay || 50, color: 'pink' },
-                          { label: 'Comentarios', used: autoStatus.dailyCounts?.comments || 0, max: autoStatus.limits?.commentsPerDay || 15, color: 'purple' },
-                        ].map((l, i) => (
-                          <div key={i} className="p-3 bg-gray-50 rounded-xl">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] font-medium text-gray-500">{l.label}</span>
-                              <span className="text-xs font-bold text-gray-700">{l.used}/{l.max}</span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-1.5">
-                              <div className={`h-1.5 rounded-full bg-${l.color}-500`} style={{ width: `${Math.min(100, (l.used / l.max) * 100)}%` }} />
-                            </div>
-                          </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Content Config */}
+                    <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><FileText className="w-4 h-4 text-blue-500" /> Contenido a Publicar</h4>
+                      <p className="text-[10px] text-gray-400">La IA generara posts naturales sobre estos temas mencionando como Adbize puede ayudar</p>
+
+                      <div className="flex flex-wrap gap-1.5">
+                        {autoConfig.postTopics.map((t, i) => (
+                          <span key={i} className="flex items-center gap-1 text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full">
+                            {t}
+                            <button onClick={() => setAutoConfig(c => ({ ...c, postTopics: c.postTopics.filter((_, j) => j !== i) }))} className="text-blue-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                          </span>
                         ))}
                       </div>
-
-                      {/* Safety rules */}
-                      <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                        <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> Reglas de Seguridad Activas</p>
-                        <ul className="text-[11px] text-amber-700 space-y-1">
-                          <li>Delay aleatorio de 3-12s entre cada accion</li>
-                          <li>Sesion maxima de 45 min, luego 15 min de descanso</li>
-                          <li>Max 25 conexiones/dia, 30 DMs/dia, 2 posts/dia</li>
-                          <li>Sin actividad entre 22:00 y 07:00</li>
-                          <li>Patron de uso que imita comportamiento humano</li>
-                        </ul>
+                      <div className="flex gap-1.5">
+                        <input type="text" value={newTopic} onChange={e => setNewTopic(e.target.value)} placeholder="Agregar tema..."
+                          onKeyDown={e => { if (e.key === 'Enter' && newTopic.trim()) { setAutoConfig(c => ({ ...c, postTopics: [...c.postTopics, newTopic.trim()] })); setNewTopic('') }}}
+                          className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+                        <button onClick={() => { if (newTopic.trim()) { setAutoConfig(c => ({ ...c, postTopics: [...c.postTopics, newTopic.trim()] })); setNewTopic('') }}}
+                          className="px-2.5 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs hover:bg-blue-200"><Plus className="w-3 h-3" /></button>
                       </div>
 
-                      {/* Queue info */}
-                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                        <span className="text-sm text-gray-600">{autoStatus.queueSize || 0} acciones en cola</span>
-                        {autoStatus.queueSize > 0 && (
-                          <button onClick={async () => {
-                            await api.delete(`/api/linkedin-profiles/${selected.id}/automation/queue`)
-                            setAutoStatus(s => s ? { ...s, queueSize: 0 } : s)
-                          }} className="text-xs text-red-500 hover:text-red-700">Limpiar cola</button>
-                        )}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Posts por dia</label>
+                        <div className="flex items-center gap-2">
+                          {[1, 2].map(n => (
+                            <button key={n} onClick={() => setAutoConfig(c => ({ ...c, dailyPosts: n }))}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.dailyPosts === n ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}/dia</button>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-center py-10">
-                      <Settings className="w-12 h-12 text-gray-200 mx-auto mb-2" />
-                      <p className="text-sm text-gray-400">Cargando estado de automatizacion...</p>
+
+                    {/* Target Config */}
+                    <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Target className="w-4 h-4 text-purple-500" /> A quien conectar</h4>
+                      <p className="text-[10px] text-gray-400">Busca y conecta con decisores de estas industrias y cargos</p>
+
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Cargos objetivo</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetRoles.map((r, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full">
+                              {r}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetRoles: c.targetRoles.filter((_, j) => j !== i) }))} className="text-purple-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="Agregar cargo..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/30" />
+                          <button onClick={() => { if (newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
+                            className="px-2.5 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs hover:bg-purple-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Industrias</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetIndustries.map((ind, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
+                              {ind}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetIndustries: c.targetIndustries.filter((_, j) => j !== i) }))} className="text-indigo-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newIndustry} onChange={e => setNewIndustry(e.target.value)} placeholder="Agregar industria..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                          <button onClick={() => { if (newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
+                            className="px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs hover:bg-indigo-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Conexiones por dia</label>
+                        <div className="flex items-center gap-2">
+                          {[5, 10, 15, 20, 25].map(n => (
+                            <button key={n} onClick={() => setAutoConfig(c => ({ ...c, dailyConnections: n }))}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.dailyConnections === n ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  )}
+                  </div>
+
+                  {/* Connection Note */}
+                  <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-2">
+                    <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-emerald-500" /> Nota de conexion</h4>
+                    <p className="text-[10px] text-gray-400">Se personaliza con IA para cada persona. Este es el template base:</p>
+                    <textarea value={autoConfig.connectionNote} onChange={e => setAutoConfig(c => ({ ...c, connectionNote: e.target.value }))} rows={3}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" />
+                  </div>
+
+                  {/* Safety Limits */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                    <p className="text-xs font-bold text-amber-800 mb-2 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" /> Proteccion Anti-Ban</p>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-amber-700">
+                      <span>Delay 3-12s entre acciones</span>
+                      <span>Sesion max 45min + descanso 15min</span>
+                      <span>Max {autoConfig.dailyConnections} conexiones/dia</span>
+                      <span>Max {autoConfig.dailyPosts} posts/dia</span>
+                      <span>Solo horario laboral 9-19hs</span>
+                      <span>Comportamiento humano simulado</span>
+                    </div>
+                  </div>
                 </div>
               )}
 

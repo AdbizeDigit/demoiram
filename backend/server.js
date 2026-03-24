@@ -755,6 +755,69 @@ app.post('/api/linkedin-profiles/:id/disconnect', async (req, res) => {
   }
 })
 
+// LinkedIn automation start/stop
+const liAutoState = new Map() // profileId -> { running, config }
+
+app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
+  try {
+    const { config } = req.body
+    liAutoState.set(req.params.id, { running: true, config: config || {}, startedAt: new Date().toISOString() })
+
+    // Save config to DB
+    const { pool } = await import('./config/database.js')
+    await pool.query('UPDATE linkedin_profiles SET stats = jsonb_set(COALESCE(stats,\'{}\'::jsonb), \'{autoConfig}\', $1::jsonb) WHERE id = $2',
+      [JSON.stringify(config || {}), req.params.id])
+
+    // Background: generate and publish a post
+    ;(async () => {
+      try {
+        const state = liAutoState.get(req.params.id)
+        if (!state?.running) return
+
+        const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+        const browserStatus = linkedinBrowser.getStatus(req.params.id)
+        if (!browserStatus.connected) return
+
+        // Generate a post using AI
+        const topics = config?.postTopics || ['IA para empresas']
+        const topic = topics[Math.floor(Math.random() * topics.length)]
+
+        const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [req.params.id])
+        const p = profileRes.rows[0]
+        const avId = p?.avatar_id
+
+        if (avId) {
+          const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+          const postContent = await analyzeWithDeepSeek(`
+            Eres ${p.avatar_name || p.name} de ${p.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}.
+            El post debe mencionar sutilmente como la IA/tecnologia de Adbize puede beneficiar empresas.
+            No seas vendedor directo. Que suene como un lider de opinion compartiendo experiencia.
+            Max 150 palabras. Espanol argentino profesional. Sin hashtags en el cuerpo, solo al final.
+            Responde SOLO JSON: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
+          `)
+          const parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}')
+          if (parsed.post) {
+            const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
+            await linkedinBrowser.createPost(req.params.id, fullPost)
+            console.log(`[LinkedIn Auto] Post published for ${req.params.id}: ${topic}`)
+          }
+        }
+      } catch (e) {
+        console.error('[LinkedIn Auto] Error:', e.message)
+      }
+    })()
+
+    res.json({ success: true, message: 'Automatizacion iniciada' })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+app.post('/api/linkedin-profiles/:id/automation/stop', async (req, res) => {
+  liAutoState.delete(req.params.id)
+  res.json({ success: true })
+})
+
 app.post('/api/linkedin-profiles/:id/post', async (req, res) => {
   try {
     const { text } = req.body
