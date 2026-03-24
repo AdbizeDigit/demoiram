@@ -436,7 +436,7 @@ setInterval(async () => {
       FROM outreach_messages m
       LEFT JOIN leads l ON l.id = m.lead_id
       WHERE m.status = 'REPLIED' AND m.channel = 'WHATSAPP'
-      AND m.body ~ '\\d{7,15}'
+      AND m.body ~ '[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9].*[0-9]'
       AND NOT EXISTS (SELECT 1 FROM leads WHERE source_url = 'referido:' || m.lead_id::text AND m.lead_id IS NOT NULL)
       AND m.lead_id IS NOT NULL
       ORDER BY m.sent_at DESC LIMIT 10
