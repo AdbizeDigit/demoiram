@@ -80,12 +80,16 @@ class LinkedInBrowserService extends EventEmitter {
     const proxy = process.env.LINKEDIN_PROXY
     if (proxy) args.push(`--proxy-server=${proxy}`)
 
-    const browser = await puppeteer.launch({
+    const launchOptions = {
       headless: 'new',
       args,
-      executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser',
       defaultViewport: { width: 1366, height: 768 },
-    })
+    }
+    // Use system Chrome if available, otherwise puppeteer's bundled one
+    if (process.env.CHROMIUM_PATH) {
+      launchOptions.executablePath = process.env.CHROMIUM_PATH
+    }
+    const browser = await puppeteer.launch(launchOptions)
 
     return browser
   }
