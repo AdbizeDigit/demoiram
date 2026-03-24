@@ -528,6 +528,83 @@ setInterval(async () => {
   }
 }, 30000) // Every 30 seconds
 
+// ── LinkedIn Profiles ─────────────────────────────────────────────────────────
+import('./config/database.js').then(({ pool }) => {
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS linkedin_profiles (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(255) NOT NULL,
+      avatar_id UUID REFERENCES avatars(id) ON DELETE SET NULL,
+      linkedin_url TEXT,
+      username VARCHAR(255),
+      headline TEXT,
+      auto_post BOOLEAN DEFAULT false,
+      auto_connect BOOLEAN DEFAULT false,
+      auto_dm BOOLEAN DEFAULT false,
+      posts JSONB DEFAULT '[]',
+      dm_templates JSONB DEFAULT '[]',
+      stats JSONB DEFAULT '{"posts":0,"connections":0,"messages":0}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {})
+})
+
+app.get('/api/linkedin-profiles', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT lp.*, a.name as avatar_name, a.photo_url as avatar_photo, a.role as avatar_role, a.company as avatar_company
+      FROM linkedin_profiles lp
+      LEFT JOIN avatars a ON a.id = lp.avatar_id
+      ORDER BY lp.created_at DESC
+    `)
+    res.json({ success: true, profiles: rows })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.post('/api/linkedin-profiles', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { name, avatar_id, linkedin_url, username, headline } = req.body
+    const { rows } = await pool.query(
+      'INSERT INTO linkedin_profiles (name, avatar_id, linkedin_url, username, headline) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [name, avatar_id || null, linkedin_url, username, headline]
+    )
+    res.json({ success: true, profile: rows[0] })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.put('/api/linkedin-profiles/:id', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { name, avatar_id, linkedin_url, username, headline, auto_post, auto_connect, auto_dm } = req.body
+    await pool.query(
+      `UPDATE linkedin_profiles SET name=$1, avatar_id=$2, linkedin_url=$3, username=$4, headline=$5, auto_post=$6, auto_connect=$7, auto_dm=$8, updated_at=NOW() WHERE id=$9`,
+      [name, avatar_id || null, linkedin_url, username, headline, auto_post || false, auto_connect || false, auto_dm || false, req.params.id]
+    )
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.delete('/api/linkedin-profiles/:id', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('DELETE FROM linkedin_profiles WHERE id = $1', [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.post('/api/linkedin-profiles/:id/save-post', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { post, hashtags, status } = req.body
+    const entry = { post, hashtags, status: status || 'draft', createdAt: new Date().toISOString() }
+    await pool.query("UPDATE linkedin_profiles SET posts = COALESCE(posts,'[]'::jsonb) || $1::jsonb, stats = jsonb_set(COALESCE(stats,'{}'), '{posts}', (COALESCE((stats->>'posts')::int,0)+1)::text::jsonb) WHERE id = $2", [JSON.stringify(entry), req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {
