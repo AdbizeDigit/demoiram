@@ -191,9 +191,22 @@ class LinkedInBrowserService extends EventEmitter {
       // Fresh login
       await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 30000 })
       await sleep(3000, 6000)
+
+      // Check if LinkedIn redirected us to feed (already logged in)
+      const currentUrl = page.url()
+      if (currentUrl.includes('/feed') || currentUrl.includes('/mynetwork') || currentUrl.includes('/messaging')) {
+        console.log('[LinkedIn] Already logged in! Redirected to:', currentUrl)
+        const cookies = await page.cookies()
+        const { pool: p2 } = await import('../../config/database.js')
+        await p2.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(cookies)), profileId])
+        this.sessions.set(profileId, { browser, page, loggedIn: true })
+        this.emit('status', { profileId, status: 'connected' })
+        return { success: true, message: 'Ya estabas conectado a LinkedIn!' }
+      }
+
       await randomMouseMove(page)
 
-      // Debug: save screenshot to see what LinkedIn shows
+      // Debug: save info about what LinkedIn shows
       try {
         const ss = await page.screenshot({ encoding: 'base64' })
         const { pool: dbPool } = await import('../../config/database.js')
