@@ -528,6 +528,102 @@ setInterval(async () => {
   }
 }, 30000) // Every 30 seconds
 
+// ── Multi WhatsApp Accounts ───────────────────────────────────────────────────
+import('./config/database.js').then(({ pool }) => {
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_accounts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      name VARCHAR(255) NOT NULL,
+      phone VARCHAR(50),
+      status VARCHAR(20) DEFAULT 'disconnected',
+      daily_limit INTEGER DEFAULT 100,
+      messages_today INTEGER DEFAULT 0,
+      messages_total INTEGER DEFAULT 0,
+      last_reset DATE DEFAULT CURRENT_DATE,
+      session_data TEXT,
+      is_active BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {})
+})
+
+// Reset daily counters at midnight
+setInterval(async () => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query("UPDATE whatsapp_accounts SET messages_today = 0, last_reset = CURRENT_DATE WHERE last_reset < CURRENT_DATE")
+  } catch {}
+}, 60000) // check every minute
+
+app.get('/api/whatsapp-accounts', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query('SELECT id, name, phone, status, daily_limit, messages_today, messages_total, is_active, created_at FROM whatsapp_accounts ORDER BY created_at')
+    // Get connection status from WhatsApp service
+    try {
+      const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
+      const mainStatus = waConn.connectionStatus
+      const mainPhone = waConn.connectedPhone
+      // Add main account as first if not in DB
+      const hasMain = rows.some(r => r.name === 'Principal')
+      if (!hasMain) {
+        rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainPhone || 'Sin conectar', status: mainStatus, daily_limit: 30, messages_today: 0, messages_total: 0, is_active: true, isMain: true })
+      }
+    } catch {}
+    res.json({ success: true, accounts: rows })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.post('/api/whatsapp-accounts', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { name, daily_limit } = req.body
+    const { rows } = await pool.query(
+      'INSERT INTO whatsapp_accounts (name, daily_limit) VALUES ($1, $2) RETURNING *',
+      [name || 'WhatsApp ' + Date.now(), daily_limit || 100]
+    )
+    res.json({ success: true, account: rows[0] })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.put('/api/whatsapp-accounts/:id', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { name, daily_limit, is_active } = req.body
+    await pool.query('UPDATE whatsapp_accounts SET name=$1, daily_limit=$2, is_active=$3 WHERE id=$4',
+      [name, daily_limit || 100, is_active !== false, req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.delete('/api/whatsapp-accounts/:id', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('DELETE FROM whatsapp_accounts WHERE id = $1', [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Get best available account (lowest usage, under limit)
+app.get('/api/whatsapp-accounts/best', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(
+      "SELECT * FROM whatsapp_accounts WHERE is_active = true AND messages_today < daily_limit ORDER BY messages_today ASC LIMIT 1"
+    )
+    res.json({ success: true, account: rows[0] || null })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Increment message count
+app.post('/api/whatsapp-accounts/:id/increment', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('UPDATE whatsapp_accounts SET messages_today = messages_today + 1, messages_total = messages_total + 1 WHERE id = $1', [req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // ── LinkedIn Profiles ─────────────────────────────────────────────────────────
 import('./config/database.js').then(({ pool }) => {
   pool.query(`

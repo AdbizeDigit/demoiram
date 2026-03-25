@@ -6,7 +6,7 @@ import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
   Shield, Search, Settings, BarChart3, Mail, MessageCircle, Bot, Zap,
-  Bell, X, Check, ExternalLink, FileText, Linkedin,
+  Bell, X, Check, ExternalLink, FileText, Linkedin, Phone,
 } from 'lucide-react'
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/admin/leads', icon: Users, label: 'Leads' },
   { path: '/admin/email-outreach', icon: Mail, label: 'Email Outreach' },
   { path: '/admin/whatsapp-outreach', icon: MessageCircle, label: 'WhatsApp Outreach' },
+  { path: '/admin/whatsapp-accounts', icon: Phone, label: 'Cuentas WhatsApp' },
   { path: '/admin/avatars', icon: Bot, label: 'Avatares IA' },
   { path: '/admin/agents', icon: Zap, label: 'Agentes Autonomos' },
   { path: '/admin/linkedin', icon: Linkedin, label: 'LinkedIn' },
