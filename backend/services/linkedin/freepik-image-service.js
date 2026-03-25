@@ -34,10 +34,9 @@ class FreepikImageService {
         if (status === 'COMPLETED' && images.length > 0) {
           const img = images[0]
           console.log('[Freepik] Image ready!')
-          return {
-            url: img.url || (img.base64 ? `data:image/png;base64,${img.base64}` : null),
-            base64: img.base64 || null,
-          }
+          // img can be a URL string or an object
+          const url = typeof img === 'string' ? img : (img.url || (img.base64 ? `data:image/png;base64,${img.base64}` : null))
+          return { url, base64: typeof img === 'object' ? img.base64 : null }
         }
         if (status === 'FAILED') throw new Error('Generacion fallida')
         console.log(`[Freepik] Polling... status: ${status}`)
