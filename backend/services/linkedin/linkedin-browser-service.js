@@ -193,16 +193,43 @@ class LinkedInBrowserService extends EventEmitter {
       await sleep(3000, 6000)
       await randomMouseMove(page)
 
+      // Debug: save screenshot to see what LinkedIn shows
+      try {
+        const ss = await page.screenshot({ encoding: 'base64' })
+        const { pool: dbPool } = await import('../../config/database.js')
+        await dbPool.query('UPDATE linkedin_profiles SET stats = jsonb_set(COALESCE(stats,\'{}\'::jsonb), \'{lastScreenshot}\', $1::jsonb) WHERE id = $2', [JSON.stringify(ss.slice(0, 500)), profileId])
+        console.log('[LinkedIn] Login page URL:', page.url())
+        console.log('[LinkedIn] Login page title:', await page.title())
+        const html = await page.content()
+        console.log('[LinkedIn] Has #username:', html.includes('username'))
+        console.log('[LinkedIn] Has session_key:', html.includes('session_key'))
+        console.log('[LinkedIn] Input count:', (html.match(/<input/g) || []).length)
+        console.log('[LinkedIn] HTML snippet:', html.slice(0, 500))
+      } catch {}
+
+      // Wait for page to fully load and try to find inputs
+      await sleep(3000, 5000)
+
       // Find email input - try multiple selectors
-      const emailSelectors = ['#username', 'input[name="session_key"]', 'input[autocomplete="username"]', 'input[type="text"]']
+      const emailSelectors = ['#username', 'input[name="session_key"]', 'input[autocomplete="username"]', 'input[id*="username"]', 'input[id*="email"]', 'input[type="text"]', 'input[type="email"]']
       let emailInput = null
       for (const sel of emailSelectors) {
         emailInput = await page.$(sel)
-        if (emailInput) break
+        if (emailInput) { console.log('[LinkedIn] Found email input with:', sel); break }
       }
       if (!emailInput) {
+        // Try waiting for any input to appear
+        try {
+          await page.waitForSelector('input', { timeout: 10000 })
+          emailInput = await page.$('input')
+          console.log('[LinkedIn] Found generic input after wait')
+        } catch {}
+      }
+      if (!emailInput) {
+        const url = page.url()
+        const title = await page.title().catch(() => '')
         await browser.close()
-        return { success: false, message: 'No se encontro el campo de email. LinkedIn puede haber cambiado.' }
+        return { success: false, message: `No se encontro el campo de email. URL: ${url.slice(0, 80)}, Title: ${title.slice(0, 50)}` }
       }
       await emailInput.click()
       await sleep(300, 800)
