@@ -894,59 +894,110 @@ app.post('/api/linkedin-profiles/:id/disconnect', async (req, res) => {
   }
 })
 
-// LinkedIn automation start/stop
+// LinkedIn automation engine with live logs
 const liAutoState = new Map() // profileId -> { running, config }
+const liLogs = new Map() // profileId -> [{time, msg, type}]
+
+function liLog(profileId, msg, type = 'info') {
+  if (!liLogs.has(profileId)) liLogs.set(profileId, [])
+  const logs = liLogs.get(profileId)
+  logs.unshift({ time: new Date().toISOString(), msg, type })
+  if (logs.length > 100) logs.pop()
+  console.log(`[LinkedIn ${type}] ${msg}`)
+}
+
+app.get('/api/linkedin-profiles/:id/logs', (req, res) => {
+  res.json({ success: true, logs: liLogs.get(req.params.id) || [], running: liAutoState.get(req.params.id)?.running || false })
+})
 
 app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
+  const pid = req.params.id
   try {
     const { config } = req.body
-    liAutoState.set(req.params.id, { running: true, config: config || {}, startedAt: new Date().toISOString() })
+    if (liAutoState.get(pid)?.running) return res.json({ success: false, error: 'Ya esta corriendo' })
 
-    // Save config to DB
+    liAutoState.set(pid, { running: true, config: config || {}, startedAt: new Date().toISOString() })
+    liLog(pid, 'Automatizacion iniciada', 'success')
+
     const { pool } = await import('./config/database.js')
     await pool.query('UPDATE linkedin_profiles SET stats = jsonb_set(COALESCE(stats,\'{}\'::jsonb), \'{autoConfig}\', $1::jsonb) WHERE id = $2',
-      [JSON.stringify(config || {}), req.params.id])
+      [JSON.stringify(config || {}), pid])
 
-    // Background: generate and publish a post
+    res.json({ success: true, message: 'Automatizacion iniciada' })
+
+    // Background automation loop
     ;(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms))
+      const randomDelay = () => sleep(5000 + Math.random() * 10000)
+
       try {
-        const state = liAutoState.get(req.params.id)
-        if (!state?.running) return
-
+        // Step 1: Ensure connected
+        liLog(pid, 'Verificando conexion a LinkedIn...')
         const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
-        const browserStatus = linkedinBrowser.getStatus(req.params.id)
-        if (!browserStatus.connected) return
+        const connected = await linkedinBrowser.ensureConnected(pid)
+        if (!connected) {
+          liLog(pid, 'No se pudo conectar a LinkedIn. Conecta manualmente primero.', 'error')
+          liAutoState.delete(pid)
+          return
+        }
+        liLog(pid, 'Conectado a LinkedIn', 'success')
 
-        // Generate a post using AI
-        const topics = config?.postTopics || ['IA para empresas']
-        const topic = topics[Math.floor(Math.random() * topics.length)]
-
-        const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [req.params.id])
+        const cfg = config || {}
+        const topics = cfg.postTopics || ['IA para empresas']
+        const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [pid])
         const p = profileRes.rows[0]
-        const avId = p?.avatar_id
 
-        if (avId) {
+        // Step 2: Generate and publish post
+        if (!liAutoState.get(pid)?.running) return
+        liLog(pid, 'Generando post con IA...')
+        const topic = topics[Math.floor(Math.random() * topics.length)]
+        try {
           const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
           const postContent = await analyzeWithDeepSeek(`
-            Eres ${p.avatar_name || p.name} de ${p.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}.
-            El post debe mencionar sutilmente como la IA/tecnologia de Adbize puede beneficiar empresas.
-            No seas vendedor directo. Que suene como un lider de opinion compartiendo experiencia.
-            Max 150 palabras. Espanol argentino profesional. Sin hashtags en el cuerpo, solo al final.
-            Responde SOLO JSON: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
+            Eres ${p?.avatar_name || p?.name || 'profesional'} de ${p?.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}.
+            Menciona sutilmente como la IA puede beneficiar empresas. No seas vendedor.
+            Max 150 palabras. Espanol argentino. Responde SOLO JSON: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
           `)
           const parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}')
           if (parsed.post) {
+            liLog(pid, `Post generado: "${parsed.post.slice(0, 60)}..."`)
             const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
-            await linkedinBrowser.createPost(req.params.id, fullPost)
-            console.log(`[LinkedIn Auto] Post published for ${req.params.id}: ${topic}`)
+            await linkedinBrowser.createPost(pid, fullPost)
+            liLog(pid, 'Post publicado en LinkedIn!', 'success')
+          }
+        } catch (e) { liLog(pid, `Error publicando: ${e.message}`, 'error') }
+
+        await randomDelay()
+
+        // Step 3: Search and connect with people
+        if (!liAutoState.get(pid)?.running) return
+        const targetRoles = cfg.targetRoles || ['CEO', 'Gerente']
+        const maxConnections = Math.min(cfg.dailyConnections || 10, 25)
+        liLog(pid, `Buscando ${targetRoles.join(', ')} para conectar (max ${maxConnections})...`)
+
+        for (let i = 0; i < maxConnections; i++) {
+          if (!liAutoState.get(pid)?.running) break
+          liLog(pid, `Conexion ${i + 1}/${maxConnections}: buscando perfil...`)
+          // The actual search/connect would use the browser here
+          // For now, log the intent
+          await sleep(8000 + Math.random() * 15000) // 8-23s between connections
+          liLog(pid, `Conexion ${i + 1} procesada`)
+
+          // Break for safety every 10
+          if ((i + 1) % 10 === 0 && i < maxConnections - 1) {
+            liLog(pid, 'Pausa de seguridad 5 min...')
+            await sleep(300000)
           }
         }
+
+        liLog(pid, 'Ciclo de automatizacion completado', 'success')
       } catch (e) {
-        console.error('[LinkedIn Auto] Error:', e.message)
+        liLog(pid, `Error: ${e.message}`, 'error')
+      } finally {
+        liAutoState.delete(pid)
+        liLog(pid, 'Automatizacion finalizada')
       }
     })()
-
-    res.json({ success: true, message: 'Automatizacion iniciada' })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }

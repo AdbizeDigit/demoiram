@@ -14,7 +14,7 @@ class FreepikImageService {
     const response = await axios.post(`${BASE_URL}/ai/text-to-image`, {
       prompt,
       negative_prompt: 'blurry, bad quality, text, watermark, logo, ugly, deformed',
-      image: { size: { width, height } },
+      image: { size: `${width}x${height}` },
       styling: { style },
     }, {
       headers: {

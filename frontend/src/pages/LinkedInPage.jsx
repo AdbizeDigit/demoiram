@@ -85,6 +85,8 @@ export default function LinkedInPage() {
   const [newTopic, setNewTopic] = useState('')
   const [newRole, setNewRole] = useState('')
   const [newIndustry, setNewIndustry] = useState('')
+  const [liLogs, setLiLogs] = useState([])
+  const [logsPolling, setLogsPolling] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -126,6 +128,21 @@ export default function LinkedInPage() {
   }
 
   const avatarForProfile = selected ? avatars.find(a => a.id === selected.avatar_id) : null
+
+  // Poll logs when automation tab is active
+  useEffect(() => {
+    if (tab !== 'automation' || !selected?.id) return
+    const poll = async () => {
+      try {
+        const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/logs`)
+        setLiLogs(data.logs || [])
+        setAutoRunning(data.running || false)
+      } catch {}
+    }
+    poll()
+    const iv = setInterval(poll, 3000)
+    return () => clearInterval(iv)
+  }, [tab, selected?.id])
 
   // Load automation + connection status
   useEffect(() => {
@@ -678,6 +695,31 @@ export default function LinkedInPage() {
                       <span>Max {autoConfig.dailyPosts} posts/dia</span>
                       <span>Solo horario laboral 9-19hs</span>
                       <span>Comportamiento humano simulado</span>
+                    </div>
+                  </div>
+
+                  {/* Live Logs */}
+                  <div className="bg-gray-900 rounded-2xl p-4 mt-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${autoRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+                        Logs en Vivo
+                      </h4>
+                      <span className="text-[10px] text-gray-500">{liLogs.length} entradas</span>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto space-y-1 font-mono">
+                      {liLogs.length === 0 ? (
+                        <p className="text-xs text-gray-600">Inicia la automatizacion para ver logs...</p>
+                      ) : liLogs.map((log, i) => (
+                        <div key={i} className="flex items-start gap-2 text-[11px]">
+                          <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                          <span className={`${
+                            log.type === 'error' ? 'text-red-400' :
+                            log.type === 'success' ? 'text-green-400' :
+                            'text-gray-400'
+                          }`}>{log.msg}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </div>

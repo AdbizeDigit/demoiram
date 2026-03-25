@@ -523,6 +523,26 @@ class LinkedInBrowserService extends EventEmitter {
     }
   }
 
+  // Auto-reconnect from saved cookies
+  async ensureConnected(profileId) {
+    const session = this.sessions.get(profileId)
+    if (session?.loggedIn && session?.page) {
+      try { await session.page.evaluate(() => true); return true } catch {}
+      try { await session.browser?.close() } catch {}
+      this.sessions.delete(profileId)
+    }
+    try {
+      const { pool } = await import('../../config/database.js')
+      const res = await pool.query('SELECT cookies, email_encrypted, pass_encrypted FROM linkedin_profiles WHERE id = $1', [profileId])
+      const row = res.rows[0]
+      if (row?.email_encrypted) {
+        const result = await this.login(profileId, decrypt(row.email_encrypted), decrypt(row.pass_encrypted))
+        return result.success
+      }
+    } catch (e) { console.error('[LinkedIn] ensureConnected error:', e.message) }
+    return false
+  }
+
   getStatus(profileId) {
     const session = this.sessions.get(profileId)
     return {
