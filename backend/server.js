@@ -547,6 +547,11 @@ import('./config/database.js').then(({ pool }) => {
   `).catch(() => {})
 })
 
+// Track which account sent to which lead (no duplicates)
+import('./config/database.js').then(({ pool }) => {
+  pool.query('ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS wa_account_id UUID').catch(() => {})
+})
+
 // Reset daily counters at midnight
 setInterval(async () => {
   try {
@@ -604,14 +609,29 @@ app.delete('/api/whatsapp-accounts/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-// Get best available account (lowest usage, under limit)
+// Get best available account for a lead (no duplicates)
 app.get('/api/whatsapp-accounts/best', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    const { leadId } = req.query
+
+    // If lead was already contacted by an account, return that same account
+    if (leadId) {
+      const existing = await pool.query(
+        "SELECT DISTINCT wa_account_id FROM outreach_messages WHERE lead_id = $1 AND wa_account_id IS NOT NULL LIMIT 1",
+        [leadId]
+      )
+      if (existing.rows[0]?.wa_account_id) {
+        const acc = await pool.query("SELECT * FROM whatsapp_accounts WHERE id = $1 AND is_active = true AND messages_today < daily_limit", [existing.rows[0].wa_account_id])
+        if (acc.rows[0]) return res.json({ success: true, account: acc.rows[0], reason: 'same_account' })
+      }
+    }
+
+    // Get account with lowest usage that hasn't contacted this lead
     const { rows } = await pool.query(
       "SELECT * FROM whatsapp_accounts WHERE is_active = true AND messages_today < daily_limit ORDER BY messages_today ASC LIMIT 1"
     )
-    res.json({ success: true, account: rows[0] || null })
+    res.json({ success: true, account: rows[0] || null, reason: 'lowest_usage' })
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 

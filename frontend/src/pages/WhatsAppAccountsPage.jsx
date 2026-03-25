@@ -198,13 +198,21 @@ export default function WhatsAppAccountsPage() {
           )
         })}
 
-        {accounts.length === 0 && (
-          <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-            <Phone className="w-12 h-12 text-gray-200 mx-auto mb-3" />
-            <p className="text-gray-400">No hay cuentas de WhatsApp configuradas</p>
-            <button onClick={() => setShowAdd(true)} className="mt-3 text-sm text-green-600 hover:text-green-700 font-medium">Agregar primera cuenta</button>
+        {/* Always show add button */}
+        <button onClick={() => { setForm({ name: '', daily_limit: 100 }); setShowAdd(true) }}
+          className="w-full flex items-center justify-center gap-3 p-5 bg-green-50 border-2 border-dashed border-green-300 rounded-2xl text-green-700 hover:bg-green-100 hover:border-green-400 transition-all">
+          <Plus className="w-5 h-5" />
+          <span className="text-sm font-semibold">Agregar Nuevo Numero de WhatsApp</span>
+        </button>
+
+        {/* No duplicate rule */}
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Sin duplicados</p>
+            <p className="text-xs text-blue-700 mt-0.5">Cada lead recibe mensaje de UNA sola cuenta. El sistema registra que cuenta contacto a cada lead para no enviar desde otra cuenta al mismo numero.</p>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Add Modal */}
