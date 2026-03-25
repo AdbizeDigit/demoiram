@@ -129,9 +129,9 @@ export default function LinkedInPage() {
 
   const avatarForProfile = selected ? avatars.find(a => a.id === selected.avatar_id) : null
 
-  // Poll logs when automation tab is active
+  // Poll logs always when profile selected
   useEffect(() => {
-    if (tab !== 'automation' || !selected?.id) return
+    if (!selected?.id) return
     const poll = async () => {
       try {
         const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/logs`)
@@ -142,7 +142,7 @@ export default function LinkedInPage() {
     poll()
     const iv = setInterval(poll, 3000)
     return () => clearInterval(iv)
-  }, [tab, selected?.id])
+  }, [selected?.id])
 
   // Load automation + connection status
   useEffect(() => {
@@ -282,7 +282,7 @@ export default function LinkedInPage() {
                         {t.label}
                       </button>
                     ))}
-                    {/* LinkedIn connection status */}
+                    {/* LinkedIn connection */}
                     {liConnected ? (
                       <span className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-full text-[10px] font-bold">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" /> Conectado
@@ -290,9 +290,26 @@ export default function LinkedInPage() {
                     ) : (
                       <button onClick={() => setShowLogin(true)}
                         className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-full text-[10px] font-bold hover:bg-blue-700">
-                        <Linkedin className="w-3 h-3" /> Conectar LinkedIn
+                        <Linkedin className="w-3 h-3" /> Conectar
                       </button>
                     )}
+
+                    {/* PLAY / STOP - always visible */}
+                    <button onClick={async () => {
+                      if (autoRunning) {
+                        setAutoRunning(false)
+                        try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/stop`) } catch {}
+                      } else {
+                        if (!liConnected) { setShowLogin(true); return }
+                        setAutoRunning(true)
+                        try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/start`, { config: autoConfig }) } catch {}
+                      }
+                    }} className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      autoRunning ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    }`}>
+                      {autoRunning ? <><X className="w-3.5 h-3.5" /> Detener</> : <><Play className="w-3.5 h-3.5" /> Iniciar Automatizacion</>}
+                    </button>
+
                     <button onClick={() => { setForm({ name: selected.name, avatar_id: selected.avatar_id || '', linkedin_url: selected.linkedin_url || '', username: selected.username || '', headline: selected.headline || '' }); setShowCreate('edit') }}
                       className="p-2 text-gray-300 hover:text-blue-500 transition-colors"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => deleteProfile(selected.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
@@ -754,6 +771,37 @@ export default function LinkedInPage() {
           )}
         </div>
       </div>
+
+      {/* Live Logs Panel - always visible */}
+      {selected && liLogs.length > 0 && (
+        <div className="bg-gray-900 rounded-2xl p-5 mt-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${autoRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+              {autoRunning ? 'Automatizacion en curso' : 'Log de LinkedIn'}
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-gray-500">{liLogs.length} entradas</span>
+              {autoRunning && <span className="text-[10px] px-2 py-0.5 bg-green-900 text-green-400 rounded-full font-bold animate-pulse">EN VIVO</span>}
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto space-y-0.5 font-mono">
+            {liLogs.slice(0, 50).map((log, i) => (
+              <div key={i} className="flex items-start gap-2 text-[11px] py-0.5">
+                <span className="text-gray-600 flex-shrink-0 w-16">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                <span className={`${
+                  log.type === 'error' ? 'text-red-400' :
+                  log.type === 'success' ? 'text-green-400' :
+                  'text-gray-400'
+                }`}>
+                  {log.type === 'error' ? '✗ ' : log.type === 'success' ? '✓ ' : '→ '}
+                  {log.msg}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Create Modal */}
       {showCreate && (
