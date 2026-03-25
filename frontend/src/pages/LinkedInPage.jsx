@@ -60,6 +60,8 @@ export default function LinkedInPage() {
   const [optimization, setOptimization] = useState(null)
   const [imgPrompt, setImgPrompt] = useState(null)
   const [imgLoading, setImgLoading] = useState(false)
+  const [genImage, setGenImage] = useState(null)
+  const [genImageLoading, setGenImageLoading] = useState(false)
 
   // LinkedIn connection
   const [liConnected, setLiConnected] = useState(false)
@@ -333,7 +335,7 @@ export default function LinkedInPage() {
                         <textarea value={genPost} onChange={e => setGenPost(e.target.value)} rows={8} className="w-full text-sm text-gray-800 leading-relaxed resize-none focus:outline-none" />
                         {genHashtags.length > 0 && <div className="flex gap-1.5 mt-2 pt-2 border-t border-gray-100">{genHashtags.map((h,i) => <span key={i} className="text-xs text-blue-600">#{h}</span>)}</div>}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
                         <button onClick={() => copy(genPost + '\n\n' + genHashtags.map(h=>'#'+h).join(' '), 'post')}
                           className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 rounded-xl text-sm font-medium hover:bg-gray-200">
                           {copied === 'post' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />} {copied === 'post' ? 'Copiado!' : 'Copiar'}
@@ -341,7 +343,42 @@ export default function LinkedInPage() {
                         <button onClick={savePost} className="flex items-center gap-1.5 px-4 py-2 bg-emerald-100 text-emerald-700 rounded-xl text-sm font-medium hover:bg-emerald-200">
                           <Save className="w-3.5 h-3.5" /> Guardar Borrador
                         </button>
+                        <button onClick={async () => {
+                          if (!selected?.id || !genPost) return
+                          setGenImageLoading(true); setGenImage(null)
+                          try {
+                            const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/generate-freepik-image`, { postContent: genPost, style: 'digital-art' })
+                            if (data.image) setGenImage(data.image)
+                          } catch (err) {
+                            setGenImage({ error: err.response?.data?.error || 'Error generando imagen' })
+                          }
+                          setGenImageLoading(false)
+                        }} disabled={genImageLoading}
+                          className="flex items-center gap-1.5 px-4 py-2 bg-purple-100 text-purple-700 rounded-xl text-sm font-medium hover:bg-purple-200 disabled:opacity-40">
+                          {genImageLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Image className="w-3.5 h-3.5" />}
+                          {genImageLoading ? 'Generando...' : 'Generar Imagen'}
+                        </button>
                       </div>
+
+                      {/* Generated Image */}
+                      {genImage && !genImage.error && (
+                        <div className="mt-3 rounded-xl overflow-hidden border-2 border-purple-200">
+                          <img src={genImage.url || `data:image/png;base64,${genImage.base64}`} alt="Generated" className="w-full" />
+                          <div className="flex gap-2 p-3 bg-purple-50">
+                            <a href={genImage.url || `data:image/png;base64,${genImage.base64}`} download="linkedin-post-image.png" target="_blank" rel="noreferrer"
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700">
+                              <Save className="w-3 h-3" /> Descargar
+                            </a>
+                            <button onClick={() => { if (genImage.url) copy(genImage.url, 'imgurl') }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-50 border border-gray-200">
+                              <Copy className="w-3 h-3" /> Copiar URL
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {genImage?.error && (
+                        <p className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded-lg">{genImage.error}</p>
+                      )}
                     </div>
                   )}
                 </div>

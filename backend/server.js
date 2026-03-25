@@ -990,6 +990,19 @@ app.post('/api/linkedin-profiles/:id/send-message', async (req, res) => {
   }
 })
 
+// Generate image with Freepik AI
+app.post('/api/linkedin-profiles/:id/generate-freepik-image', async (req, res) => {
+  try {
+    const { postContent, style } = req.body
+    if (!postContent) return res.status(400).json({ success: false, error: 'postContent requerido' })
+    const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+    const result = await freepikImageService.generateForPost(postContent, style || 'digital-art')
+    res.json({ success: true, image: result })
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
 // ── PDF Designer AI ──────────────────────────────────────────────────────────
 app.post('/api/pdf-designer/generate', async (req, res) => {
   try {
