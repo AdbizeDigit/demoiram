@@ -310,6 +310,16 @@ export default function LinkedInPage() {
                       {autoRunning ? <><X className="w-3.5 h-3.5" /> Detener</> : <><Play className="w-3.5 h-3.5" /> Iniciar Automatizacion</>}
                     </button>
 
+                    <button onClick={async () => {
+                      if (!liConnected) { setShowLogin(true); return }
+                      try {
+                        await api.post(`/api/linkedin-profiles/${selected.id}/fix-images`)
+                        alert('Procesando posts sin imagen en background. Mira los logs.')
+                      } catch { alert('Error al iniciar fix de imagenes') }
+                    }} className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold bg-purple-600 text-white hover:bg-purple-700 transition-all" title="Re-publicar posts sin imagen con imagen generada">
+                      <Image className="w-3.5 h-3.5" /> Fix Imagenes
+                    </button>
+
                     <button onClick={() => { setForm({ name: selected.name, avatar_id: selected.avatar_id || '', linkedin_url: selected.linkedin_url || '', username: selected.username || '', headline: selected.headline || '' }); setShowCreate('edit') }}
                       className="p-2 text-gray-300 hover:text-blue-500 transition-colors"><Edit3 className="w-4 h-4" /></button>
                     <button onClick={() => deleteProfile(selected.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><Trash2 className="w-4 h-4" /></button>

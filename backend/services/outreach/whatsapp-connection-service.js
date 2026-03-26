@@ -212,10 +212,10 @@ class WhatsAppConnectionService extends EventEmitter {
                  VALUES ($1, 'WHATSAPP', 0, $2, $3, false, 'REPLIED', NOW())`,
                 [leadId, `De: ${pushName}`, text]
               );
-              // Move lead to EN_CONVERSACION when they reply
+              // Move lead to EN_CONVERSACION + boost score when they reply
               if (leadId) {
                 await pool.query(
-                  "UPDATE leads SET status = 'EN_CONVERSACION' WHERE id = $1 AND UPPER(status) IN ('NEW', 'NUEVO', 'CONTACTADO', 'CONTACTED', 'PENDING')",
+                  "UPDATE leads SET status = 'EN_CONVERSACION', score = LEAST(100, COALESCE(score, 50) + 15) WHERE id = $1 AND UPPER(status) IN ('NEW', 'NUEVO', 'CONTACTADO', 'CONTACTED', 'PENDING')",
                   [leadId]
                 );
 

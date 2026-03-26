@@ -1005,58 +1005,151 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
             for (let attempt = 0; attempt < 3 && connected < maxConnections; attempt++) {
               if (!liAutoState.get(pid)?.running) break
 
-              // Scroll to load more results
-              await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 800))
-              await sleep(2000 + Math.random() * 3000)
+              // Scroll down slowly to load results
+              for (let s = 0; s < 3; s++) {
+                await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 600))
+                await sleep(1000 + Math.random() * 1500)
+              }
+              await sleep(2000 + Math.random() * 2000)
 
-              // Find all Connect buttons
-              const connectButtons = await page.$$('button[aria-label*="Conectar"], button[aria-label*="Connect"]')
+              // Find Connect buttons and extract contact info (name, headline, company)
+              const connectButtons = await page.evaluate(() => {
+                const buttons = [...document.querySelectorAll('button')]
+                const connectBtns = buttons.filter(b => {
+                  const text = b.textContent?.trim().toLowerCase() || ''
+                  const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                  return (text === 'connect' || text === 'conectar' ||
+                          label.includes('connect') || label.includes('conectar') ||
+                          label.includes('invite') || label.includes('invitar'))
+                })
+                return connectBtns.map((b) => {
+                  const card = b.closest('li, [data-view-name], .entity-result__item, .reusable-search__result-container')
+                  const nameEl = card?.querySelector('span[dir="ltr"] > span[aria-hidden="true"], .entity-result__title-text a span, a[href*="/in/"] span')
+                  const headlineEl = card?.querySelector('.entity-result__primary-subtitle, .entity-result__summary, [class*="subtitle"]')
+                  const locationEl = card?.querySelector('.entity-result__secondary-subtitle, [class*="secondary"]')
+                  return {
+                    index: buttons.indexOf(b),
+                    name: nameEl?.textContent?.trim() || 'Persona',
+                    headline: headlineEl?.textContent?.trim() || '',
+                    location: locationEl?.textContent?.trim() || '',
+                  }
+                })
+              })
               liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`)
 
-              for (const btn of connectButtons) {
+              const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+
+              for (const { index, name, headline, location } of connectButtons) {
                 if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
 
                 try {
-                  // Get the person's name
-                  const name = await page.evaluate(el => {
-                    const card = el.closest('.entity-result__item, .reusable-search__result-container, li')
-                    const nameEl = card?.querySelector('.entity-result__title-text a span, .app-aware-link span[dir]')
-                    return nameEl?.textContent?.trim() || 'Persona'
-                  }, btn)
+                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}`)
 
-                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: conectando con ${name}...`)
-                  await btn.click()
-                  await sleep(1500 + Math.random() * 2000)
+                  // Generate personalized AI note based on contact info
+                  let aiNote = ''
+                  try {
+                    const senderName = p?.avatar_name || p?.name || 'profesional'
+                    const senderCompany = p?.avatar_company || 'Adbize'
+                    const aiResp = await analyzeWithDeepSeek(
+                      `Eres ${senderName} de ${senderCompany}, experto en implementar IA en empresas.
+Genera un mensaje de conexion de LinkedIn ULTRA PERSUASIVO y personalizado para esta persona:
 
-                  // Check if "Add a note" dialog appeared
-                  const addNoteBtn = await page.$('button[aria-label*="nota"], button[aria-label*="note"]')
-                  if (addNoteBtn) {
-                    await addNoteBtn.click()
-                    await sleep(1000 + Math.random() * 1500)
-                    // Type connection note
-                    const noteInput = await page.$('textarea#custom-message, textarea[name="message"]')
-                    if (noteInput) {
-                      const note = cfg.connectionNote || 'Hola! Me intereso tu perfil. Me encantaria conectar.'
-                      await noteInput.type(note, { delay: 30 + Math.random() * 50 })
-                      await sleep(500 + Math.random() * 1000)
+Nombre: ${name}
+Cargo/Info: ${headline}
+${location ? `Ubicacion: ${location}` : ''}
+
+REGLAS:
+- Maximo 280 caracteres (limite de LinkedIn)
+- Empieza con "Hola ${name.split(' ')[0]}!"
+- Menciona algo especifico de su cargo/industria
+- Da UN ejemplo concreto de como la IA puede ayudar en su rol (automatizar procesos, predecir ventas, chatbots para atencion, analisis de datos, etc)
+- Ofrece una DEMO GRATIS para que vea el potencial de la IA aplicada a su negocio
+- Termina invitando a agendar la demo o conversar
+- Tono cercano, argentino, profesional pero no formal
+- NO uses emojis
+- NO pongas comillas
+
+Responde SOLO con el mensaje, nada mas.`
+                    )
+                    aiNote = aiResp.trim().replace(/^["']|["']$/g, '').slice(0, 280)
+                    liLog(pid, `Nota IA: "${aiNote.slice(0, 80)}..."`)
+                  } catch (aiErr) {
+                    aiNote = `Hola ${name.split(' ')[0]}! Vi tu perfil y me parecio muy interesante. Estamos ayudando empresas a implementar IA para automatizar procesos y potenciar resultados. Te ofrezco una demo gratis para que veas el potencial. Conectamos?`
+                    liLog(pid, `Nota IA fallo, usando fallback`, 'error')
+                  }
+
+                  // Click the connect button by index
+                  await page.evaluate(idx => {
+                    const btns = document.querySelectorAll('button')
+                    btns[idx]?.click()
+                  }, index)
+                  await sleep(2000 + Math.random() * 2000)
+
+                  // Check for modal dialog - look for "Add a note" or "Send" button
+                  const modalAction = await page.evaluate(() => {
+                    const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite')
+                    if (!modal) return 'no-modal'
+
+                    const buttons = [...modal.querySelectorAll('button')]
+
+                    // Look for "Add a note" button
+                    const addNoteBtn = buttons.find(b => {
+                      const t = b.textContent?.trim().toLowerCase() || ''
+                      return t.includes('add a note') || t.includes('agregar nota') || t.includes('añadir nota')
+                    })
+                    if (addNoteBtn) {
+                      addNoteBtn.click()
+                      return 'adding-note'
                     }
-                    // Send
-                    const sendBtn = await page.$('button[aria-label*="Enviar"], button[aria-label*="Send"]')
-                    if (sendBtn) await sendBtn.click()
-                  } else {
-                    // Might have sent directly, or "Send without note" dialog
-                    const sendBtn = await page.$('button[aria-label*="Send without"], button[aria-label*="Enviar sin"]')
-                    if (sendBtn) await sendBtn.click()
+
+                    // Look for "Send without a note" or direct "Send"
+                    const sendBtn = buttons.find(b => {
+                      const t = b.textContent?.trim().toLowerCase() || ''
+                      return t.includes('send') || t.includes('enviar')
+                    })
+                    if (sendBtn) {
+                      // Don't click send yet - we want to add a note
+                      return 'send-available'
+                    }
+
+                    return 'unknown-modal'
+                  })
+
+                  if (modalAction === 'adding-note' || modalAction === 'send-available') {
+                    await sleep(1000 + Math.random() * 1500)
+                    // Type personalized AI note in textarea
+                    const noteInput = await page.$('textarea#custom-message, textarea[name="message"], [role="dialog"] textarea')
+                    if (noteInput) {
+                      await noteInput.type(aiNote, { delay: 25 + Math.random() * 40 })
+                      await sleep(800 + Math.random() * 1000)
+                    }
+                    // Click Send in modal
+                    await page.evaluate(() => {
+                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite')
+                      if (!modal) return
+                      const btns = [...modal.querySelectorAll('button')]
+                      const sendBtn = btns.find(b => {
+                        const t = b.textContent?.trim().toLowerCase() || ''
+                        return t === 'send' || t === 'enviar' || t.includes('send invitation') || t.includes('enviar invitacion')
+                      })
+                      if (sendBtn) sendBtn.click()
+                    })
+                  } else if (modalAction === 'no-modal') {
+                    liLog(pid, `No aparecio modal para ${name}`, 'error')
                   }
 
                   await sleep(1000 + Math.random() * 1500)
 
-                  // Dismiss any dialog
-                  const dismissBtn = await page.$('button[aria-label*="Dismiss"], button[aria-label*="Cerrar"]')
-                  if (dismissBtn) await dismissBtn.click()
+                  // Dismiss any remaining dialog
+                  await page.evaluate(() => {
+                    const modal = document.querySelector('[role="dialog"], .artdeco-modal')
+                    if (!modal) return
+                    const dismiss = modal.querySelector('button[aria-label*="Dismiss"], button[aria-label*="Cerrar"], button[data-test-modal-close-btn]')
+                    if (dismiss) dismiss.click()
+                  })
 
                   connected++
-                  liLog(pid, `Conexion enviada a ${name}`, 'success')
+                  liLog(pid, `Conexion enviada a ${name} con nota personalizada`, 'success')
                   await sleep(8000 + Math.random() * 15000) // 8-23s between connections
                 } catch (connErr) {
                   liLog(pid, `Error conectando: ${connErr.message?.slice(0, 60)}`, 'error')
@@ -1066,9 +1159,17 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
 
               // Next page
               if (connected < maxConnections) {
-                const nextBtn = await page.$('button[aria-label="Next"], button[aria-label="Siguiente"]')
-                if (nextBtn) {
-                  await nextBtn.click()
+                const nextClicked = await page.evaluate(() => {
+                  const btns = [...document.querySelectorAll('button')]
+                  const next = btns.find(b => {
+                    const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                    const text = b.textContent?.trim().toLowerCase() || ''
+                    return label.includes('next') || label.includes('siguiente') || text === 'next' || text === 'siguiente' || text === '→'
+                  })
+                  if (next && !next.disabled) { next.click(); return true }
+                  return false
+                })
+                if (nextClicked) {
                   await sleep(4000 + Math.random() * 5000)
                 } else break
               }
@@ -1104,6 +1205,121 @@ app.post('/api/linkedin-profiles/:id/post', async (req, res) => {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
     const result = await linkedinBrowser.createPost(req.params.id, text)
     res.json(result)
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message })
+  }
+})
+
+// Update posts without images - delete and re-post with generated image
+app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
+  const pid = req.params.id
+  try {
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+
+    liLog(pid, 'Buscando posts sin imagen para actualizar...', 'info')
+
+    // Get session auth
+    const auth = await linkedinBrowser._getSessionAuth(pid)
+    if (!auth) return res.json({ success: false, error: 'No conectado' })
+
+    const axios = (await import('axios')).default
+    const { csrfToken, cookieStr } = auth
+
+    // Get profile info
+    let memberUrn
+    try {
+      const meRes = await axios.get('https://www.linkedin.com/voyager/api/me', {
+        headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+        timeout: 10000,
+      })
+      memberUrn = meRes.data?.miniProfile?.entityUrn || meRes.data?.entityUrn
+      liLog(pid, `Perfil: ${memberUrn}`)
+    } catch (e) {
+      return res.json({ success: false, error: 'No se pudo obtener perfil: ' + e.message })
+    }
+
+    // Get recent posts
+    let posts = []
+    try {
+      const feedRes = await axios.get(
+        `https://www.linkedin.com/voyager/api/feed/dash/feedUpdates?moduleKey=member-shares:last-shared&count=20&q=memberShareFeed&memberUrn=${encodeURIComponent(memberUrn)}`,
+        {
+          headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+          timeout: 15000,
+        }
+      )
+      posts = feedRes.data?.elements || []
+      liLog(pid, `Encontrados ${posts.length} posts recientes`)
+    } catch (e) {
+      liLog(pid, `Error obteniendo posts: ${e.message}`, 'error')
+      return res.json({ success: false, error: 'No se pudo obtener posts: ' + e.message })
+    }
+
+    res.json({ success: true, message: 'Procesando posts sin imagen en background...' })
+
+    // Process in background
+    ;(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms))
+      let fixed = 0
+
+      for (const post of posts) {
+        try {
+          // Extract text and check for images
+          const commentary = post?.commentary?.text?.text || ''
+          const hasImage = !!(post?.content?.images?.length || post?.resharedUpdate)
+          const postUrn = post?.updateUrn || post?.urn
+
+          if (!commentary || hasImage || !postUrn) continue
+
+          liLog(pid, `Post sin imagen: "${commentary.slice(0, 60)}..."`)
+
+          // Delete the old post
+          try {
+            await axios.delete(
+              `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(postUrn)}`,
+              {
+                headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+                timeout: 10000,
+              }
+            )
+            liLog(pid, 'Post viejo eliminado')
+          } catch (delErr) {
+            liLog(pid, `No se pudo eliminar post: ${delErr.response?.status || delErr.message}`, 'error')
+            continue
+          }
+
+          await sleep(3000 + Math.random() * 3000)
+
+          // Generate image based on post content
+          let imageUrl = null
+          try {
+            liLog(pid, 'Generando imagen con Freepik...')
+            const imgResult = await freepikImageService.generateForPost(commentary)
+            imageUrl = imgResult?.url || null
+            if (imageUrl) liLog(pid, 'Imagen generada!', 'success')
+          } catch (imgErr) {
+            liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error')
+            // Re-post without image at least
+          }
+
+          // Re-post with image
+          const result = await linkedinBrowser.createPost(pid, commentary, imageUrl)
+          if (result.success) {
+            fixed++
+            liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success')
+          } else {
+            liLog(pid, `Error re-publicando: ${result.message}`, 'error')
+          }
+
+          await sleep(10000 + Math.random() * 10000) // Wait between posts
+        } catch (e) {
+          liLog(pid, `Error procesando post: ${e.message?.slice(0, 100)}`, 'error')
+        }
+      }
+
+      liLog(pid, `Terminado: ${fixed} posts actualizados con imagen`, 'success')
+    })()
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }

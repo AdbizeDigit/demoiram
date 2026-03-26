@@ -288,117 +288,141 @@ class LinkedInBrowserService extends EventEmitter {
     }
   }
 
+  // Helper: get cookies and CSRF from browser session
+  async _getSessionAuth(profileId) {
+    const session = this.sessions.get(profileId)
+    if (!session?.loggedIn) return null
+    const { page } = session
+    const cookies = await page.cookies()
+    const csrfToken = cookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
+    const cookieStr = cookies.map(c => `${c.name}=${c.value}`).join('; ')
+    return { page, csrfToken, cookieStr, cookies }
+  }
+
+  // Upload image to LinkedIn using Node.js (not page.evaluate - avoids size limits)
+  async _uploadImageToLinkedIn(imageUrl, csrfToken, cookieStr) {
+    const axios = (await import('axios')).default
+
+    // Step 1: Download image
+    let imgBuffer
+    if (imageUrl.startsWith('data:')) {
+      const b64part = imageUrl.split(',')[1]
+      imgBuffer = Buffer.from(b64part, 'base64')
+    } else {
+      const imgResponse = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 })
+      imgBuffer = Buffer.from(imgResponse.data)
+    }
+    console.log(`[LinkedIn] Image downloaded: ${Math.round(imgBuffer.length / 1024)}KB`)
+
+    // Step 2: Register upload with LinkedIn
+    const regRes = await axios.post(
+      'https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload',
+      { fileSize: imgBuffer.length, filename: 'post-image.png', mediaUploadType: 'IMAGE_SHARING' },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'csrf-token': csrfToken,
+          'x-restli-protocol-version': '2.0.0',
+          'Cookie': cookieStr,
+        },
+        timeout: 15000,
+      }
+    )
+    console.log('[LinkedIn] Register response:', JSON.stringify(regRes.data).slice(0, 300))
+
+    const uploadUrl = regRes.data?.data?.value?.singleUploadUrl
+    const urn = regRes.data?.data?.value?.urn
+    if (!uploadUrl) throw new Error('No uploadUrl: ' + JSON.stringify(regRes.data).slice(0, 300))
+
+    // Step 3: Upload the actual image bytes
+    const upRes = await axios.put(uploadUrl, imgBuffer, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cookie': cookieStr,
+      },
+      timeout: 30000,
+      maxBodyLength: 50 * 1024 * 1024,
+    })
+    console.log(`[LinkedIn] Image uploaded! Status: ${upRes.status}, URN: ${urn}`)
+    return urn
+  }
+
   // Create a post
   async createPost(profileId, text, imageUrl = null) {
-    const session = this.sessions.get(profileId)
-    if (!session?.loggedIn) return { success: false, message: 'No conectado' }
+    const auth = await this._getSessionAuth(profileId)
+    if (!auth) return { success: false, message: 'No conectado' }
 
     try {
-      const { page } = session
+      const { page, csrfToken, cookieStr } = auth
+      if (!csrfToken) return { success: false, message: 'No CSRF token found' }
 
-      // Use LinkedIn's internal API to create post (more reliable than UI)
-      const postCookies = await page.cookies()
-      const csrfToken = postCookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
-
-      if (csrfToken) {
-        // If we have an image URL, download it and upload to LinkedIn
-        let mediaUrn = null
-        if (imageUrl) {
-          console.log('[LinkedIn] Downloading and uploading image...')
-          try {
-            const axios = (await import('axios')).default
-
-            // Download image from Freepik
-            const imgResponse = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 })
-            const imgBase64 = Buffer.from(imgResponse.data).toString('base64')
-            const imgSize = imgResponse.data.length
-            console.log(`[LinkedIn] Image downloaded: ${Math.round(imgSize/1024)}KB`)
-
-            // Upload to LinkedIn via browser context
-            mediaUrn = await page.evaluate(async (base64Data, fileSize, csrf) => {
-              try {
-                // Step 1: Register upload
-                const regRes = await fetch('https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
-                  body: JSON.stringify({ fileSize, filename: 'post-image.png', mediaUploadType: 'IMAGE_SHARING' }),
-                })
-                const regData = await regRes.json()
-                const uploadUrl = regData?.data?.value?.singleUploadUrl
-                const urn = regData?.data?.value?.urn
-                if (!uploadUrl) return null
-
-                // Step 2: Convert base64 to blob and upload
-                const byteChars = atob(base64Data)
-                const byteArray = new Uint8Array(byteChars.length)
-                for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
-                const blob = new Blob([byteArray], { type: 'image/png' })
-
-                const upRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: blob })
-                if (upRes.ok) return urn
-                return null
-              } catch { return null }
-            }, imgBase64, imgSize, csrfToken)
-
-            if (mediaUrn) console.log('[LinkedIn] Image uploaded to LinkedIn:', mediaUrn)
-            else console.log('[LinkedIn] Image upload returned no URN')
-          } catch (e) { console.log('[LinkedIn] Image upload failed:', e.message?.slice(0, 100)) }
+      // Upload image if provided (via Node.js directly - no page.evaluate size limits)
+      let mediaUrn = null
+      if (imageUrl) {
+        console.log('[LinkedIn] Uploading image to LinkedIn...')
+        try {
+          mediaUrn = await this._uploadImageToLinkedIn(imageUrl, csrfToken, cookieStr)
+        } catch (e) {
+          console.log('[LinkedIn] Image upload FAILED:', e.message?.slice(0, 300))
+          console.log('[LinkedIn] Will post without image')
         }
+      }
 
-        console.log('[LinkedIn] Posting via API' + (mediaUrn ? ' with image...' : '...'))
-        const postBody = {
-          visibleToConnectionsOnly: false,
-          externalAudienceProviders: [],
-          commentaryV2: { text: text, attributes: [] },
-          origin: 'FEED',
-          allowedCommentersScope: 'ALL',
-          postState: 'PUBLISHED',
-        }
-        if (mediaUrn) {
-          postBody.mediaCategory = 'IMAGE'
-          postBody.media = [{ category: 'IMAGE', mediaUrn, tapTargets: [] }]
-        }
+      // Create post via Voyager API (from Node.js)
+      console.log('[LinkedIn] Posting via API' + (mediaUrn ? ' WITH IMAGE...' : ' (text only)...'))
+      const axios = (await import('axios')).default
+      const postBody = {
+        visibleToConnectionsOnly: false,
+        externalAudienceProviders: [],
+        commentaryV2: { text: text, attributes: [] },
+        origin: 'FEED',
+        allowedCommentersScope: 'ALL',
+        postState: 'PUBLISHED',
+      }
+      if (mediaUrn) {
+        postBody.mediaCategory = 'IMAGE'
+        postBody.media = [{ category: 'IMAGE', mediaUrn, tapTargets: [] }]
+      }
 
-        const postResult = await page.evaluate(async (body, csrf) => {
-          try {
-            const res = await fetch('https://www.linkedin.com/voyager/api/contentcreation/normShares', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
-              body: JSON.stringify(body),
-            })
-            return { ok: res.ok, status: res.status }
-          } catch (e) { return { ok: false, error: e.message } }
-        }, postBody, csrfToken)
-
-        if (postResult.ok) {
-          console.log('[LinkedIn] Post published via API!')
-        } else {
-          console.log('[LinkedIn] API post failed, status:', postResult.status, '- trying UI fallback...')
-          // UI fallback
-          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
-          await sleep(8000, 12000)
-
-          // Try to find and click share box
-          await page.evaluate(() => {
-            const trigger = document.querySelector('.share-box-feed-entry__trigger, [class*="share-box"]')
-            if (trigger) trigger.click()
-          })
-          await sleep(3000, 5000)
-
-          const editor = await page.$('.ql-editor, [role="textbox"], [contenteditable="true"]')
-          if (editor) {
-            await editor.click()
-            await sleep(500)
-            await page.keyboard.type(text, { delay: 15 })
-            await sleep(2000)
-            await page.evaluate(() => {
-              const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
-              if (btn) btn.click()
-            })
+      try {
+        const postRes = await axios.post(
+          'https://www.linkedin.com/voyager/api/contentcreation/normShares',
+          postBody,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'csrf-token': csrfToken,
+              'x-restli-protocol-version': '2.0.0',
+              'Cookie': cookieStr,
+            },
+            timeout: 15000,
           }
+        )
+        console.log('[LinkedIn] Post published via API! Status:', postRes.status)
+      } catch (apiErr) {
+        console.log('[LinkedIn] API post failed:', apiErr.response?.status, apiErr.message?.slice(0, 100))
+        console.log('[LinkedIn] Trying UI fallback...')
+        // UI fallback
+        await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+        await sleep(8000, 12000)
+
+        await page.evaluate(() => {
+          const trigger = document.querySelector('.share-box-feed-entry__trigger, [class*="share-box"]')
+          if (trigger) trigger.click()
+        })
+        await sleep(3000, 5000)
+
+        const editor = await page.$('.ql-editor, [role="textbox"], [contenteditable="true"]')
+        if (editor) {
+          await editor.click()
+          await sleep(500)
+          await page.keyboard.type(text, { delay: 15 })
+          await sleep(2000)
+          await page.evaluate(() => {
+            const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
+            if (btn) btn.click()
+          })
         }
-      } else {
-        return { success: false, message: 'No CSRF token found' }
       }
 
       await sleep(3000, 5000)
@@ -409,10 +433,52 @@ class LinkedInBrowserService extends EventEmitter {
       await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(updatedCookies)), profileId])
 
       console.log(`[LinkedIn] Post created for profile ${profileId}`)
-      return { success: true, message: 'Post publicado' }
+      return { success: true, message: mediaUrn ? 'Post con imagen publicado' : 'Post publicado (sin imagen)' }
     } catch (err) {
       console.error('[LinkedIn] Post error:', err.message)
       return { success: false, message: err.message }
+    }
+  }
+
+  // Get recent posts from profile (to find posts without images)
+  async getRecentPosts(profileId) {
+    const auth = await this._getSessionAuth(profileId)
+    if (!auth) return []
+
+    try {
+      const axios = (await import('axios')).default
+      const { csrfToken, cookieStr } = auth
+
+      // Get profile URN first
+      const meRes = await axios.get('https://www.linkedin.com/voyager/api/me', {
+        headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+        timeout: 10000,
+      })
+      const memberUrn = meRes.data?.miniProfile?.entityUrn || meRes.data?.entityUrn
+      console.log('[LinkedIn] Profile URN:', memberUrn)
+
+      // Get recent activity/posts
+      const feedRes = await axios.get(
+        `https://www.linkedin.com/voyager/api/feed/dash/feedUpdates?moduleKey=member-shares:last-shared&count=20&q=memberShareFeed&memberUrn=${encodeURIComponent(memberUrn)}`,
+        {
+          headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+          timeout: 15000,
+        }
+      )
+
+      const posts = (feedRes.data?.elements || []).map(el => {
+        const content = el?.content?.['com.linkedin.voyager.feed.render.UpdateV2Content']
+        const text = content?.commentary?.text?.text || el?.commentary?.text?.text || ''
+        const hasImage = !!(content?.images?.length || el?.content?.images?.length)
+        const urn = el?.updateUrn || el?.urn || ''
+        return { urn, text, hasImage }
+      })
+
+      console.log(`[LinkedIn] Found ${posts.length} recent posts, ${posts.filter(p => !p.hasImage).length} without images`)
+      return posts
+    } catch (e) {
+      console.log('[LinkedIn] Error fetching posts:', e.message?.slice(0, 200))
+      return []
     }
   }
 

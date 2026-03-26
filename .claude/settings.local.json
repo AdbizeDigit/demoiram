@@ -49,7 +49,21 @@
       "Bash(chmod 600 \"$HOME/.ssh/vps_key\")",
       "Read(//c/Users/frann/OneDrive/Escritorio/Adbize/demoiram/$HOME/.ssh/**)",
       "Bash(ssh-keygen:*)",
-      "Bash(sshpass:*)"
+      "Bash(sshpass:*)",
+      "Bash(git clone:*)",
+      "Bash(ls:*)",
+      "Bash(cd:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(find:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiaWF0IjoxNzczNzU4NjA1LCJleHAiOjE3NzYzNTA2MDV9.QODxJSH59J6iA1Aw_-sdS5C6fSmRiuru9TadBkgLGuw\" && curl -s https://adbize.com/api/detection/scan/status -H \"Authorization: Bearer $TOKEN\" 2>&1)",
+      "Bash(python3:*)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"web\\\\|mobile\\\\|app\\\\|IA\\\\|machine\\\\|learning\\\\|LLM\" /c/Users/frann/OneDrive/Escritorio/Adbize/demoiram/frontend/src --include=*.jsx --include=*.js)",
+      "Bash(npx vite:*)",
+      "Bash(node --input-type=module -e \":*)",
+      "Bash(npm uninstall:*)",
+      "Bash(find /c/Users/frann/OneDrive/Escritorio/Adbize/demoiram -type d \\\\\\(-name *outreach* -o -name *linkedin* \\\\\\))"
     ],
     "deny": [],
     "ask": []

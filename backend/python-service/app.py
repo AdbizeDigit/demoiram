@@ -587,7 +587,7 @@ def scraping_news_intel():
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5001))
+    port = int(os.environ.get('PYTHON_SERVICE_PORT', 5001))
     print(f'>> Python AI Service running on port {port}')
     print(f'>> Endpoints available at http://localhost:{port}/python-api')
     app.run(host='0.0.0.0', port=port, debug=True)

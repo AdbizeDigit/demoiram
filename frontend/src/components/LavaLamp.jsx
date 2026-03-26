@@ -356,6 +356,7 @@ function LavaLamp() {
       lavaLampsRef.current.forEach((lavaLamp, index) => {
         if (!lavaLamp) return;
         const canvas = canvasRefs.current[index];
+        if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, width, height);
         lavaLamp.renderMetaballs();
