@@ -927,7 +927,7 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       [{"day":"nombre del dia","post":"texto completo del post","hashtags":["tag1","tag2","tag3"],"style":"storytelling","hour":9}]
 
       El campo "hour" es la hora ideal para publicar (entre 8 y 18). SOLO JSON, nada mas.
-    `)
+    `, 4000)
 
     console.log('[Calendar] AI response length:', resp?.length, 'preview:', resp?.slice(0, 100))
 

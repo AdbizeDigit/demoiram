@@ -34,7 +34,7 @@ class DeepSeekService {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${apiKey}`
           },
-          timeout: 30000
+          timeout: 60000
         }
       )
 
@@ -74,10 +74,10 @@ class DeepSeekService {
 
 const deepseekService = new DeepSeekService()
 
-export async function analyzeWithDeepSeek(prompt) {
+export async function analyzeWithDeepSeek(prompt, maxTokens = 2000) {
   const result = await deepseekService.chat({
     messages: [{ role: 'user', content: prompt }],
-    maxTokens: 2000
+    maxTokens
   })
   return result.content
 }
