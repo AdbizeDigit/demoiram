@@ -960,9 +960,20 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
           try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error') }
           if (parsed.post) {
             liLog(pid, `Post generado: "${parsed.post.slice(0, 80)}..."`)
+
+            // Generate image with Freepik
+            let imageUrl = null
+            try {
+              liLog(pid, 'Generando imagen con Freepik Mystic...')
+              const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+              const imgResult = await freepikImageService.generateForPost(parsed.post)
+              imageUrl = imgResult?.url || null
+              if (imageUrl) liLog(pid, 'Imagen generada!', 'success')
+            } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error') }
+
             const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
-            const postResult = await linkedinBrowser.createPost(pid, fullPost)
-            liLog(pid, postResult.success ? 'Post publicado en LinkedIn!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error')
+            const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl)
+            liLog(pid, postResult.success ? (imageUrl ? 'Post con imagen publicado!' : 'Post publicado!') : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error')
           } else {
             liLog(pid, 'No se pudo generar post, continuando...', 'error')
           }

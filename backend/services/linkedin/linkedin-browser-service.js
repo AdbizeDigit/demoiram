@@ -301,28 +301,57 @@ class LinkedInBrowserService extends EventEmitter {
       const csrfToken = postCookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
 
       if (csrfToken) {
-        console.log('[LinkedIn] Posting via API...')
-        const postResult = await page.evaluate(async (postText, csrf) => {
+        // If we have an image URL, upload it first
+        let mediaUrn = null
+        if (imageUrl) {
+          console.log('[LinkedIn] Uploading image...')
+          try {
+            mediaUrn = await page.evaluate(async (imgUrl, csrf) => {
+              // Step 1: Register upload
+              const regRes = await fetch('https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
+                body: JSON.stringify({ fileSize: 500000, filename: 'post-image.jpg', mediaUploadType: 'IMAGE_SHARING' }),
+              })
+              const regData = await regRes.json()
+              const uploadUrl = regData?.data?.value?.singleUploadUrl
+              const urn = regData?.data?.value?.urn
+              if (!uploadUrl) return null
+
+              // Step 2: Download and upload image
+              const imgRes = await fetch(imgUrl)
+              const blob = await imgRes.blob()
+              await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob })
+              return urn
+            }, imageUrl, csrfToken)
+            if (mediaUrn) console.log('[LinkedIn] Image uploaded:', mediaUrn)
+          } catch (e) { console.log('[LinkedIn] Image upload failed:', e.message) }
+        }
+
+        console.log('[LinkedIn] Posting via API' + (mediaUrn ? ' with image...' : '...'))
+        const postBody = {
+          visibleToConnectionsOnly: false,
+          externalAudienceProviders: [],
+          commentaryV2: { text: text, attributes: [] },
+          origin: 'FEED',
+          allowedCommentersScope: 'ALL',
+          postState: 'PUBLISHED',
+        }
+        if (mediaUrn) {
+          postBody.mediaCategory = 'IMAGE'
+          postBody.media = [{ category: 'IMAGE', mediaUrn, tapTargets: [] }]
+        }
+
+        const postResult = await page.evaluate(async (body, csrf) => {
           try {
             const res = await fetch('https://www.linkedin.com/voyager/api/contentcreation/normShares', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'csrf-token': csrf,
-                'x-restli-protocol-version': '2.0.0',
-              },
-              body: JSON.stringify({
-                visibleToConnectionsOnly: false,
-                externalAudienceProviders: [],
-                commentaryV2: { text: postText, attributes: [] },
-                origin: 'FEED',
-                allowedCommentersScope: 'ALL',
-                postState: 'PUBLISHED',
-              }),
+              headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
+              body: JSON.stringify(body),
             })
             return { ok: res.ok, status: res.status }
           } catch (e) { return { ok: false, error: e.message } }
-        }, text, csrfToken)
+        }, postBody, csrfToken)
 
         if (postResult.ok) {
           console.log('[LinkedIn] Post published via API!')
