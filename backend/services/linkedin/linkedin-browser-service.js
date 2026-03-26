@@ -222,21 +222,27 @@ class LinkedInBrowserService extends EventEmitter {
       // Fill fields and submit using evaluate (avoids "not clickable" errors)
       await sleep(3000, 5000)
 
-      console.log('[LinkedIn] Filling login form via evaluate...')
-      await page.evaluate((em, pw) => {
-        const emailEl = document.querySelector('#username') || document.querySelector('input[name="session_key"]') || document.querySelector('input[type="email"]')
-        if (emailEl) { emailEl.focus(); emailEl.value = em; emailEl.dispatchEvent(new Event('input', { bubbles: true })) }
-        const passEl = document.querySelector('#password') || document.querySelector('input[name="session_password"]') || document.querySelector('input[type="password"]')
-        if (passEl) { passEl.focus(); passEl.value = pw; passEl.dispatchEvent(new Event('input', { bubbles: true })) }
-      }, email, password)
+      console.log('[LinkedIn] Filling login form...')
 
-      await sleep(1000, 2000)
-      console.log('[LinkedIn] Clicking submit...')
+      // Focus and type email using keyboard (most human-like)
       await page.evaluate(() => {
-        const btn = document.querySelector('button[type="submit"]') || document.querySelector('[data-litms-control-urn="login-submit"]')
-        if (btn) btn.click()
+        const el = document.querySelector('#username') || document.querySelector('input[name="session_key"]') || document.querySelector('input[type="email"]')
+        if (el) { el.value = ''; el.focus() }
       })
-      await sleep(5000, 10000)
+      await sleep(500, 1000)
+      await page.keyboard.type(email, { delay: 40 + Math.random() * 60 })
+      await sleep(500, 1000)
+
+      // Tab to password and type
+      await page.keyboard.press('Tab')
+      await sleep(300, 600)
+      await page.keyboard.type(password, { delay: 40 + Math.random() * 60 })
+      await sleep(800, 1500)
+
+      // Press Enter to submit (most reliable)
+      console.log('[LinkedIn] Pressing Enter to submit...')
+      await page.keyboard.press('Enter')
+      await sleep(8000, 12000)
 
       // Check URL after login
       const postLoginUrl = page.url()
