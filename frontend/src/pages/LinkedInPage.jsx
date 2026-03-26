@@ -50,6 +50,7 @@ export default function LinkedInPage() {
   const [calLoading, setCalLoading] = useState(false)
   const [scheduledPosts, setScheduledPosts] = useState([])
   const [calMonth, setCalMonth] = useState(new Date())
+  const [viewPost, setViewPost] = useState(null)
 
   // DM
   const [dm, setDm] = useState({ name: '', role: '', company: '', purpose: '' })
@@ -516,7 +517,7 @@ export default function LinkedInPage() {
                                   )}
                                 </div>
                                 {cell.dayPosts.map((post, pi) => (
-                                  <div key={pi} className={`text-[9px] leading-tight p-1 rounded mb-0.5 cursor-pointer group relative ${
+                                  <div key={pi} onClick={() => setViewPost(post)} className={`text-[9px] leading-tight p-1 rounded mb-0.5 cursor-pointer group relative ${
                                     post.status === 'published' ? 'bg-green-50 text-green-700' :
                                     post.status === 'failed' ? 'bg-red-50 text-red-600' :
                                     'bg-purple-50 text-purple-700'
@@ -554,7 +555,7 @@ export default function LinkedInPage() {
                       <h4 className="text-xs font-bold text-gray-600 mb-2">Proximos posts programados</h4>
                       <div className="space-y-2 max-h-60 overflow-y-auto">
                         {scheduledPosts.filter(p => p.status === 'pending').sort((a,b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)).map((post, i) => (
-                          <div key={i} className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl">
+                          <div key={i} onClick={() => setViewPost(post)} className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl cursor-pointer hover:bg-purple-100 transition-colors">
                             <div className="text-center flex-shrink-0">
                               <p className="text-[10px] font-bold text-purple-600">{new Date(post.scheduled_at).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
                               <p className="text-xs font-bold text-purple-800">{new Date(post.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
@@ -940,6 +941,92 @@ export default function LinkedInPage() {
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* View Scheduled Post Modal */}
+      {viewPost && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setViewPost(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Post programado</h3>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  {new Date(viewPost.scheduled_at).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  {' a las '}
+                  {new Date(viewPost.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  viewPost.status === 'published' ? 'bg-green-100 text-green-700' :
+                  viewPost.status === 'failed' ? 'bg-red-100 text-red-700' :
+                  'bg-amber-100 text-amber-700'
+                }`}>
+                  {viewPost.status === 'published' ? 'Publicado' : viewPost.status === 'failed' ? 'Error' : 'Pendiente'}
+                </span>
+                <button onClick={() => setViewPost(null)} className="p-1 hover:bg-gray-100 rounded-lg"><X className="w-5 h-5 text-gray-400" /></button>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto max-h-[65vh]">
+              {/* Post preview like LinkedIn */}
+              <div className="border border-gray-200 rounded-xl p-4">
+                <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-100">
+                  {selected?.avatar_photo ? (
+                    <img src={selected.avatar_photo} className="w-10 h-10 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">{(selected?.name || '?')[0]}</div>
+                  )}
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">{selected?.name}</p>
+                    <p className="text-[10px] text-gray-400">{selected?.headline || avatarForProfile?.role}</p>
+                  </div>
+                </div>
+                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap">{viewPost.text}</p>
+              </div>
+
+              {/* Image */}
+              {viewPost.image_url ? (
+                <div className="rounded-xl overflow-hidden border border-gray-200">
+                  <img src={viewPost.image_url} alt="Post image" className="w-full" />
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl">
+                  <Image className="w-5 h-5 text-gray-300" />
+                  <p className="text-xs text-gray-400">La imagen se generara automaticamente al momento de publicar</p>
+                </div>
+              )}
+
+              {/* Error message */}
+              {viewPost.error && (
+                <div className="p-3 bg-red-50 rounded-xl">
+                  <p className="text-xs text-red-600"><strong>Error:</strong> {viewPost.error}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button onClick={() => {
+                  navigator.clipboard.writeText(viewPost.text)
+                  setCopied('viewpost')
+                  setTimeout(() => setCopied(''), 2000)
+                }} className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 rounded-xl text-xs font-medium hover:bg-gray-200">
+                  {copied === 'viewpost' ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied === 'viewpost' ? 'Copiado!' : 'Copiar texto'}
+                </button>
+                {viewPost.status === 'pending' && (
+                  <button onClick={async () => {
+                    await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${viewPost.id}`)
+                    setScheduledPosts(prev => prev.filter(p => p.id !== viewPost.id))
+                    setViewPost(null)
+                  }} className="flex items-center gap-1.5 px-4 py-2 bg-red-100 text-red-700 rounded-xl text-xs font-medium hover:bg-red-200">
+                    <Trash2 className="w-3.5 h-3.5" /> Eliminar
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
