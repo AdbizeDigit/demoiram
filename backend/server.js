@@ -829,6 +829,20 @@ app.delete('/api/linkedin-profiles/:id/automation/queue', async (req, res) => {
 app.get('/api/linkedin-profiles/:id/scheduled-posts', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scheduled_posts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        profile_id UUID,
+        text TEXT NOT NULL,
+        hashtags JSONB DEFAULT '[]',
+        image_url TEXT,
+        scheduled_at TIMESTAMPTZ NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        published_at TIMESTAMPTZ,
+        error TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
     const { rows } = await pool.query(
       'SELECT * FROM scheduled_posts WHERE profile_id = $1 ORDER BY scheduled_at ASC',
       [req.params.id]
@@ -861,6 +875,23 @@ app.delete('/api/linkedin-profiles/:id/scheduled-posts/:postId', async (req, res
 app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+
+    // Ensure table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS scheduled_posts (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        profile_id UUID,
+        text TEXT NOT NULL,
+        hashtags JSONB DEFAULT '[]',
+        image_url TEXT,
+        scheduled_at TIMESTAMPTZ NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        published_at TIMESTAMPTZ,
+        error TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `)
+
     const { rows } = await pool.query(`
       SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company, a.specialties as avatar_specialties
       FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1`, [req.params.id])
@@ -876,6 +907,8 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       days.push(d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))
     }
 
+    console.log('[Calendar] Generating week for', p.name, 'days:', days)
+
     const resp = await analyzeWithDeepSeek(`
       Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
       Especialidades: ${(p.avatar_specialties || ['IA', 'tecnologia', 'negocios']).join(', ')}.
@@ -890,14 +923,24 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       - Español argentino
       - Con 3-5 hashtags relevantes
 
-      Responde SOLO un JSON array valido sin comentarios:
-      [{"day":"${days[0]}","post":"texto completo del post","hashtags":["tag1","tag2","tag3"],"style":"storytelling","hour":9}]
+      Responde SOLO un JSON array valido sin comentarios ni markdown:
+      [{"day":"nombre del dia","post":"texto completo del post","hashtags":["tag1","tag2","tag3"],"style":"storytelling","hour":9}]
 
-      El campo "hour" es la hora ideal para publicar (entre 8 y 18).
+      El campo "hour" es la hora ideal para publicar (entre 8 y 18). SOLO JSON, nada mas.
     `)
 
-    const parsed = JSON.parse(resp.match(/\[[\s\S]*\]/)?.[0] || '[]')
-    if (!parsed.length) return res.json({ success: false, error: 'No se generaron posts' })
+    console.log('[Calendar] AI response length:', resp?.length, 'preview:', resp?.slice(0, 100))
+
+    let parsed = []
+    try {
+      const jsonMatch = resp.match(/\[[\s\S]*\]/)
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
+    } catch (parseErr) {
+      console.log('[Calendar] JSON parse error:', parseErr.message, 'raw:', resp?.slice(0, 300))
+      return res.status(500).json({ success: false, error: 'Error parseando respuesta de IA: ' + parseErr.message })
+    }
+
+    if (!parsed.length) return res.json({ success: false, error: 'La IA no genero posts validos' })
 
     // Schedule each post
     const scheduled = []
@@ -916,8 +959,12 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       scheduled.push({ ...inserted[0], style: item.style, day: item.day })
     }
 
+    console.log('[Calendar] Scheduled', scheduled.length, 'posts')
     res.json({ success: true, posts: scheduled })
-  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+  } catch (err) {
+    console.error('[Calendar] Error:', err.message)
+    res.status(500).json({ success: false, error: err.message })
+  }
 })
 
 // Optimize profile with Gemini
