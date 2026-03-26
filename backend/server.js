@@ -664,7 +664,71 @@ import('./config/database.js').then(({ pool }) => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).catch(() => {})
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS scheduled_posts (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      profile_id UUID REFERENCES linkedin_profiles(id) ON DELETE CASCADE,
+      text TEXT NOT NULL,
+      hashtags JSONB DEFAULT '[]',
+      image_url TEXT,
+      scheduled_at TIMESTAMPTZ NOT NULL,
+      status VARCHAR(20) DEFAULT 'pending',
+      published_at TIMESTAMPTZ,
+      error TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {})
 })
+
+// Scheduler: check every minute for posts to publish
+setInterval(async () => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(
+      `SELECT sp.*, lp.name as profile_name FROM scheduled_posts sp
+       JOIN linkedin_profiles lp ON lp.id = sp.profile_id
+       WHERE sp.status = 'pending' AND sp.scheduled_at <= NOW()
+       ORDER BY sp.scheduled_at ASC LIMIT 3`
+    )
+    if (!rows.length) return
+
+    const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+    for (const post of rows) {
+      try {
+        console.log(`[Scheduler] Publishing scheduled post for ${post.profile_name}: "${post.text.slice(0, 50)}..."`)
+        liLog(post.profile_id, `Publicando post programado: "${post.text.slice(0, 50)}..."`, 'info', 'post')
+
+        // Generate image if not already set
+        let imageUrl = post.image_url
+        if (!imageUrl) {
+          try {
+            const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+            const imgResult = await freepikImageService.generateForPost(post.text)
+            imageUrl = imgResult?.url || null
+            if (imageUrl) {
+              await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [imageUrl, post.id])
+              liLog(post.profile_id, 'Imagen generada para post programado', 'success', 'post')
+            }
+          } catch (e) {
+            liLog(post.profile_id, `Imagen no disponible: ${e.message?.slice(0, 60)}`, 'error', 'post')
+          }
+        }
+
+        const result = await linkedinBrowser.createPost(post.profile_id, post.text, imageUrl)
+        if (result.success) {
+          await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW() WHERE id = $2', ['published', post.id])
+          liLog(post.profile_id, `Post programado publicado!`, 'success', 'post')
+        } else {
+          await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3', ['failed', result.message, post.id])
+          liLog(post.profile_id, `Error publicando programado: ${result.message}`, 'error', 'post')
+        }
+      } catch (e) {
+        await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3', ['failed', e.message, post.id])
+        liLog(post.profile_id, `Error scheduler: ${e.message?.slice(0, 80)}`, 'error', 'post')
+      }
+    }
+  } catch {}
+}, 60000) // Check every minute
 
 app.get('/api/linkedin-profiles', async (req, res) => {
   try {
@@ -761,6 +825,101 @@ app.delete('/api/linkedin-profiles/:id/automation/queue', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// ── Scheduled Posts (Calendar) ────────────────────────────────────────────────
+app.get('/api/linkedin-profiles/:id/scheduled-posts', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(
+      'SELECT * FROM scheduled_posts WHERE profile_id = $1 ORDER BY scheduled_at ASC',
+      [req.params.id]
+    )
+    res.json({ success: true, posts: rows })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.post('/api/linkedin-profiles/:id/scheduled-posts', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { text, hashtags, image_url, scheduled_at } = req.body
+    const { rows } = await pool.query(
+      'INSERT INTO scheduled_posts (profile_id, text, hashtags, image_url, scheduled_at) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+      [req.params.id, text, JSON.stringify(hashtags || []), image_url || null, scheduled_at]
+    )
+    res.json({ success: true, post: rows[0] })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+app.delete('/api/linkedin-profiles/:id/scheduled-posts/:postId', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    await pool.query('DELETE FROM scheduled_posts WHERE id = $1 AND profile_id = $2', [req.params.postId, req.params.id])
+    res.json({ success: true })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
+// Generate full week of scheduled posts with AI
+app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company, a.specialties as avatar_specialties
+      FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1`, [req.params.id])
+    if (!rows.length) return res.status(404).json({ success: false, error: 'Profile not found' })
+    const p = rows[0]
+
+    const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+    const today = new Date()
+    const days = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today)
+      d.setDate(d.getDate() + i)
+      days.push(d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))
+    }
+
+    const resp = await analyzeWithDeepSeek(`
+      Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
+      Especialidades: ${(p.avatar_specialties || ['IA', 'tecnologia', 'negocios']).join(', ')}.
+
+      Genera 7 posts de LinkedIn, uno para cada dia de la semana empezando hoy:
+      ${days.map((d, i) => `Dia ${i+1}: ${d}`).join('\n')}
+
+      Cada post debe ser:
+      - NATURAL, no vendedor, max 150 palabras
+      - Diferente estilo cada dia (storytelling, opinion, tip, pregunta, caso de exito, tutorial, reflexion)
+      - Sobre IA aplicada a negocios/empresas
+      - Español argentino
+      - Con 3-5 hashtags relevantes
+
+      Responde SOLO un JSON array valido sin comentarios:
+      [{"day":"${days[0]}","post":"texto completo del post","hashtags":["tag1","tag2","tag3"],"style":"storytelling","hour":9}]
+
+      El campo "hour" es la hora ideal para publicar (entre 8 y 18).
+    `)
+
+    const parsed = JSON.parse(resp.match(/\[[\s\S]*\]/)?.[0] || '[]')
+    if (!parsed.length) return res.json({ success: false, error: 'No se generaron posts' })
+
+    // Schedule each post
+    const scheduled = []
+    for (let i = 0; i < parsed.length; i++) {
+      const item = parsed[i]
+      const scheduledDate = new Date(today)
+      scheduledDate.setDate(scheduledDate.getDate() + i)
+      scheduledDate.setHours(item.hour || 9, Math.floor(Math.random() * 30), 0, 0)
+
+      const fullText = item.post + '\n\n' + (item.hashtags || []).map(h => '#' + h).join(' ')
+
+      const { rows: inserted } = await pool.query(
+        'INSERT INTO scheduled_posts (profile_id, text, hashtags, scheduled_at) VALUES ($1,$2,$3,$4) RETURNING *',
+        [req.params.id, fullText, JSON.stringify(item.hashtags || []), scheduledDate.toISOString()]
+      )
+      scheduled.push({ ...inserted[0], style: item.style, day: item.day })
+    }
+
+    res.json({ success: true, posts: scheduled })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // Optimize profile with Gemini
 app.post('/api/linkedin-profiles/:id/optimize', async (req, res) => {
   try {
@@ -783,8 +942,24 @@ app.post('/api/linkedin-profiles/:id/optimize', async (req, res) => {
     // Fallback to DeepSeek
     const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
     const resp = await analyzeWithDeepSeek(`
-      Optimiza este perfil de LinkedIn. Nombre: ${p.name}, Headline: ${p.headline || ''}, Rol: ${p.avatar_role || ''}, Empresa: ${p.avatar_company || ''}.
-      Responde JSON: {"headline":"headline optimizado max 120 chars","about":"seccion acerca de max 200 palabras con keywords","keywords":["kw1","kw2","kw3","kw4","kw5"],"contentSuggestion":"sugerencia semanal"}
+      Sos un experto en LinkedIn y marketing personal. Optimiza este perfil de LinkedIn para maximizar visibilidad y conexiones.
+
+      Datos del perfil:
+      - Nombre: ${p.name}
+      - Headline actual: ${p.headline || 'Sin headline'}
+      - Rol: ${p.avatar_role || 'No especificado'}
+      - Empresa: ${p.avatar_company || 'No especificada'}
+
+      IMPORTANTE: Todo en ESPAÑOL ARGENTINO. Usa lenguaje profesional pero cercano.
+
+      Responde SOLO con un JSON valido sin comentarios:
+      {
+        "headline": "headline optimizado, max 120 caracteres, con keywords de la industria y propuesta de valor clara",
+        "about": "seccion Acerca De optimizada, max 200 palabras. Debe incluir: quien sos, que haces, como ayudas, logros clave, llamada a la accion. Usa keywords naturalmente. Tono argentino profesional.",
+        "keywords": ["5 a 8 keywords estrategicas para el perfil, en español"],
+        "contentSuggestion": "estrategia semanal de contenido: que tipo de posts hacer, con que frecuencia, y sobre que temas para posicionarse como referente",
+        "profileTips": "3 tips concretos para mejorar el perfil (foto, banner, experiencia, recomendaciones, etc)"
+      }
     `)
     const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
     res.json({ success: true, optimization: parsed, provider: 'deepseek' })
@@ -896,18 +1071,22 @@ app.post('/api/linkedin-profiles/:id/disconnect', async (req, res) => {
 
 // LinkedIn automation engine with live logs
 const liAutoState = new Map() // profileId -> { running, config }
-const liLogs = new Map() // profileId -> [{time, msg, type}]
+const liLogs = new Map() // profileId -> [{time, msg, type, category}]
 
-function liLog(profileId, msg, type = 'info') {
+function liLog(profileId, msg, type = 'info', category = 'system') {
   if (!liLogs.has(profileId)) liLogs.set(profileId, [])
   const logs = liLogs.get(profileId)
-  logs.unshift({ time: new Date().toISOString(), msg, type })
-  if (logs.length > 100) logs.pop()
-  console.log(`[LinkedIn ${type}] ${msg}`)
+  logs.unshift({ time: new Date().toISOString(), msg, type, category })
+  if (logs.length > 200) logs.pop()
+  console.log(`[LinkedIn ${category}/${type}] ${msg}`)
 }
 
 app.get('/api/linkedin-profiles/:id/logs', (req, res) => {
-  res.json({ success: true, logs: liLogs.get(req.params.id) || [], running: liAutoState.get(req.params.id)?.running || false })
+  const allLogs = liLogs.get(req.params.id) || []
+  const postLogs = allLogs.filter(l => l.category === 'post')
+  const connectionLogs = allLogs.filter(l => l.category === 'connection')
+  const systemLogs = allLogs.filter(l => l.category === 'system')
+  res.json({ success: true, logs: allLogs, postLogs, connectionLogs, systemLogs, running: liAutoState.get(req.params.id)?.running || false })
 })
 
 app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
@@ -949,7 +1128,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
 
         // Step 2: Generate and publish post
         if (!liAutoState.get(pid)?.running) return
-        liLog(pid, 'Generando post con IA...')
+        liLog(pid, 'Generando post con IA...', 'info', 'post')
         const topic = topics[Math.floor(Math.random() * topics.length)]
         try {
           const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
@@ -957,27 +1136,27 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
             `Eres ${p?.avatar_name || p?.name || 'profesional'} de ${p?.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}. Menciona sutilmente como la IA puede beneficiar empresas. No seas vendedor. Max 150 palabras. Espanol argentino. Responde SOLO con un JSON valido sin comentarios: {"post":"texto del post aqui","hashtags":["tag1","tag2","tag3"]}`
           )
           let parsed = {}
-          try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error') }
+          try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error', 'post') }
           if (parsed.post) {
-            liLog(pid, `Post generado: "${parsed.post.slice(0, 80)}..."`)
+            liLog(pid, `Post generado: "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
 
             // Generate image with Freepik
             let imageUrl = null
             try {
-              liLog(pid, 'Generando imagen con Freepik Mystic...')
+              liLog(pid, 'Generando imagen con Freepik Mystic...', 'info', 'post')
               const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
               const imgResult = await freepikImageService.generateForPost(parsed.post)
               imageUrl = imgResult?.url || null
-              if (imageUrl) liLog(pid, 'Imagen generada!', 'success')
-            } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error') }
+              if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
+            } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error', 'post') }
 
             const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
             const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl)
-            liLog(pid, postResult.success ? (imageUrl ? 'Post con imagen publicado!' : 'Post publicado!') : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error')
+            liLog(pid, postResult.success ? (imageUrl ? 'Post con imagen publicado!' : 'Post publicado!') : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
           } else {
-            liLog(pid, 'No se pudo generar post, continuando...', 'error')
+            liLog(pid, 'No se pudo generar post, continuando...', 'error', 'post')
           }
-        } catch (e) { liLog(pid, `Error publicando: ${e.message?.slice(0, 100)}`, 'error') }
+        } catch (e) { liLog(pid, `Error publicando: ${e.message?.slice(0, 100)}`, 'error', 'post') }
 
         await randomDelay()
 
@@ -987,7 +1166,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         const targetIndustries = cfg.targetIndustries || ['Tecnologia']
         const maxConnections = Math.min(cfg.dailyConnections || 10, 25)
         const searchQuery = `${targetRoles[Math.floor(Math.random() * targetRoles.length)]} ${targetIndustries[Math.floor(Math.random() * targetIndustries.length)]}`
-        liLog(pid, `Buscando "${searchQuery}" para conectar (max ${maxConnections})...`)
+        liLog(pid, `Buscando "${searchQuery}" para conectar (max ${maxConnections})...`, 'info', 'connection')
 
         try {
           const session = linkedinBrowser.sessions.get(pid)
@@ -996,7 +1175,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
 
             // Go to LinkedIn search
             const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}&origin=GLOBAL_SEARCH_HEADER`
-            liLog(pid, `Navegando a busqueda: ${searchQuery}`)
+            liLog(pid, `Navegando a busqueda: ${searchQuery}`, 'info', 'connection')
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
             await sleep(3000 + Math.random() * 4000)
 
@@ -1035,7 +1214,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
                   }
                 })
               })
-              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`)
+              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
 
               const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
 
@@ -1043,7 +1222,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
                 if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
 
                 try {
-                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}`)
+                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}`, 'info', 'connection')
 
                   // Generate personalized AI note based on contact info
                   let aiNote = ''
@@ -1072,10 +1251,10 @@ REGLAS:
 Responde SOLO con el mensaje, nada mas.`
                     )
                     aiNote = aiResp.trim().replace(/^["']|["']$/g, '').slice(0, 280)
-                    liLog(pid, `Nota IA: "${aiNote.slice(0, 80)}..."`)
+                    liLog(pid, `Nota IA: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
                   } catch (aiErr) {
                     aiNote = `Hola ${name.split(' ')[0]}! Vi tu perfil y me parecio muy interesante. Estamos ayudando empresas a implementar IA para automatizar procesos y potenciar resultados. Te ofrezco una demo gratis para que veas el potencial. Conectamos?`
-                    liLog(pid, `Nota IA fallo, usando fallback`, 'error')
+                    liLog(pid, `Nota IA fallo, usando fallback`, 'error', 'connection')
                   }
 
                   // Click the connect button by index
@@ -1135,7 +1314,7 @@ Responde SOLO con el mensaje, nada mas.`
                       if (sendBtn) sendBtn.click()
                     })
                   } else if (modalAction === 'no-modal') {
-                    liLog(pid, `No aparecio modal para ${name}`, 'error')
+                    liLog(pid, `No aparecio modal para ${name}`, 'error', 'connection')
                   }
 
                   await sleep(1000 + Math.random() * 1500)
@@ -1149,10 +1328,10 @@ Responde SOLO con el mensaje, nada mas.`
                   })
 
                   connected++
-                  liLog(pid, `Conexion enviada a ${name} con nota personalizada`, 'success')
+                  liLog(pid, `Conexion enviada a ${name} con nota personalizada`, 'success', 'connection')
                   await sleep(8000 + Math.random() * 15000) // 8-23s between connections
                 } catch (connErr) {
-                  liLog(pid, `Error conectando: ${connErr.message?.slice(0, 60)}`, 'error')
+                  liLog(pid, `Error conectando: ${connErr.message?.slice(0, 60)}`, 'error', 'connection')
                   await sleep(3000)
                 }
               }
@@ -1175,10 +1354,10 @@ Responde SOLO con el mensaje, nada mas.`
               }
             }
 
-            liLog(pid, `${connected} conexiones enviadas`, 'success')
+            liLog(pid, `${connected} conexiones enviadas`, 'success', 'connection')
           }
         } catch (searchErr) {
-          liLog(pid, `Error en busqueda: ${searchErr.message?.slice(0, 100)}`, 'error')
+          liLog(pid, `Error en busqueda: ${searchErr.message?.slice(0, 100)}`, 'error', 'connection')
         }
 
         liLog(pid, 'Ciclo de automatizacion completado', 'success')
@@ -1217,7 +1396,7 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
     const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
 
-    liLog(pid, 'Buscando posts sin imagen para actualizar...', 'info')
+    liLog(pid, 'Buscando posts sin imagen para actualizar...', 'info', 'post')
 
     // Get session auth
     const auth = await linkedinBrowser._getSessionAuth(pid)
@@ -1234,7 +1413,7 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
         timeout: 10000,
       })
       memberUrn = meRes.data?.miniProfile?.entityUrn || meRes.data?.entityUrn
-      liLog(pid, `Perfil: ${memberUrn}`)
+      liLog(pid, `Perfil: ${memberUrn}`, 'info', 'post')
     } catch (e) {
       return res.json({ success: false, error: 'No se pudo obtener perfil: ' + e.message })
     }
@@ -1250,9 +1429,9 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
         }
       )
       posts = feedRes.data?.elements || []
-      liLog(pid, `Encontrados ${posts.length} posts recientes`)
+      liLog(pid, `Encontrados ${posts.length} posts recientes`, 'info', 'post')
     } catch (e) {
-      liLog(pid, `Error obteniendo posts: ${e.message}`, 'error')
+      liLog(pid, `Error obteniendo posts: ${e.message}`, 'error', 'post')
       return res.json({ success: false, error: 'No se pudo obtener posts: ' + e.message })
     }
 
@@ -1265,16 +1444,14 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
 
       for (const post of posts) {
         try {
-          // Extract text and check for images
           const commentary = post?.commentary?.text?.text || ''
           const hasImage = !!(post?.content?.images?.length || post?.resharedUpdate)
           const postUrn = post?.updateUrn || post?.urn
 
           if (!commentary || hasImage || !postUrn) continue
 
-          liLog(pid, `Post sin imagen: "${commentary.slice(0, 60)}..."`)
+          liLog(pid, `Post sin imagen: "${commentary.slice(0, 60)}..."`, 'info', 'post')
 
-          // Delete the old post
           try {
             await axios.delete(
               `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(postUrn)}`,
@@ -1283,42 +1460,39 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
                 timeout: 10000,
               }
             )
-            liLog(pid, 'Post viejo eliminado')
+            liLog(pid, 'Post viejo eliminado', 'info', 'post')
           } catch (delErr) {
-            liLog(pid, `No se pudo eliminar post: ${delErr.response?.status || delErr.message}`, 'error')
+            liLog(pid, `No se pudo eliminar post: ${delErr.response?.status || delErr.message}`, 'error', 'post')
             continue
           }
 
           await sleep(3000 + Math.random() * 3000)
 
-          // Generate image based on post content
           let imageUrl = null
           try {
-            liLog(pid, 'Generando imagen con Freepik...')
+            liLog(pid, 'Generando imagen con Freepik...', 'info', 'post')
             const imgResult = await freepikImageService.generateForPost(commentary)
             imageUrl = imgResult?.url || null
-            if (imageUrl) liLog(pid, 'Imagen generada!', 'success')
+            if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
           } catch (imgErr) {
-            liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error')
-            // Re-post without image at least
+            liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
           }
 
-          // Re-post with image
           const result = await linkedinBrowser.createPost(pid, commentary, imageUrl)
           if (result.success) {
             fixed++
-            liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success')
+            liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success', 'post')
           } else {
-            liLog(pid, `Error re-publicando: ${result.message}`, 'error')
+            liLog(pid, `Error re-publicando: ${result.message}`, 'error', 'post')
           }
 
-          await sleep(10000 + Math.random() * 10000) // Wait between posts
+          await sleep(10000 + Math.random() * 10000)
         } catch (e) {
-          liLog(pid, `Error procesando post: ${e.message?.slice(0, 100)}`, 'error')
+          liLog(pid, `Error procesando post: ${e.message?.slice(0, 100)}`, 'error', 'post')
         }
       }
 
-      liLog(pid, `Terminado: ${fixed} posts actualizados con imagen`, 'success')
+      liLog(pid, `Terminado: ${fixed} posts actualizados con imagen`, 'success', 'post')
     })()
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })

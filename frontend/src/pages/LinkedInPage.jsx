@@ -48,6 +48,8 @@ export default function LinkedInPage() {
   // Calendar
   const [calendar, setCalendar] = useState([])
   const [calLoading, setCalLoading] = useState(false)
+  const [scheduledPosts, setScheduledPosts] = useState([])
+  const [calMonth, setCalMonth] = useState(new Date())
 
   // DM
   const [dm, setDm] = useState({ name: '', role: '', company: '', purpose: '' })
@@ -86,6 +88,9 @@ export default function LinkedInPage() {
   const [newRole, setNewRole] = useState('')
   const [newIndustry, setNewIndustry] = useState('')
   const [liLogs, setLiLogs] = useState([])
+  const [postLogs, setPostLogs] = useState([])
+  const [connectionLogs, setConnectionLogs] = useState([])
+  const [logTab, setLogTab] = useState('all')
   const [logsPolling, setLogsPolling] = useState(false)
 
   const load = useCallback(async () => {
@@ -136,6 +141,8 @@ export default function LinkedInPage() {
       try {
         const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/logs`)
         setLiLogs(data.logs || [])
+        setPostLogs(data.postLogs || [])
+        setConnectionLogs(data.connectionLogs || [])
         setAutoRunning(data.running || false)
       } catch {}
     }
@@ -149,6 +156,7 @@ export default function LinkedInPage() {
     if (!selected?.id) return
     api.get(`/api/linkedin-profiles/${selected.id}/automation/status`).then(({ data }) => setAutoStatus(data)).catch(() => {})
     api.get(`/api/linkedin-profiles/${selected.id}/connection-status`).then(({ data }) => setLiConnected(data.connected)).catch(() => setLiConnected(false))
+    api.get(`/api/linkedin-profiles/${selected.id}/scheduled-posts`).then(({ data }) => setScheduledPosts(data.posts || [])).catch(() => setScheduledPosts([]))
   }, [selected?.id])
 
   async function genPostAI() {
@@ -430,34 +438,138 @@ export default function LinkedInPage() {
 
               {/* Tab: Calendar */}
               {tab === 'calendar' && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-gray-700">Calendario de Contenido Semanal</h3>
-                    <button onClick={genCalAI} disabled={calLoading}
-                      className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 disabled:opacity-40">
-                      {calLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Generar Semana
-                    </button>
+                <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() - 1); return d })}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4 rotate-180" /></button>
+                      <h3 className="text-sm font-semibold text-gray-700 capitalize min-w-[140px] text-center">
+                        {calMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+                      </h3>
+                      <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() + 1); return d })}
+                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4" /></button>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        setCalLoading(true)
+                        try {
+                          const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/generate-week`)
+                          if (data.posts) setScheduledPosts(prev => [...prev, ...data.posts])
+                        } catch {}
+                        setCalLoading(false)
+                      }} disabled={calLoading}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 disabled:opacity-40">
+                        {calLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} Generar 7 dias con IA
+                      </button>
+                    </div>
                   </div>
-                  {calendar.length === 0 ? (
-                    <div className="text-center py-10"><Calendar className="w-12 h-12 text-gray-200 mx-auto mb-2" /><p className="text-sm text-gray-400">Genera un plan semanal de contenido</p></div>
-                  ) : (
-                    <div className="space-y-3">
-                      {calendar.map((d, i) => (
-                        <div key={i} className="flex items-center gap-4 p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
-                          <div className="w-16 text-center">
-                            <p className="text-xs font-bold text-purple-600">{d.day}</p>
-                            <span className="text-[9px] px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full">{d.type}</span>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-semibold text-gray-800">{d.topic}</p>
-                            <p className="text-xs text-gray-400 italic mt-0.5">{d.hook}</p>
-                          </div>
-                          <button onClick={() => { setPostTopic(d.topic); setTab('posts') }}
-                            className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 flex items-center gap-1">
-                            <Zap className="w-3 h-3" /> Crear Post
-                          </button>
-                        </div>
+
+                  {/* Calendar Grid */}
+                  <div>
+                    <div className="grid grid-cols-7 gap-px mb-px">
+                      {['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'].map(d => (
+                        <div key={d} className="text-[10px] font-bold text-gray-400 text-center py-2">{d}</div>
                       ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden">
+                      {(() => {
+                        const year = calMonth.getFullYear(), month = calMonth.getMonth()
+                        const firstDay = new Date(year, month, 1)
+                        const lastDay = new Date(year, month + 1, 0)
+                        const startPad = (firstDay.getDay() + 6) % 7 // Monday = 0
+                        const cells = []
+                        const today = new Date()
+                        today.setHours(0,0,0,0)
+
+                        for (let i = 0; i < startPad; i++) cells.push({ day: null, key: `pad-${i}` })
+                        for (let d = 1; d <= lastDay.getDate(); d++) {
+                          const date = new Date(year, month, d)
+                          const dateStr = date.toISOString().split('T')[0]
+                          const dayPosts = scheduledPosts.filter(p => p.scheduled_at?.split('T')[0] === dateStr)
+                          const isToday = date.getTime() === today.getTime()
+                          const isPast = date < today
+                          cells.push({ day: d, date, dateStr, dayPosts, isToday, isPast, key: `day-${d}` })
+                        }
+                        const remaining = 7 - (cells.length % 7)
+                        if (remaining < 7) for (let i = 0; i < remaining; i++) cells.push({ day: null, key: `pad-end-${i}` })
+
+                        return cells.map(cell => (
+                          <div key={cell.key} className={`min-h-[80px] p-1.5 ${
+                            !cell.day ? 'bg-gray-50' :
+                            cell.isToday ? 'bg-blue-50' :
+                            cell.isPast ? 'bg-gray-50' : 'bg-white'
+                          }`}>
+                            {cell.day && (
+                              <>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className={`text-[11px] font-bold ${cell.isToday ? 'text-blue-600 bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center' : cell.isPast ? 'text-gray-300' : 'text-gray-600'}`}>
+                                    {cell.day}
+                                  </span>
+                                  {cell.dayPosts.length > 0 && (
+                                    <span className={`text-[8px] px-1 py-0.5 rounded-full font-bold ${
+                                      cell.dayPosts.some(p => p.status === 'published') ? 'bg-green-100 text-green-700' :
+                                      cell.dayPosts.some(p => p.status === 'failed') ? 'bg-red-100 text-red-700' :
+                                      'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      {cell.dayPosts.some(p => p.status === 'published') ? 'Publicado' : cell.dayPosts.some(p => p.status === 'failed') ? 'Error' : `${new Date(cell.dayPosts[0].scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
+                                    </span>
+                                  )}
+                                </div>
+                                {cell.dayPosts.map((post, pi) => (
+                                  <div key={pi} className={`text-[9px] leading-tight p-1 rounded mb-0.5 cursor-pointer group relative ${
+                                    post.status === 'published' ? 'bg-green-50 text-green-700' :
+                                    post.status === 'failed' ? 'bg-red-50 text-red-600' :
+                                    'bg-purple-50 text-purple-700'
+                                  }`}>
+                                    <p className="line-clamp-2">{post.text?.slice(0, 60)}</p>
+                                    {post.image_url && <div className="w-full h-8 mt-0.5 rounded overflow-hidden"><img src={post.image_url} alt="" className="w-full h-full object-cover" /></div>}
+                                    {post.status === 'pending' && (
+                                      <button onClick={async (e) => {
+                                        e.stopPropagation()
+                                        await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${post.id}`)
+                                        setScheduledPosts(prev => prev.filter(p => p.id !== post.id))
+                                      }} className="absolute -top-1 -right-1 hidden group-hover:flex w-4 h-4 bg-red-500 text-white rounded-full items-center justify-center text-[8px] font-bold">x</button>
+                                    )}
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="flex items-center gap-4 text-[10px] text-gray-400">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Programado</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400" /> Publicado</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Error</span>
+                    <span className="ml-auto">{scheduledPosts.filter(p => p.status === 'pending').length} posts pendientes</span>
+                  </div>
+
+                  {/* Upcoming posts list */}
+                  {scheduledPosts.filter(p => p.status === 'pending').length > 0 && (
+                    <div className="border-t border-gray-100 pt-4">
+                      <h4 className="text-xs font-bold text-gray-600 mb-2">Proximos posts programados</h4>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {scheduledPosts.filter(p => p.status === 'pending').sort((a,b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)).map((post, i) => (
+                          <div key={i} className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl">
+                            <div className="text-center flex-shrink-0">
+                              <p className="text-[10px] font-bold text-purple-600">{new Date(post.scheduled_at).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
+                              <p className="text-xs font-bold text-purple-800">{new Date(post.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-gray-700 line-clamp-2">{post.text?.slice(0, 120)}</p>
+                              {post.image_url && <img src={post.image_url} alt="" className="w-16 h-10 object-cover rounded mt-1" />}
+                            </div>
+                            <button onClick={async () => {
+                              await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${post.id}`)
+                              setScheduledPosts(prev => prev.filter(p => p.id !== post.id))
+                            }} className="p-1 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -535,9 +647,15 @@ export default function LinkedInPage() {
                         </div>
                       </div>
                       <div className="p-4 bg-amber-50 rounded-xl">
-                        <p className="text-xs font-bold text-amber-700 mb-1">Sugerencia de Contenido</p>
-                        <p className="text-sm text-gray-700">{optimization.contentSuggestion}</p>
+                        <p className="text-xs font-bold text-amber-700 mb-1">Estrategia de Contenido</p>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{optimization.contentSuggestion}</p>
                       </div>
+                      {optimization.profileTips && (
+                        <div className="p-4 bg-purple-50 rounded-xl">
+                          <p className="text-xs font-bold text-purple-700 mb-1">Tips para tu Perfil</p>
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">{optimization.profileTips}</p>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="text-center py-10">
@@ -782,23 +900,36 @@ export default function LinkedInPage() {
         </div>
       </div>
 
-      {/* Live Logs Panel - always visible */}
+      {/* Live Logs Panel - always visible with tabs */}
       {selected && liLogs.length > 0 && (
         <div className="bg-gray-900 rounded-2xl p-5 mt-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${autoRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-              {autoRunning ? 'Automatizacion en curso' : 'Log de LinkedIn'}
-            </h3>
             <div className="flex items-center gap-3">
-              <span className="text-[10px] text-gray-500">{liLogs.length} entradas</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${autoRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
+              <div className="flex gap-1 bg-gray-800 rounded-lg p-0.5">
+                {[
+                  { key: 'all', label: 'Todo', count: liLogs.length },
+                  { key: 'post', label: 'Publicaciones', count: postLogs.length },
+                  { key: 'connection', label: 'Conexiones', count: connectionLogs.length },
+                ].map(t => (
+                  <button key={t.key} onClick={() => setLogTab(t.key)}
+                    className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${logTab === t.key ? 'bg-gray-700 text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                    {t.label} <span className="ml-1 opacity-60">{t.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
               {autoRunning && <span className="text-[10px] px-2 py-0.5 bg-green-900 text-green-400 rounded-full font-bold animate-pulse">EN VIVO</span>}
             </div>
           </div>
           <div className="max-h-52 overflow-y-auto space-y-0.5 font-mono">
-            {liLogs.slice(0, 50).map((log, i) => (
+            {(logTab === 'all' ? liLogs : logTab === 'post' ? postLogs : connectionLogs).slice(0, 50).map((log, i) => (
               <div key={i} className="flex items-start gap-2 text-[11px] py-0.5">
                 <span className="text-gray-600 flex-shrink-0 w-16">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                {log.category && <span className={`flex-shrink-0 text-[9px] px-1.5 py-0 rounded ${log.category === 'post' ? 'bg-blue-900/50 text-blue-400' : log.category === 'connection' ? 'bg-purple-900/50 text-purple-400' : 'bg-gray-800 text-gray-500'}`}>
+                  {log.category === 'post' ? 'POST' : log.category === 'connection' ? 'CONN' : 'SYS'}
+                </span>}
                 <span className={`${
                   log.type === 'error' ? 'text-red-400' :
                   log.type === 'success' ? 'text-green-400' :
