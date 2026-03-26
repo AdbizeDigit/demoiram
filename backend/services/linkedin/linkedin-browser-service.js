@@ -295,78 +295,67 @@ class LinkedInBrowserService extends EventEmitter {
 
     try {
       const { page } = session
-      await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
-      await sleep(5000, 8000)
-      await humanScroll(page)
 
-      // Click "Start a post" - try multiple selectors
-      const startPostSelectors = [
-        '.share-box-feed-entry__trigger',
-        'button.artdeco-button--muted',
-        '[data-control-name="share.share_box"]',
-        'div.share-box-feed-entry__top-bar',
-      ]
-      let clicked = false
-      for (const sel of startPostSelectors) {
-        try { await page.click(sel); clicked = true; break } catch {}
-      }
-      // Fallback: find by text content
-      if (!clicked) {
-        try {
+      // Use LinkedIn's internal API to create post (more reliable than UI)
+      const cookies = await page.cookies()
+      const csrfToken = cookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
+
+      if (csrfToken) {
+        console.log('[LinkedIn] Posting via API...')
+        const postResult = await page.evaluate(async (postText, csrf) => {
+          try {
+            const res = await fetch('https://www.linkedin.com/voyager/api/contentcreation/normShares', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'csrf-token': csrf,
+                'x-restli-protocol-version': '2.0.0',
+              },
+              body: JSON.stringify({
+                visibleToConnectionsOnly: false,
+                externalAudienceProviders: [],
+                commentaryV2: { text: postText, attributes: [] },
+                origin: 'FEED',
+                allowedCommentersScope: 'ALL',
+                postState: 'PUBLISHED',
+              }),
+            })
+            return { ok: res.ok, status: res.status }
+          } catch (e) { return { ok: false, error: e.message } }
+        }, text, csrfToken)
+
+        if (postResult.ok) {
+          console.log('[LinkedIn] Post published via API!')
+        } else {
+          console.log('[LinkedIn] API post failed, status:', postResult.status, '- trying UI fallback...')
+          // UI fallback
+          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await sleep(8000, 12000)
+
+          // Try to find and click share box
           await page.evaluate(() => {
-            const btns = [...document.querySelectorAll('button, div[role="button"]')]
-            const trigger = btns.find(b => b.textContent.includes('Empezar') || b.textContent.includes('Start') || b.textContent.includes('publicación') || b.textContent.includes('post'))
+            const trigger = document.querySelector('.share-box-feed-entry__trigger, [class*="share-box"]')
             if (trigger) trigger.click()
           })
-          clicked = true
-        } catch {}
+          await sleep(3000, 5000)
+
+          const editor = await page.$('.ql-editor, [role="textbox"], [contenteditable="true"]')
+          if (editor) {
+            await editor.click()
+            await sleep(500)
+            await page.keyboard.type(text, { delay: 15 })
+            await sleep(2000)
+            await page.evaluate(() => {
+              const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
+              if (btn) btn.click()
+            })
+          }
+        }
+      } else {
+        return { success: false, message: 'No CSRF token found' }
       }
-      if (!clicked) return { success: false, message: 'No se encontro boton para crear post' }
 
       await sleep(3000, 5000)
-
-      // Type post content in the editor
-      const editorSelectors = ['.ql-editor', '[role="textbox"]', '[contenteditable="true"]', '.editor-content']
-      let editor = null
-      for (const sel of editorSelectors) {
-        editor = await page.$(sel)
-        if (editor) break
-      }
-      if (!editor) return { success: false, message: 'No se encontro editor de texto' }
-
-      await editor.click()
-      await sleep(500, 1000)
-
-      // Type with human-like speed
-      for (const line of text.split('\n')) {
-        for (const char of line) {
-          await page.keyboard.type(char, { delay: 20 + Math.random() * 60 })
-        }
-        await page.keyboard.press('Enter')
-        await sleep(100, 300)
-      }
-
-      await sleep(2000, 4000)
-
-      // Click Post/Publicar button
-      const postBtnSelectors = [
-        '.share-actions__primary-action',
-        'button.share-actions__primary-action',
-        '[data-control-name="share.post"]',
-      ]
-      let posted = false
-      for (const sel of postBtnSelectors) {
-        try { await page.click(sel); posted = true; break } catch {}
-      }
-      if (!posted) {
-        // Find by text
-        await page.evaluate(() => {
-          const btns = [...document.querySelectorAll('button')]
-          const postBtn = btns.find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
-          if (postBtn) postBtn.click()
-        })
-      }
-      await sleep(5000, 10000)
 
       // Save cookies after action
       const cookies = await page.cookies()
