@@ -154,9 +154,9 @@ class LinkedInBrowserService extends EventEmitter {
       const browser = await this._launchBrowser()
       const page = await browser.newPage()
 
-      // Set extra headers to look more human
+      // Set headers - use English to get consistent selectors
       await page.setExtraHTTPHeaders({
-        'Accept-Language': 'es-AR,es;q=0.9,en;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
       })
 
@@ -238,21 +238,32 @@ class LinkedInBrowserService extends EventEmitter {
       })
       await sleep(5000, 10000)
 
-      // Check for verification challenge
-      const url = page.url()
-      if (url.includes('checkpoint') || url.includes('challenge')) {
+      // Check URL after login
+      const postLoginUrl = page.url()
+      console.log('[LinkedIn] Post-login URL:', postLoginUrl)
+
+      if (postLoginUrl.includes('checkpoint') || postLoginUrl.includes('challenge')) {
         this.sessions.set(profileId, { browser, page, loggedIn: false, needsVerification: true })
         this.emit('status', { profileId, status: 'verification_needed' })
         return { success: false, message: 'LinkedIn requiere verificacion. Revisa tu email/telefono.', needsVerification: true }
       }
 
-      // Check if logged in
-      await page.waitForSelector('.global-nav', { timeout: 15000 }).catch(() => {})
-      const isLogged = await page.evaluate(() => !!document.querySelector('.global-nav'))
+      // Check if logged in by URL (most reliable)
+      const isLogged = postLoginUrl.includes('/feed') || postLoginUrl.includes('/mynetwork') || postLoginUrl.includes('/messaging') || postLoginUrl.includes('/in/')
 
       if (!isLogged) {
-        await browser.close()
-        return { success: false, message: 'Login failed. Verifica credenciales.' }
+        // Wait a bit more and check again
+        await sleep(5000, 8000)
+        const retryUrl = page.url()
+        console.log('[LinkedIn] Retry URL:', retryUrl)
+        if (!retryUrl.includes('/feed') && !retryUrl.includes('/mynetwork') && !retryUrl.includes('checkpoint')) {
+          await browser.close()
+          return { success: false, message: `Login failed. URL: ${retryUrl.slice(0, 60)}` }
+        }
+        if (retryUrl.includes('checkpoint') || retryUrl.includes('challenge')) {
+          this.sessions.set(profileId, { browser, page, loggedIn: false, needsVerification: true })
+          return { success: false, message: 'LinkedIn requiere verificacion.', needsVerification: true }
+        }
       }
 
       // Save cookies encrypted
