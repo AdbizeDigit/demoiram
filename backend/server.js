@@ -907,56 +907,58 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       days.push(d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))
     }
 
-    console.log('[Calendar] Generating week for', p.name, 'days:', days)
+    console.log('[Calendar] Generating week for', p.name)
 
-    const resp = await analyzeWithDeepSeek(`
-      Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
-      Especialidades: ${(p.avatar_specialties || ['IA', 'tecnologia', 'negocios']).join(', ')}.
+    const styles = ['storytelling', 'opinion', 'tip practico', 'pregunta abierta', 'caso de exito', 'tutorial', 'reflexion']
+    const topics = [
+      'como la IA esta transformando la atencion al cliente',
+      'automatizacion de procesos repetitivos con IA',
+      'por que las PyMEs necesitan adoptar IA ahora',
+      'chatbots inteligentes para ventas',
+      'analisis de datos con IA para tomar mejores decisiones',
+      'IA generativa aplicada al marketing digital',
+      'el futuro del trabajo con inteligencia artificial',
+    ]
+    const hours = [8, 9, 10, 11, 12, 14, 16]
 
-      Genera 7 posts de LinkedIn, uno para cada dia de la semana empezando hoy:
-      ${days.map((d, i) => `Dia ${i+1}: ${d}`).join('\n')}
-
-      Cada post debe ser:
-      - NATURAL, no vendedor, max 150 palabras
-      - Diferente estilo cada dia (storytelling, opinion, tip, pregunta, caso de exito, tutorial, reflexion)
-      - Sobre IA aplicada a negocios/empresas
-      - Español argentino
-      - Con 3-5 hashtags relevantes
-
-      Responde SOLO un JSON array valido sin comentarios ni markdown:
-      [{"day":"nombre del dia","post":"texto completo del post","hashtags":["tag1","tag2","tag3"],"style":"storytelling","hour":9}]
-
-      El campo "hour" es la hora ideal para publicar (entre 8 y 18). SOLO JSON, nada mas.
-    `, 4000)
-
-    console.log('[Calendar] AI response length:', resp?.length, 'preview:', resp?.slice(0, 100))
-
-    let parsed = []
-    try {
-      const jsonMatch = resp.match(/\[[\s\S]*\]/)
-      if (jsonMatch) parsed = JSON.parse(jsonMatch[0])
-    } catch (parseErr) {
-      console.log('[Calendar] JSON parse error:', parseErr.message, 'raw:', resp?.slice(0, 300))
-      return res.status(500).json({ success: false, error: 'Error parseando respuesta de IA: ' + parseErr.message })
-    }
-
-    if (!parsed.length) return res.json({ success: false, error: 'La IA no genero posts validos' })
-
-    // Schedule each post
     const scheduled = []
-    for (let i = 0; i < parsed.length; i++) {
-      const item = parsed[i]
+    // Generate each post individually (faster, avoids timeout)
+    for (let i = 0; i < 7; i++) {
       const scheduledDate = new Date(today)
       scheduledDate.setDate(scheduledDate.getDate() + i)
-      scheduledDate.setHours(item.hour || 9, Math.floor(Math.random() * 30), 0, 0)
+      scheduledDate.setHours(hours[i] || 9, Math.floor(Math.random() * 30), 0, 0)
+      const dayName = scheduledDate.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
 
-      const fullText = item.post + '\n\n' + (item.hashtags || []).map(h => '#' + h).join(' ')
+      let postText = '', hashtags = []
+      try {
+        const resp = await analyzeWithDeepSeek(`
+Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
+Genera UN post de LinkedIn estilo ${styles[i]} sobre: ${topics[i]}.
+Max 150 palabras, natural, no vendedor. Español argentino.
+Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
+        `)
+        const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
+        if (parsed.post) {
+          postText = parsed.post
+          hashtags = parsed.hashtags || []
+        }
+      } catch (aiErr) {
+        console.log(`[Calendar] AI failed for day ${i+1}, using fallback:`, aiErr.message?.slice(0, 80))
+      }
 
+      // Fallback if AI failed
+      if (!postText) {
+        postText = `${topics[i].charAt(0).toUpperCase() + topics[i].slice(1)}.\n\nEn ${p.avatar_company || 'Adbize'} venimos trabajando con empresas que quieren dar el salto a la inteligencia artificial. Lo que mas nos sorprende es lo rapido que se ven resultados cuando se implementa bien.\n\nLa clave no es reemplazar personas, sino potenciarlas. La IA se encarga de lo repetitivo para que tu equipo se enfoque en lo que realmente importa.\n\nSi queres ver como funciona, te ofrecemos una demo gratis.`
+        hashtags = ['InteligenciaArtificial', 'IAparaEmpresas', 'TransformacionDigital']
+      }
+
+      const fullText = postText + '\n\n' + hashtags.map(h => '#' + h).join(' ')
       const { rows: inserted } = await pool.query(
         'INSERT INTO scheduled_posts (profile_id, text, hashtags, scheduled_at) VALUES ($1,$2,$3,$4) RETURNING *',
-        [req.params.id, fullText, JSON.stringify(item.hashtags || []), scheduledDate.toISOString()]
+        [req.params.id, fullText, JSON.stringify(hashtags), scheduledDate.toISOString()]
       )
-      scheduled.push({ ...inserted[0], style: item.style, day: item.day })
+      scheduled.push({ ...inserted[0], style: styles[i], day: dayName })
+      console.log(`[Calendar] Scheduled day ${i+1}: ${dayName}`)
     }
 
     console.log('[Calendar] Scheduled', scheduled.length, 'posts')
