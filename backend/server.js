@@ -986,7 +986,7 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
             // Go to LinkedIn search
             const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}&origin=GLOBAL_SEARCH_HEADER`
             liLog(pid, `Navegando a busqueda: ${searchQuery}`)
-            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 })
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
             await sleep(3000 + Math.random() * 4000)
 
             // Find Connect buttons on the page

@@ -169,33 +169,32 @@ class LinkedInBrowserService extends EventEmitter {
         try {
           const cookies = JSON.parse(decrypt(savedCookies))
           await page.setCookie(...cookies)
-          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle2', timeout: 30000 })
-          await sleep(2000, 4000)
+          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await sleep(3000, 5000)
 
-          // Check if session is still valid
-          const isLogged = await page.evaluate(() => {
-            return !!document.querySelector('.global-nav') || !!document.querySelector('[data-control-name]')
-          })
+          const feedUrl = page.url()
+          const isLogged = feedUrl.includes('/feed') && !feedUrl.includes('/login')
 
           if (isLogged) {
             this.sessions.set(profileId, { browser, page, loggedIn: true })
             this.emit('status', { profileId, status: 'connected' })
-            console.log(`[LinkedIn] Session restored for profile ${profileId}`)
+            console.log('[LinkedIn] Session restored from cookies')
             return { success: true, message: 'Session restored from cookies' }
           }
+          console.log('[LinkedIn] Cookies expired, redirected to:', feedUrl)
         } catch (e) {
-          console.log('[LinkedIn] Saved cookies expired, logging in fresh')
+          console.log('[LinkedIn] Cookie restore failed:', e.message)
         }
       }
 
       // Fresh login
-      await page.goto('https://www.linkedin.com/login', { waitUntil: 'networkidle2', timeout: 30000 })
-      await sleep(3000, 6000)
+      await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await sleep(3000, 5000)
 
-      // Check if LinkedIn redirected us to feed (already logged in)
+      // Check if already logged in
       const currentUrl = page.url()
       if (currentUrl.includes('/feed') || currentUrl.includes('/mynetwork') || currentUrl.includes('/messaging')) {
-        console.log('[LinkedIn] Already logged in! Redirected to:', currentUrl)
+        console.log('[LinkedIn] Already logged in! URL:', currentUrl)
         const cookies = await page.cookies()
         const { pool: p2 } = await import('../../config/database.js')
         await p2.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(cookies)), profileId])
@@ -318,32 +317,77 @@ class LinkedInBrowserService extends EventEmitter {
 
     try {
       const { page } = session
-      await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle2' })
-      await sleep(3000, 6000)
+      await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await sleep(5000, 8000)
       await humanScroll(page)
 
-      // Click "Start a post"
-      await page.click('.share-box-feed-entry__trigger, [data-control-name="share.share_box"]')
-      await sleep(2000, 4000)
+      // Click "Start a post" - try multiple selectors
+      const startPostSelectors = [
+        '.share-box-feed-entry__trigger',
+        'button.artdeco-button--muted',
+        '[data-control-name="share.share_box"]',
+        'div.share-box-feed-entry__top-bar',
+      ]
+      let clicked = false
+      for (const sel of startPostSelectors) {
+        try { await page.click(sel); clicked = true; break } catch {}
+      }
+      // Fallback: find by text content
+      if (!clicked) {
+        try {
+          await page.evaluate(() => {
+            const btns = [...document.querySelectorAll('button, div[role="button"]')]
+            const trigger = btns.find(b => b.textContent.includes('Empezar') || b.textContent.includes('Start') || b.textContent.includes('publicación') || b.textContent.includes('post'))
+            if (trigger) trigger.click()
+          })
+          clicked = true
+        } catch {}
+      }
+      if (!clicked) return { success: false, message: 'No se encontro boton para crear post' }
 
-      // Type post content
-      const editor = await page.waitForSelector('.ql-editor, [role="textbox"]', { timeout: 10000 })
+      await sleep(3000, 5000)
+
+      // Type post content in the editor
+      const editorSelectors = ['.ql-editor', '[role="textbox"]', '[contenteditable="true"]', '.editor-content']
+      let editor = null
+      for (const sel of editorSelectors) {
+        editor = await page.$(sel)
+        if (editor) break
+      }
+      if (!editor) return { success: false, message: 'No se encontro editor de texto' }
+
       await editor.click()
       await sleep(500, 1000)
 
       // Type with human-like speed
       for (const line of text.split('\n')) {
         for (const char of line) {
-          await page.keyboard.type(char, { delay: 30 + Math.random() * 80 })
+          await page.keyboard.type(char, { delay: 20 + Math.random() * 60 })
         }
         await page.keyboard.press('Enter')
-        await sleep(200, 500)
+        await sleep(100, 300)
       }
 
       await sleep(2000, 4000)
 
-      // Click Post button
-      await page.click('.share-actions__primary-action, [data-control-name="share.post"]')
+      // Click Post/Publicar button
+      const postBtnSelectors = [
+        '.share-actions__primary-action',
+        'button.share-actions__primary-action',
+        '[data-control-name="share.post"]',
+      ]
+      let posted = false
+      for (const sel of postBtnSelectors) {
+        try { await page.click(sel); posted = true; break } catch {}
+      }
+      if (!posted) {
+        // Find by text
+        await page.evaluate(() => {
+          const btns = [...document.querySelectorAll('button')]
+          const postBtn = btns.find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
+          if (postBtn) postBtn.click()
+        })
+      }
       await sleep(5000, 10000)
 
       // Save cookies after action
@@ -366,7 +410,7 @@ class LinkedInBrowserService extends EventEmitter {
 
     try {
       const { page } = session
-      await page.goto(targetProfileUrl, { waitUntil: 'networkidle2' })
+      await page.goto(targetProfileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       await sleep(3000, 7000)
       await humanScroll(page)
       await randomMouseMove(page)
@@ -411,7 +455,7 @@ class LinkedInBrowserService extends EventEmitter {
 
     try {
       const { page } = session
-      await page.goto(targetProfileUrl, { waitUntil: 'networkidle2' })
+      await page.goto(targetProfileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
       await sleep(3000, 6000)
 
       // Click Message button
