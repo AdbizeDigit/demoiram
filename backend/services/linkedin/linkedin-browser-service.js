@@ -301,31 +301,48 @@ class LinkedInBrowserService extends EventEmitter {
       const csrfToken = postCookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
 
       if (csrfToken) {
-        // If we have an image URL, upload it first
+        // If we have an image URL, download it and upload to LinkedIn
         let mediaUrn = null
         if (imageUrl) {
-          console.log('[LinkedIn] Uploading image...')
+          console.log('[LinkedIn] Downloading and uploading image...')
           try {
-            mediaUrn = await page.evaluate(async (imgUrl, csrf) => {
-              // Step 1: Register upload
-              const regRes = await fetch('https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
-                body: JSON.stringify({ fileSize: 500000, filename: 'post-image.jpg', mediaUploadType: 'IMAGE_SHARING' }),
-              })
-              const regData = await regRes.json()
-              const uploadUrl = regData?.data?.value?.singleUploadUrl
-              const urn = regData?.data?.value?.urn
-              if (!uploadUrl) return null
+            const axios = (await import('axios')).default
 
-              // Step 2: Download and upload image
-              const imgRes = await fetch(imgUrl)
-              const blob = await imgRes.blob()
-              await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/jpeg' }, body: blob })
-              return urn
-            }, imageUrl, csrfToken)
-            if (mediaUrn) console.log('[LinkedIn] Image uploaded:', mediaUrn)
-          } catch (e) { console.log('[LinkedIn] Image upload failed:', e.message) }
+            // Download image from Freepik
+            const imgResponse = await axios.get(imageUrl, { responseType: 'arraybuffer', timeout: 30000 })
+            const imgBase64 = Buffer.from(imgResponse.data).toString('base64')
+            const imgSize = imgResponse.data.length
+            console.log(`[LinkedIn] Image downloaded: ${Math.round(imgSize/1024)}KB`)
+
+            // Upload to LinkedIn via browser context
+            mediaUrn = await page.evaluate(async (base64Data, fileSize, csrf) => {
+              try {
+                // Step 1: Register upload
+                const regRes = await fetch('https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'csrf-token': csrf, 'x-restli-protocol-version': '2.0.0' },
+                  body: JSON.stringify({ fileSize, filename: 'post-image.png', mediaUploadType: 'IMAGE_SHARING' }),
+                })
+                const regData = await regRes.json()
+                const uploadUrl = regData?.data?.value?.singleUploadUrl
+                const urn = regData?.data?.value?.urn
+                if (!uploadUrl) return null
+
+                // Step 2: Convert base64 to blob and upload
+                const byteChars = atob(base64Data)
+                const byteArray = new Uint8Array(byteChars.length)
+                for (let i = 0; i < byteChars.length; i++) byteArray[i] = byteChars.charCodeAt(i)
+                const blob = new Blob([byteArray], { type: 'image/png' })
+
+                const upRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: blob })
+                if (upRes.ok) return urn
+                return null
+              } catch { return null }
+            }, imgBase64, imgSize, csrfToken)
+
+            if (mediaUrn) console.log('[LinkedIn] Image uploaded to LinkedIn:', mediaUrn)
+            else console.log('[LinkedIn] Image upload returned no URN')
+          } catch (e) { console.log('[LinkedIn] Image upload failed:', e.message?.slice(0, 100)) }
         }
 
         console.log('[LinkedIn] Posting via API' + (mediaUrn ? ' with image...' : '...'))
