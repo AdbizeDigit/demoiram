@@ -384,6 +384,7 @@ class LinkedInBrowserService extends EventEmitter {
         postBody.media = [{ category: 'IMAGE', mediaUrn, tapTargets: [] }]
       }
 
+      let apiSuccess = false
       try {
         const postRes = await axios.post(
           'https://www.linkedin.com/voyager/api/contentcreation/normShares',
@@ -399,30 +400,54 @@ class LinkedInBrowserService extends EventEmitter {
           }
         )
         console.log('[LinkedIn] Post published via API! Status:', postRes.status)
+        apiSuccess = true
       } catch (apiErr) {
-        console.log('[LinkedIn] API post failed:', apiErr.response?.status, apiErr.message?.slice(0, 100))
-        console.log('[LinkedIn] Trying UI fallback...')
-        // UI fallback
-        await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
-        await sleep(8000, 12000)
+        const status = apiErr.response?.status
+        console.log('[LinkedIn] API post failed:', status, apiErr.message?.slice(0, 100))
 
-        await page.evaluate(() => {
-          const trigger = document.querySelector('.share-box-feed-entry__trigger, [class*="share-box"]')
-          if (trigger) trigger.click()
-        })
-        await sleep(3000, 5000)
-
-        const editor = await page.$('.ql-editor, [role="textbox"], [contenteditable="true"]')
-        if (editor) {
-          await editor.click()
-          await sleep(500)
-          await page.keyboard.type(text, { delay: 15 })
-          await sleep(2000)
-          await page.evaluate(() => {
-            const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
-            if (btn) btn.click()
-          })
+        // If 401/403, session expired - don't try UI fallback
+        if (status === 401 || status === 403) {
+          return { success: false, message: `Sesion expirada (${status}). Reconecta LinkedIn.` }
         }
+
+        console.log('[LinkedIn] Trying UI fallback...')
+        try {
+          await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await sleep(8000, 12000)
+
+          // Check if actually logged in
+          const url = page.url()
+          if (url.includes('/login') || url.includes('/authwall')) {
+            return { success: false, message: 'No logueado en LinkedIn. Reconecta.' }
+          }
+
+          await page.evaluate(() => {
+            const trigger = document.querySelector('.share-box-feed-entry__trigger, [class*="share-box"]')
+            if (trigger) trigger.click()
+          })
+          await sleep(3000, 5000)
+
+          const editor = await page.$('.ql-editor, [role="textbox"], [contenteditable="true"]')
+          if (editor) {
+            await editor.click()
+            await sleep(500)
+            await page.keyboard.type(text, { delay: 15 })
+            await sleep(2000)
+            await page.evaluate(() => {
+              const btn = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Post' || b.textContent.trim() === 'Publicar')
+              if (btn) btn.click()
+            })
+            apiSuccess = true
+          } else {
+            return { success: false, message: 'No se encontro el editor de post en LinkedIn' }
+          }
+        } catch (uiErr) {
+          return { success: false, message: 'UI fallback fallo: ' + uiErr.message?.slice(0, 80) }
+        }
+      }
+
+      if (!apiSuccess) {
+        return { success: false, message: 'No se pudo publicar el post' }
       }
 
       await sleep(3000, 5000)
