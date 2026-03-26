@@ -695,12 +695,18 @@ setInterval(async () => {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
     for (const post of rows) {
       try {
+        // Mark as processing immediately to prevent duplicate runs
+        const { rowCount } = await pool.query(
+          "UPDATE scheduled_posts SET status = 'processing' WHERE id = $1 AND status = 'pending'", [post.id]
+        )
+        if (rowCount === 0) continue // Already picked up by another cycle
+
         // Check if browser session exists and is logged in
         const session = linkedinBrowser.sessions?.get(post.profile_id)
         if (!session?.loggedIn) {
           console.log(`[Scheduler] No active session for ${post.profile_name}, skipping`)
           await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3',
-            ['failed', 'No hay sesion activa de LinkedIn. Conecta primero.', post.id])
+            ['pending', 'Esperando sesion activa de LinkedIn', post.id])
           liLog(post.profile_id, `Post programado no publicado: no hay sesion activa`, 'error', 'post')
           continue
         }
