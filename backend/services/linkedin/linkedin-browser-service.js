@@ -273,8 +273,8 @@ class LinkedInBrowserService extends EventEmitter {
       }
 
       // Save cookies encrypted
-      const cookies = await page.cookies()
-      await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(cookies)), profileId])
+      const freshCookies = await page.cookies()
+      await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(freshCookies)), profileId])
 
       this.sessions.set(profileId, { browser, page, loggedIn: true })
       this.emit('status', { profileId, status: 'connected' })
@@ -297,8 +297,8 @@ class LinkedInBrowserService extends EventEmitter {
       const { page } = session
 
       // Use LinkedIn's internal API to create post (more reliable than UI)
-      const cookies = await page.cookies()
-      const csrfToken = cookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
+      const postCookies = await page.cookies()
+      const csrfToken = postCookies.find(c => c.name === 'JSESSIONID')?.value?.replace(/"/g, '')
 
       if (csrfToken) {
         console.log('[LinkedIn] Posting via API...')
@@ -358,9 +358,9 @@ class LinkedInBrowserService extends EventEmitter {
       await sleep(3000, 5000)
 
       // Save cookies after action
-      const cookies = await page.cookies()
+      const updatedCookies = await page.cookies()
       const { pool } = await import('../../config/database.js')
-      await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(cookies)), profileId])
+      await pool.query('UPDATE linkedin_profiles SET cookies = $1 WHERE id = $2', [encrypt(JSON.stringify(updatedCookies)), profileId])
 
       console.log(`[LinkedIn] Post created for profile ${profileId}`)
       return { success: true, message: 'Post publicado' }
