@@ -219,62 +219,23 @@ class LinkedInBrowserService extends EventEmitter {
         console.log('[LinkedIn] HTML snippet:', html.slice(0, 500))
       } catch {}
 
-      // Wait for page to fully load and try to find inputs
+      // Fill fields and submit using evaluate (avoids "not clickable" errors)
       await sleep(3000, 5000)
 
-      // Find email input - try multiple selectors
-      const emailSelectors = ['#username', 'input[name="session_key"]', 'input[autocomplete="username"]', 'input[id*="username"]', 'input[id*="email"]', 'input[type="text"]', 'input[type="email"]']
-      let emailInput = null
-      for (const sel of emailSelectors) {
-        emailInput = await page.$(sel)
-        if (emailInput) { console.log('[LinkedIn] Found email input with:', sel); break }
-      }
-      if (!emailInput) {
-        // Try waiting for any input to appear
-        try {
-          await page.waitForSelector('input', { timeout: 10000 })
-          emailInput = await page.$('input')
-          console.log('[LinkedIn] Found generic input after wait')
-        } catch {}
-      }
-      if (!emailInput) {
-        const url = page.url()
-        const title = await page.title().catch(() => '')
-        await browser.close()
-        return { success: false, message: `No se encontro el campo de email. URL: ${url.slice(0, 80)}, Title: ${title.slice(0, 50)}` }
-      }
-      await emailInput.click()
-      await sleep(300, 800)
-      for (const char of email) {
-        await page.keyboard.type(char, { delay: 50 + Math.random() * 150 })
-      }
-      await sleep(500, 1500)
-      await randomMouseMove(page)
+      console.log('[LinkedIn] Filling login form via evaluate...')
+      await page.evaluate((em, pw) => {
+        const emailEl = document.querySelector('#username') || document.querySelector('input[name="session_key"]') || document.querySelector('input[type="email"]')
+        if (emailEl) { emailEl.focus(); emailEl.value = em; emailEl.dispatchEvent(new Event('input', { bubbles: true })) }
+        const passEl = document.querySelector('#password') || document.querySelector('input[name="session_password"]') || document.querySelector('input[type="password"]')
+        if (passEl) { passEl.focus(); passEl.value = pw; passEl.dispatchEvent(new Event('input', { bubbles: true })) }
+      }, email, password)
 
-      // Find password input
-      const passSelectors = ['#password', 'input[name="session_password"]', 'input[autocomplete="current-password"]', 'input[type="password"]']
-      let passInput = null
-      for (const sel of passSelectors) {
-        passInput = await page.$(sel)
-        if (passInput) break
-      }
-      if (!passInput) {
-        await browser.close()
-        return { success: false, message: 'No se encontro el campo de password.' }
-      }
-      await passInput.click()
-      await sleep(300, 800)
-      for (const char of password) {
-        await page.keyboard.type(char, { delay: 50 + Math.random() * 150 })
-      }
-      await sleep(800, 2000)
-
-      // Click sign in - try multiple selectors
-      const submitSelectors = ['[data-litms-control-urn="login-submit"]', 'button[type="submit"]', '.login__form_action_container button', 'form button']
-      for (const sel of submitSelectors) {
-        const btn = await page.$(sel)
-        if (btn) { await btn.click(); break }
-      }
+      await sleep(1000, 2000)
+      console.log('[LinkedIn] Clicking submit...')
+      await page.evaluate(() => {
+        const btn = document.querySelector('button[type="submit"]') || document.querySelector('[data-litms-control-urn="login-submit"]')
+        if (btn) btn.click()
+      })
       await sleep(5000, 10000)
 
       // Check for verification challenge
