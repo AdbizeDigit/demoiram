@@ -953,41 +953,120 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         const topic = topics[Math.floor(Math.random() * topics.length)]
         try {
           const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
-          const postContent = await analyzeWithDeepSeek(`
-            Eres ${p?.avatar_name || p?.name || 'profesional'} de ${p?.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}.
-            Menciona sutilmente como la IA puede beneficiar empresas. No seas vendedor.
-            Max 150 palabras. Espanol argentino. Responde SOLO JSON: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
-          `)
-          const parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}')
+          const postContent = await analyzeWithDeepSeek(
+            `Eres ${p?.avatar_name || p?.name || 'profesional'} de ${p?.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}. Menciona sutilmente como la IA puede beneficiar empresas. No seas vendedor. Max 150 palabras. Espanol argentino. Responde SOLO con un JSON valido sin comentarios: {"post":"texto del post aqui","hashtags":["tag1","tag2","tag3"]}`
+          )
+          let parsed = {}
+          try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error') }
           if (parsed.post) {
-            liLog(pid, `Post generado: "${parsed.post.slice(0, 60)}..."`)
+            liLog(pid, `Post generado: "${parsed.post.slice(0, 80)}..."`)
             const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
-            await linkedinBrowser.createPost(pid, fullPost)
-            liLog(pid, 'Post publicado en LinkedIn!', 'success')
+            const postResult = await linkedinBrowser.createPost(pid, fullPost)
+            liLog(pid, postResult.success ? 'Post publicado en LinkedIn!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error')
+          } else {
+            liLog(pid, 'No se pudo generar post, continuando...', 'error')
           }
-        } catch (e) { liLog(pid, `Error publicando: ${e.message}`, 'error') }
+        } catch (e) { liLog(pid, `Error publicando: ${e.message?.slice(0, 100)}`, 'error') }
 
         await randomDelay()
 
-        // Step 3: Search and connect with people
+        // Step 3: Search and connect with decision makers
         if (!liAutoState.get(pid)?.running) return
         const targetRoles = cfg.targetRoles || ['CEO', 'Gerente']
+        const targetIndustries = cfg.targetIndustries || ['Tecnologia']
         const maxConnections = Math.min(cfg.dailyConnections || 10, 25)
-        liLog(pid, `Buscando ${targetRoles.join(', ')} para conectar (max ${maxConnections})...`)
+        const searchQuery = `${targetRoles[Math.floor(Math.random() * targetRoles.length)]} ${targetIndustries[Math.floor(Math.random() * targetIndustries.length)]}`
+        liLog(pid, `Buscando "${searchQuery}" para conectar (max ${maxConnections})...`)
 
-        for (let i = 0; i < maxConnections; i++) {
-          if (!liAutoState.get(pid)?.running) break
-          liLog(pid, `Conexion ${i + 1}/${maxConnections}: buscando perfil...`)
-          // The actual search/connect would use the browser here
-          // For now, log the intent
-          await sleep(8000 + Math.random() * 15000) // 8-23s between connections
-          liLog(pid, `Conexion ${i + 1} procesada`)
+        try {
+          const session = linkedinBrowser.sessions.get(pid)
+          if (session?.page) {
+            const { page } = session
 
-          // Break for safety every 10
-          if ((i + 1) % 10 === 0 && i < maxConnections - 1) {
-            liLog(pid, 'Pausa de seguridad 5 min...')
-            await sleep(300000)
+            // Go to LinkedIn search
+            const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}&origin=GLOBAL_SEARCH_HEADER`
+            liLog(pid, `Navegando a busqueda: ${searchQuery}`)
+            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 })
+            await sleep(3000 + Math.random() * 4000)
+
+            // Find Connect buttons on the page
+            let connected = 0
+            for (let attempt = 0; attempt < 3 && connected < maxConnections; attempt++) {
+              if (!liAutoState.get(pid)?.running) break
+
+              // Scroll to load more results
+              await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 800))
+              await sleep(2000 + Math.random() * 3000)
+
+              // Find all Connect buttons
+              const connectButtons = await page.$$('button[aria-label*="Conectar"], button[aria-label*="Connect"]')
+              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`)
+
+              for (const btn of connectButtons) {
+                if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
+
+                try {
+                  // Get the person's name
+                  const name = await page.evaluate(el => {
+                    const card = el.closest('.entity-result__item, .reusable-search__result-container, li')
+                    const nameEl = card?.querySelector('.entity-result__title-text a span, .app-aware-link span[dir]')
+                    return nameEl?.textContent?.trim() || 'Persona'
+                  }, btn)
+
+                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: conectando con ${name}...`)
+                  await btn.click()
+                  await sleep(1500 + Math.random() * 2000)
+
+                  // Check if "Add a note" dialog appeared
+                  const addNoteBtn = await page.$('button[aria-label*="nota"], button[aria-label*="note"]')
+                  if (addNoteBtn) {
+                    await addNoteBtn.click()
+                    await sleep(1000 + Math.random() * 1500)
+                    // Type connection note
+                    const noteInput = await page.$('textarea#custom-message, textarea[name="message"]')
+                    if (noteInput) {
+                      const note = cfg.connectionNote || 'Hola! Me intereso tu perfil. Me encantaria conectar.'
+                      await noteInput.type(note, { delay: 30 + Math.random() * 50 })
+                      await sleep(500 + Math.random() * 1000)
+                    }
+                    // Send
+                    const sendBtn = await page.$('button[aria-label*="Enviar"], button[aria-label*="Send"]')
+                    if (sendBtn) await sendBtn.click()
+                  } else {
+                    // Might have sent directly, or "Send without note" dialog
+                    const sendBtn = await page.$('button[aria-label*="Send without"], button[aria-label*="Enviar sin"]')
+                    if (sendBtn) await sendBtn.click()
+                  }
+
+                  await sleep(1000 + Math.random() * 1500)
+
+                  // Dismiss any dialog
+                  const dismissBtn = await page.$('button[aria-label*="Dismiss"], button[aria-label*="Cerrar"]')
+                  if (dismissBtn) await dismissBtn.click()
+
+                  connected++
+                  liLog(pid, `Conexion enviada a ${name}`, 'success')
+                  await sleep(8000 + Math.random() * 15000) // 8-23s between connections
+                } catch (connErr) {
+                  liLog(pid, `Error conectando: ${connErr.message?.slice(0, 60)}`, 'error')
+                  await sleep(3000)
+                }
+              }
+
+              // Next page
+              if (connected < maxConnections) {
+                const nextBtn = await page.$('button[aria-label="Next"], button[aria-label="Siguiente"]')
+                if (nextBtn) {
+                  await nextBtn.click()
+                  await sleep(4000 + Math.random() * 5000)
+                } else break
+              }
+            }
+
+            liLog(pid, `${connected} conexiones enviadas`, 'success')
           }
+        } catch (searchErr) {
+          liLog(pid, `Error en busqueda: ${searchErr.message?.slice(0, 100)}`, 'error')
         }
 
         liLog(pid, 'Ciclo de automatizacion completado', 'success')
