@@ -413,6 +413,12 @@ class LinkedInBrowserService extends EventEmitter {
           return { success: false, message: `Sesion expirada (${status}). Reconecta LinkedIn.` }
         }
 
+        // UI fallback can't upload images - if image required, don't fall back
+        if (requireImage && mediaUrn) {
+          console.log('[LinkedIn] API failed but requireImage=true, NOT falling back to UI (would lose image)')
+          return { success: false, message: `API falló (${status || apiErr.message?.slice(0, 60)}), no se usa UI fallback para preservar imagen` }
+        }
+
         console.log('[LinkedIn] Trying UI fallback...')
         const session = this.sessions?.get(profileId)
         if (session) session._pageInUse = true
