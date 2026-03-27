@@ -719,8 +719,22 @@ setInterval(async () => {
         const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0
         const MAX_IMAGE_RETRIES = 10 // ~10 minutes of retrying
 
-        // Generate image if not already set (retry up to 2 times per cycle)
+        // Verify existing image URL is still valid (Freepik URLs expire)
         let imageUrl = post.image_url
+        if (imageUrl && !imageUrl.startsWith('data:')) {
+          try {
+            const axios = (await import('axios')).default
+            const headCheck = await axios.head(imageUrl, { timeout: 10000 })
+            if (headCheck.status !== 200) throw new Error(`Status ${headCheck.status}`)
+            liLog(post.profile_id, 'URL de imagen verificada OK', 'info', 'post')
+          } catch (e) {
+            liLog(post.profile_id, `URL de imagen expirada/inválida (${e.message?.slice(0, 40)}), regenerando...`, 'error', 'post')
+            imageUrl = null
+            await pool.query('UPDATE scheduled_posts SET image_url = NULL WHERE id = $1', [post.id])
+          }
+        }
+
+        // Generate image if not set or expired (retry up to 2 times per cycle)
         if (!imageUrl) {
           const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
           for (let attempt = 1; attempt <= 2; attempt++) {
@@ -762,14 +776,15 @@ setInterval(async () => {
           await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW(), image_url = COALESCE($3, image_url), error = NULL WHERE id = $2', ['published', post.id, imageUrl])
           liLog(post.profile_id, `Post programado publicado con imagen! (${result.message})`, 'success', 'post')
         } else {
-          // If image upload to LinkedIn failed, go back to pending to retry
+          // If image upload to LinkedIn failed, clear image_url so next retry regenerates a fresh one
+          // (Freepik URLs expire, so retrying with same URL would keep failing)
           const newRetry = retryCount + 1
           if (newRetry >= MAX_IMAGE_RETRIES) {
             await pool.query("UPDATE scheduled_posts SET status = 'failed', error = $1 WHERE id = $2", [result.message, post.id])
             liLog(post.profile_id, `Error publicando después de ${MAX_IMAGE_RETRIES} intentos: ${result.message}`, 'error', 'post')
           } else {
-            liLog(post.profile_id, `Error publicando: ${result.message}, reintentando ciclo ${newRetry}...`, 'error', 'post')
-            await pool.query("UPDATE scheduled_posts SET status = 'pending', error = $1 WHERE id = $2",
+            liLog(post.profile_id, `Error publicando: ${result.message}, limpiando imagen y reintentando ciclo ${newRetry}...`, 'error', 'post')
+            await pool.query("UPDATE scheduled_posts SET status = 'pending', image_url = NULL, error = $1 WHERE id = $2",
               [`retry:${newRetry}|${result.message}`, post.id])
           }
         }
@@ -1659,28 +1674,28 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
             continue
           }
 
-          // Only delete old post AFTER we have a replacement image ready
-          if (post.urn && csrfToken) {
-            try {
-              await axios.delete(
-                `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(post.urn)}`,
-                {
-                  headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
-                  timeout: 10000,
-                }
-              )
-              liLog(pid, 'Post viejo eliminado', 'info', 'post')
-            } catch (delErr) {
-              liLog(pid, `No se pudo eliminar post (${delErr.response?.status}), re-publicando como nuevo`, 'error', 'post')
-            }
-          }
-
+          // FIRST publish the new post WITH image, THEN delete old post (only if new one succeeded)
           const result = await linkedinBrowser.createPost(pid, post.text, imageUrl, { requireImage: true })
           if (result.success) {
+            // New post with image published successfully - NOW safe to delete old one
+            if (post.urn && csrfToken) {
+              try {
+                await axios.delete(
+                  `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(post.urn)}`,
+                  {
+                    headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+                    timeout: 10000,
+                  }
+                )
+                liLog(pid, 'Post viejo eliminado', 'info', 'post')
+              } catch (delErr) {
+                liLog(pid, `No se pudo eliminar post viejo (${delErr.response?.status}), post nuevo ya publicado con imagen`, 'error', 'post')
+              }
+            }
             fixed++
             liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success', 'post')
           } else {
-            liLog(pid, `Error re-publicando: ${result.message}`, 'error', 'post')
+            liLog(pid, `Error re-publicando con imagen: ${result.message}, NO se borra el post original`, 'error', 'post')
           }
 
           await sleep(10000 + Math.random() * 10000)
