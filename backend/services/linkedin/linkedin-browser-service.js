@@ -348,7 +348,7 @@ class LinkedInBrowserService extends EventEmitter {
   }
 
   // Create a post
-  async createPost(profileId, text, imageUrl = null) {
+  async createPost(profileId, text, imageUrl = null, { requireImage = false } = {}) {
     const auth = await this._getSessionAuth(profileId)
     if (!auth) return { success: false, message: 'No conectado' }
 
@@ -364,6 +364,9 @@ class LinkedInBrowserService extends EventEmitter {
           mediaUrn = await this._uploadImageToLinkedIn(imageUrl, csrfToken, cookieStr)
         } catch (e) {
           console.log('[LinkedIn] Image upload FAILED:', e.message?.slice(0, 300))
+          if (requireImage) {
+            return { success: false, message: 'Image upload failed: ' + (e.message?.slice(0, 100) || 'unknown error') }
+          }
           console.log('[LinkedIn] Will post without image')
         }
       }
@@ -411,6 +414,8 @@ class LinkedInBrowserService extends EventEmitter {
         }
 
         console.log('[LinkedIn] Trying UI fallback...')
+        const session = this.sessions?.get(profileId)
+        if (session) session._pageInUse = true
         try {
           await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
           await sleep(8000, 12000)
@@ -443,6 +448,8 @@ class LinkedInBrowserService extends EventEmitter {
           }
         } catch (uiErr) {
           return { success: false, message: 'UI fallback fallo: ' + uiErr.message?.slice(0, 80) }
+        } finally {
+          if (session) session._pageInUse = false
         }
       }
 
@@ -511,7 +518,9 @@ class LinkedInBrowserService extends EventEmitter {
   async sendConnection(profileId, targetProfileUrl, note = '') {
     const session = this.sessions.get(profileId)
     if (!session?.loggedIn) return { success: false, message: 'No conectado' }
+    if (session._pageInUse) return { success: false, message: 'Navegador ocupado, intentar más tarde' }
 
+    session._pageInUse = true
     try {
       const { page } = session
       await page.goto(targetProfileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
@@ -549,6 +558,8 @@ class LinkedInBrowserService extends EventEmitter {
       return { success: true, message: 'Conexion enviada' }
     } catch (err) {
       return { success: false, message: err.message }
+    } finally {
+      session._pageInUse = false
     }
   }
 
@@ -556,7 +567,9 @@ class LinkedInBrowserService extends EventEmitter {
   async sendMessage(profileId, targetProfileUrl, message) {
     const session = this.sessions.get(profileId)
     if (!session?.loggedIn) return { success: false, message: 'No conectado' }
+    if (session._pageInUse) return { success: false, message: 'Navegador ocupado, intentar más tarde' }
 
+    session._pageInUse = true
     try {
       const { page } = session
       await page.goto(targetProfileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
@@ -590,6 +603,8 @@ class LinkedInBrowserService extends EventEmitter {
       return { success: true, message: 'Mensaje enviado' }
     } catch (err) {
       return { success: false, message: err.message }
+    } finally {
+      session._pageInUse = false
     }
   }
 

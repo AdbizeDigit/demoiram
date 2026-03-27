@@ -1496,37 +1496,54 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
     if (!session?.loggedIn || !session?.page) return res.json({ success: false, error: 'No conectado' })
     const { page } = session
 
+    // Check if page is busy (navigating or has pending navigation)
+    if (session._pageInUse) {
+      liLog(pid, 'La página del navegador está ocupada, intentar más tarde', 'error', 'post')
+      return res.json({ success: false, error: 'El navegador está ocupado con otra operación. Intentar más tarde.' })
+    }
+
     // Navigate to profile activity page and scrape posts from the DOM
     let posts = []
+    session._pageInUse = true
     try {
-      await page.goto('https://www.linkedin.com/in/me/recent-activity/all/', { waitUntil: 'domcontentloaded', timeout: 30000 })
-      await new Promise(r => setTimeout(r, 5000))
+      // Wrap entire scraping in a timeout to avoid hanging forever
+      const scrapeTimeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout: scraping took too long (60s)')), 60000))
+      const scrapeWork = (async () => {
+        liLog(pid, 'Navegando a página de actividad...', 'info', 'post')
+        await page.goto('https://www.linkedin.com/in/me/recent-activity/all/', { waitUntil: 'domcontentloaded', timeout: 20000 })
+        liLog(pid, 'Página cargada, esperando contenido...', 'info', 'post')
+        await new Promise(r => setTimeout(r, 4000))
 
-      // Scroll to load posts
-      for (let i = 0; i < 3; i++) {
-        await page.evaluate(() => window.scrollBy(0, 800))
-        await new Promise(r => setTimeout(r, 2000))
-      }
+        // Scroll to load posts
+        for (let i = 0; i < 3; i++) {
+          await page.evaluate(() => window.scrollBy(0, 800))
+          await new Promise(r => setTimeout(r, 1500))
+        }
 
-      // Extract posts from DOM
-      posts = await page.evaluate(() => {
-        const items = document.querySelectorAll('.feed-shared-update-v2, [data-urn*="activity"], .profile-creator-shared-feed-update__container')
-        return [...items].slice(0, 15).map(item => {
-          const textEl = item.querySelector('.feed-shared-text, .break-words span[dir="ltr"], .update-components-text span[dir="ltr"]')
-          const imgEl = item.querySelector('.feed-shared-image img, .update-components-image img, img[data-delayed-url]')
-          const urnAttr = item.getAttribute('data-urn') || item.closest('[data-urn]')?.getAttribute('data-urn') || ''
-          return {
-            text: textEl?.textContent?.trim() || '',
-            hasImage: !!imgEl,
-            urn: urnAttr,
-          }
-        }).filter(p => p.text.length > 20)
-      })
+        liLog(pid, 'Extrayendo posts del DOM...', 'info', 'post')
+        // Extract posts from DOM
+        return await page.evaluate(() => {
+          const items = document.querySelectorAll('.feed-shared-update-v2, [data-urn*="activity"], .profile-creator-shared-feed-update__container')
+          return [...items].slice(0, 15).map(item => {
+            const textEl = item.querySelector('.feed-shared-text, .break-words span[dir="ltr"], .update-components-text span[dir="ltr"]')
+            const imgEl = item.querySelector('.feed-shared-image img, .update-components-image img, img[data-delayed-url]')
+            const urnAttr = item.getAttribute('data-urn') || item.closest('[data-urn]')?.getAttribute('data-urn') || ''
+            return {
+              text: textEl?.textContent?.trim() || '',
+              hasImage: !!imgEl,
+              urn: urnAttr,
+            }
+          }).filter(p => p.text.length > 20)
+        })
+      })()
 
+      posts = await Promise.race([scrapeWork, scrapeTimeout])
       liLog(pid, `Encontrados ${posts.length} posts, ${posts.filter(p => !p.hasImage).length} sin imagen`, 'success', 'post')
     } catch (e) {
       liLog(pid, `Error obteniendo posts: ${e.message?.slice(0, 80)}`, 'error', 'post')
       return res.json({ success: false, error: 'Error obteniendo posts: ' + e.message })
+    } finally {
+      session._pageInUse = false
     }
 
     if (!posts.filter(p => !p.hasImage).length) {
@@ -1553,7 +1570,26 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
 
           liLog(pid, `Post sin imagen: "${post.text.slice(0, 60)}..."`, 'info', 'post')
 
-          // Try to delete old post via API if we have the URN
+          // FIRST generate the image, THEN delete old post (don't delete if no replacement)
+          await sleep(3000 + Math.random() * 3000)
+
+          let imageUrl = null
+          try {
+            liLog(pid, 'Generando imagen con Freepik...', 'info', 'post')
+            const imgResult = await freepikImageService.generateForPost(post.text)
+            imageUrl = imgResult?.url || null
+            if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
+          } catch (imgErr) {
+            liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
+          }
+
+          // Do NOT re-publish without image - that defeats the purpose
+          if (!imageUrl) {
+            liLog(pid, 'No se pudo generar imagen, saltando este post (no se borrará sin imagen nueva)', 'error', 'post')
+            continue
+          }
+
+          // Only delete old post AFTER we have a replacement image ready
           if (post.urn && csrfToken) {
             try {
               await axios.delete(
@@ -1569,19 +1605,7 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
             }
           }
 
-          await sleep(3000 + Math.random() * 3000)
-
-          let imageUrl = null
-          try {
-            liLog(pid, 'Generando imagen con Freepik...', 'info', 'post')
-            const imgResult = await freepikImageService.generateForPost(post.text)
-            imageUrl = imgResult?.url || null
-            if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
-          } catch (imgErr) {
-            liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
-          }
-
-          const result = await linkedinBrowser.createPost(pid, post.text, imageUrl)
+          const result = await linkedinBrowser.createPost(pid, post.text, imageUrl, { requireImage: true })
           if (result.success) {
             fixed++
             liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success', 'post')
