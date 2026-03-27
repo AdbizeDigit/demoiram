@@ -714,22 +714,30 @@ setInterval(async () => {
         console.log(`[Scheduler] Publishing scheduled post for ${post.profile_name}: "${post.text.slice(0, 50)}..."`)
         liLog(post.profile_id, `Publicando post programado: "${post.text.slice(0, 50)}..."`, 'info', 'post')
 
-        // Generate image if not already set
+        // Generate image if not already set (retry up to 2 times)
         let imageUrl = post.image_url
         if (!imageUrl) {
-          try {
-            const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
-            const imgResult = await freepikImageService.generateForPost(post.text)
-            imageUrl = imgResult?.url || null
-            if (imageUrl) {
-              await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [imageUrl, post.id])
-              liLog(post.profile_id, 'Imagen generada para post programado', 'success', 'post')
+          const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              liLog(post.profile_id, `Generando imagen (intento ${attempt}/2)...`, 'info', 'post')
+              const imgResult = await freepikImageService.generateForPost(post.text)
+              imageUrl = imgResult?.url || null
+              if (imageUrl) {
+                await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [imageUrl, post.id])
+                liLog(post.profile_id, 'Imagen generada para post programado', 'success', 'post')
+                break
+              }
+            } catch (e) {
+              liLog(post.profile_id, `Imagen intento ${attempt} falló: ${e.message?.slice(0, 60)}`, 'error', 'post')
+              if (attempt < 2) await new Promise(r => setTimeout(r, 5000))
             }
-          } catch (e) {
-            liLog(post.profile_id, `Imagen no disponible: ${e.message?.slice(0, 60)}`, 'error', 'post')
           }
         }
 
+        if (!imageUrl) {
+          liLog(post.profile_id, 'No se pudo generar imagen, publicando solo texto', 'error', 'post')
+        }
         liLog(post.profile_id, `Publicando ${imageUrl ? 'CON imagen' : 'SIN imagen'}...`, 'info', 'post')
         const result = await linkedinBrowser.createPost(post.profile_id, post.text, imageUrl)
         liLog(post.profile_id, `Resultado createPost: ${JSON.stringify(result)}`, 'info', 'post')
@@ -748,12 +756,12 @@ setInterval(async () => {
   } catch {}
 }, 60000) // Check every minute
 
-// Pre-generate images for upcoming posts (every 5 minutes)
+// Pre-generate images for upcoming posts (every 2 minutes)
 setInterval(async () => {
   try {
     const { pool } = await import('./config/database.js')
     const { rows } = await pool.query(
-      `SELECT * FROM scheduled_posts WHERE status = 'pending' AND image_url IS NULL AND scheduled_at <= NOW() + interval '2 hours' LIMIT 2`
+      `SELECT * FROM scheduled_posts WHERE status = 'pending' AND image_url IS NULL AND scheduled_at <= NOW() + interval '6 hours' LIMIT 3`
     )
     if (!rows.length) return
 
@@ -772,7 +780,7 @@ setInterval(async () => {
       }
     }
   } catch {}
-}, 300000) // Every 5 minutes
+}, 120000) // Every 2 minutes
 
 app.get('/api/linkedin-profiles', async (req, res) => {
   try {
@@ -904,6 +912,23 @@ app.post('/api/linkedin-profiles/:id/scheduled-posts', async (req, res) => {
       [req.params.id, text, JSON.stringify(hashtags || []), image_url || null, scheduled_at]
     )
     res.json({ success: true, post: rows[0] })
+
+    // Pre-generate image in background if none provided
+    if (!image_url && rows[0]?.id) {
+      ;(async () => {
+        try {
+          const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+          const imgResult = await freepikImageService.generateForPost(text)
+          const url = imgResult?.url || null
+          if (url) {
+            await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [url, rows[0].id])
+            console.log(`[ImagePregen] Image pre-generated for new post ${rows[0].id}`)
+          }
+        } catch (e) {
+          console.log(`[ImagePregen] Failed for new post ${rows[0].id}: ${e.message?.slice(0, 80)}`)
+        }
+      })()
+    }
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
@@ -1007,6 +1032,26 @@ Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["tag1","tag2","t
 
     console.log('[Calendar] Scheduled', scheduled.length, 'posts')
     res.json({ success: true, posts: scheduled })
+
+    // Pre-generate images for all new posts in background
+    ;(async () => {
+      try {
+        const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+        for (const post of scheduled) {
+          if (post.image_url) continue
+          try {
+            const imgResult = await freepikImageService.generateForPost(post.text)
+            const url = imgResult?.url || null
+            if (url) {
+              await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [url, post.id])
+              console.log(`[ImagePregen] Calendar image ready for post ${post.id}`)
+            }
+          } catch (e) {
+            console.log(`[ImagePregen] Calendar failed for ${post.id}: ${e.message?.slice(0, 80)}`)
+          }
+        }
+      } catch (e) { console.log('[ImagePregen] Calendar batch error:', e.message) }
+    })()
   } catch (err) {
     console.error('[Calendar] Error:', err.message)
     res.status(500).json({ success: false, error: err.message })
