@@ -1491,52 +1491,47 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
 
     liLog(pid, 'Buscando posts sin imagen para actualizar...', 'info', 'post')
 
-    // Get session auth
-    const auth = await linkedinBrowser._getSessionAuth(pid)
-    if (!auth) return res.json({ success: false, error: 'No conectado' })
+    // Get session with browser page
+    const session = linkedinBrowser.sessions?.get(pid)
+    if (!session?.loggedIn || !session?.page) return res.json({ success: false, error: 'No conectado' })
+    const { page } = session
 
-    const axios = (await import('axios')).default
-    const { csrfToken, cookieStr } = auth
-
-    // Get profile info
-    let memberUrn
-    try {
-      const meRes = await axios.get('https://www.linkedin.com/voyager/api/me', {
-        headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
-        timeout: 10000,
-      })
-      memberUrn = meRes.data?.miniProfile?.entityUrn || meRes.data?.entityUrn
-      liLog(pid, `Perfil: ${memberUrn}`, 'info', 'post')
-    } catch (e) {
-      return res.json({ success: false, error: 'No se pudo obtener perfil: ' + e.message })
-    }
-
-    // Get recent posts - try multiple endpoints
+    // Navigate to profile activity page and scrape posts from the DOM
     let posts = []
-    const feedEndpoints = [
-      `https://www.linkedin.com/voyager/api/feed/dash/feedUpdates?q=memberShareFeed&moduleKey=member-shares:last-shared&count=20&memberUrn=${encodeURIComponent(memberUrn)}`,
-      `https://www.linkedin.com/voyager/api/identity/profileUpdatesV2?profileUrn=${encodeURIComponent(memberUrn)}&q=memberShareFeed&moduleKey=member-shares:last-shared&count=20`,
-      `https://www.linkedin.com/voyager/api/feed/updatesV2?profileUrn=${encodeURIComponent(memberUrn)}&q=memberShareFeed&moduleKey=member-shares:last-shared&count=20`,
-    ]
-    for (const url of feedEndpoints) {
-      try {
-        liLog(pid, `Probando endpoint: ${url.split('?')[0].split('/').pop()}`, 'info', 'post')
-        const feedRes = await axios.get(url, {
-          headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
-          timeout: 15000,
-        })
-        posts = feedRes.data?.elements || feedRes.data?.data?.elements || []
-        if (posts.length > 0) {
-          liLog(pid, `Encontrados ${posts.length} posts recientes`, 'success', 'post')
-          break
-        }
-      } catch (e) {
-        liLog(pid, `Endpoint fallo (${e.response?.status || e.message?.slice(0, 40)})`, 'error', 'post')
+    try {
+      await page.goto('https://www.linkedin.com/in/me/recent-activity/all/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+      await new Promise(r => setTimeout(r, 5000))
+
+      // Scroll to load posts
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => window.scrollBy(0, 800))
+        await new Promise(r => setTimeout(r, 2000))
       }
+
+      // Extract posts from DOM
+      posts = await page.evaluate(() => {
+        const items = document.querySelectorAll('.feed-shared-update-v2, [data-urn*="activity"], .profile-creator-shared-feed-update__container')
+        return [...items].slice(0, 15).map(item => {
+          const textEl = item.querySelector('.feed-shared-text, .break-words span[dir="ltr"], .update-components-text span[dir="ltr"]')
+          const imgEl = item.querySelector('.feed-shared-image img, .update-components-image img, img[data-delayed-url]')
+          const urnAttr = item.getAttribute('data-urn') || item.closest('[data-urn]')?.getAttribute('data-urn') || ''
+          return {
+            text: textEl?.textContent?.trim() || '',
+            hasImage: !!imgEl,
+            urn: urnAttr,
+          }
+        }).filter(p => p.text.length > 20)
+      })
+
+      liLog(pid, `Encontrados ${posts.length} posts, ${posts.filter(p => !p.hasImage).length} sin imagen`, 'success', 'post')
+    } catch (e) {
+      liLog(pid, `Error obteniendo posts: ${e.message?.slice(0, 80)}`, 'error', 'post')
+      return res.json({ success: false, error: 'Error obteniendo posts: ' + e.message })
     }
-    if (!posts.length) {
-      liLog(pid, 'No se pudieron obtener posts de ningún endpoint', 'error', 'post')
-      return res.json({ success: false, error: 'No se pudieron obtener posts del perfil' })
+
+    if (!posts.filter(p => !p.hasImage).length) {
+      liLog(pid, 'Todos los posts ya tienen imagen!', 'success', 'post')
+      return res.json({ success: true, message: 'Todos los posts ya tienen imagen' })
     }
 
     res.json({ success: true, message: 'Procesando posts sin imagen en background...' })
@@ -1546,28 +1541,32 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
       const sleep = ms => new Promise(r => setTimeout(r, ms))
       let fixed = 0
 
+      // Get auth for API calls
+      const auth = await linkedinBrowser._getSessionAuth(pid)
+      const csrfToken = auth?.csrfToken
+      const cookieStr = auth?.cookieStr
+      const axios = (await import('axios')).default
+
       for (const post of posts) {
         try {
-          const commentary = post?.commentary?.text?.text || ''
-          const hasImage = !!(post?.content?.images?.length || post?.resharedUpdate)
-          const postUrn = post?.updateUrn || post?.urn
+          if (post.hasImage || !post.text) continue
 
-          if (!commentary || hasImage || !postUrn) continue
+          liLog(pid, `Post sin imagen: "${post.text.slice(0, 60)}..."`, 'info', 'post')
 
-          liLog(pid, `Post sin imagen: "${commentary.slice(0, 60)}..."`, 'info', 'post')
-
-          try {
-            await axios.delete(
-              `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(postUrn)}`,
-              {
-                headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
-                timeout: 10000,
-              }
-            )
-            liLog(pid, 'Post viejo eliminado', 'info', 'post')
-          } catch (delErr) {
-            liLog(pid, `No se pudo eliminar post: ${delErr.response?.status || delErr.message}`, 'error', 'post')
-            continue
+          // Try to delete old post via API if we have the URN
+          if (post.urn && csrfToken) {
+            try {
+              await axios.delete(
+                `https://www.linkedin.com/voyager/api/contentcreation/normShares/${encodeURIComponent(post.urn)}`,
+                {
+                  headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
+                  timeout: 10000,
+                }
+              )
+              liLog(pid, 'Post viejo eliminado', 'info', 'post')
+            } catch (delErr) {
+              liLog(pid, `No se pudo eliminar post (${delErr.response?.status}), re-publicando como nuevo`, 'error', 'post')
+            }
           }
 
           await sleep(3000 + Math.random() * 3000)
@@ -1575,14 +1574,14 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
           let imageUrl = null
           try {
             liLog(pid, 'Generando imagen con Freepik...', 'info', 'post')
-            const imgResult = await freepikImageService.generateForPost(commentary)
+            const imgResult = await freepikImageService.generateForPost(post.text)
             imageUrl = imgResult?.url || null
             if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
           } catch (imgErr) {
             liLog(pid, `Error generando imagen: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
           }
 
-          const result = await linkedinBrowser.createPost(pid, commentary, imageUrl)
+          const result = await linkedinBrowser.createPost(pid, post.text, imageUrl)
           if (result.success) {
             fixed++
             liLog(pid, `Post re-publicado con imagen! (${fixed} arreglados)`, 'success', 'post')
