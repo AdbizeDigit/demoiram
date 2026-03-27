@@ -714,17 +714,22 @@ setInterval(async () => {
         console.log(`[Scheduler] Publishing scheduled post for ${post.profile_name}: "${post.text.slice(0, 50)}..."`)
         liLog(post.profile_id, `Publicando post programado: "${post.text.slice(0, 50)}..."`, 'info', 'post')
 
-        // Generate image if not already set (retry up to 2 times)
+        // Track retry count from error field (format: "retry:N|message")
+        const retryMatch = (post.error || '').match(/^retry:(\d+)\|/)
+        const retryCount = retryMatch ? parseInt(retryMatch[1]) : 0
+        const MAX_IMAGE_RETRIES = 10 // ~10 minutes of retrying
+
+        // Generate image if not already set (retry up to 2 times per cycle)
         let imageUrl = post.image_url
         if (!imageUrl) {
           const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
           for (let attempt = 1; attempt <= 2; attempt++) {
             try {
-              liLog(post.profile_id, `Generando imagen (intento ${attempt}/2)...`, 'info', 'post')
+              liLog(post.profile_id, `Generando imagen (intento ${attempt}/2, ciclo ${retryCount + 1})...`, 'info', 'post')
               const imgResult = await freepikImageService.generateForPost(post.text)
               imageUrl = imgResult?.url || null
               if (imageUrl) {
-                await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [imageUrl, post.id])
+                await pool.query('UPDATE scheduled_posts SET image_url = $1, error = NULL WHERE id = $2', [imageUrl, post.id])
                 liLog(post.profile_id, 'Imagen generada para post programado', 'success', 'post')
                 break
               }
@@ -735,18 +740,38 @@ setInterval(async () => {
           }
         }
 
+        // NEVER publish without image - defer to next scheduler cycle (up to MAX_IMAGE_RETRIES)
         if (!imageUrl) {
-          liLog(post.profile_id, 'No se pudo generar imagen, publicando solo texto', 'error', 'post')
+          const newRetry = retryCount + 1
+          if (newRetry >= MAX_IMAGE_RETRIES) {
+            liLog(post.profile_id, `No se pudo generar imagen después de ${MAX_IMAGE_RETRIES} ciclos, marcando como fallido`, 'error', 'post')
+            await pool.query("UPDATE scheduled_posts SET status = 'failed', error = $1 WHERE id = $2",
+              [`No se pudo generar imagen después de ${MAX_IMAGE_RETRIES} intentos`, post.id])
+          } else {
+            liLog(post.profile_id, `No se pudo generar imagen (ciclo ${newRetry}/${MAX_IMAGE_RETRIES}), reintentando en próximo ciclo...`, 'error', 'post')
+            await pool.query("UPDATE scheduled_posts SET status = 'pending', error = $1 WHERE id = $2",
+              [`retry:${newRetry}|Esperando imagen`, post.id])
+          }
+          continue
         }
-        liLog(post.profile_id, `Publicando ${imageUrl ? 'CON imagen' : 'SIN imagen'}...`, 'info', 'post')
-        const result = await linkedinBrowser.createPost(post.profile_id, post.text, imageUrl)
+
+        liLog(post.profile_id, 'Publicando CON imagen...', 'info', 'post')
+        const result = await linkedinBrowser.createPost(post.profile_id, post.text, imageUrl, { requireImage: true })
         liLog(post.profile_id, `Resultado createPost: ${JSON.stringify(result)}`, 'info', 'post')
         if (result.success) {
-          await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW(), image_url = COALESCE($3, image_url) WHERE id = $2', ['published', post.id, imageUrl])
-          liLog(post.profile_id, `Post programado publicado! (${result.message})`, 'success', 'post')
+          await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW(), image_url = COALESCE($3, image_url), error = NULL WHERE id = $2', ['published', post.id, imageUrl])
+          liLog(post.profile_id, `Post programado publicado con imagen! (${result.message})`, 'success', 'post')
         } else {
-          await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3', ['failed', result.message, post.id])
-          liLog(post.profile_id, `Error publicando programado: ${result.message}`, 'error', 'post')
+          // If image upload to LinkedIn failed, go back to pending to retry
+          const newRetry = retryCount + 1
+          if (newRetry >= MAX_IMAGE_RETRIES) {
+            await pool.query("UPDATE scheduled_posts SET status = 'failed', error = $1 WHERE id = $2", [result.message, post.id])
+            liLog(post.profile_id, `Error publicando después de ${MAX_IMAGE_RETRIES} intentos: ${result.message}`, 'error', 'post')
+          } else {
+            liLog(post.profile_id, `Error publicando: ${result.message}, reintentando ciclo ${newRetry}...`, 'error', 'post')
+            await pool.query("UPDATE scheduled_posts SET status = 'pending', error = $1 WHERE id = $2",
+              [`retry:${newRetry}|${result.message}`, post.id])
+          }
         }
       } catch (e) {
         await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3', ['failed', e.message, post.id])
