@@ -730,10 +730,12 @@ setInterval(async () => {
           }
         }
 
+        liLog(post.profile_id, `Publicando ${imageUrl ? 'CON imagen' : 'SIN imagen'}...`, 'info', 'post')
         const result = await linkedinBrowser.createPost(post.profile_id, post.text, imageUrl)
+        liLog(post.profile_id, `Resultado createPost: ${JSON.stringify(result)}`, 'info', 'post')
         if (result.success) {
-          await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW() WHERE id = $2', ['published', post.id])
-          liLog(post.profile_id, `Post programado publicado!`, 'success', 'post')
+          await pool.query('UPDATE scheduled_posts SET status = $1, published_at = NOW(), image_url = COALESCE($3, image_url) WHERE id = $2', ['published', post.id, imageUrl])
+          liLog(post.profile_id, `Post programado publicado! (${result.message})`, 'success', 'post')
         } else {
           await pool.query('UPDATE scheduled_posts SET status = $1, error = $2 WHERE id = $3', ['failed', result.message, post.id])
           liLog(post.profile_id, `Error publicando programado: ${result.message}`, 'error', 'post')
@@ -745,6 +747,32 @@ setInterval(async () => {
     }
   } catch {}
 }, 60000) // Check every minute
+
+// Pre-generate images for upcoming posts (every 5 minutes)
+setInterval(async () => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(
+      `SELECT * FROM scheduled_posts WHERE status = 'pending' AND image_url IS NULL AND scheduled_at <= NOW() + interval '2 hours' LIMIT 2`
+    )
+    if (!rows.length) return
+
+    const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+    for (const post of rows) {
+      try {
+        console.log(`[ImagePregen] Generating image for post ${post.id}`)
+        const imgResult = await freepikImageService.generateForPost(post.text)
+        const imageUrl = imgResult?.url || null
+        if (imageUrl) {
+          await pool.query('UPDATE scheduled_posts SET image_url = $1 WHERE id = $2', [imageUrl, post.id])
+          console.log(`[ImagePregen] Image saved for post ${post.id}`)
+        }
+      } catch (e) {
+        console.log(`[ImagePregen] Failed for ${post.id}: ${e.message?.slice(0, 80)}`)
+      }
+    }
+  } catch {}
+}, 300000) // Every 5 minutes
 
 app.get('/api/linkedin-profiles', async (req, res) => {
   try {
@@ -1483,21 +1511,32 @@ app.post('/api/linkedin-profiles/:id/fix-images', async (req, res) => {
       return res.json({ success: false, error: 'No se pudo obtener perfil: ' + e.message })
     }
 
-    // Get recent posts
+    // Get recent posts - try multiple endpoints
     let posts = []
-    try {
-      const feedRes = await axios.get(
-        `https://www.linkedin.com/voyager/api/feed/dash/feedUpdates?moduleKey=member-shares:last-shared&count=20&q=memberShareFeed&memberUrn=${encodeURIComponent(memberUrn)}`,
-        {
+    const feedEndpoints = [
+      `https://www.linkedin.com/voyager/api/feed/dash/feedUpdates?q=memberShareFeed&moduleKey=member-shares:last-shared&count=20&memberUrn=${encodeURIComponent(memberUrn)}`,
+      `https://www.linkedin.com/voyager/api/identity/profileUpdatesV2?profileUrn=${encodeURIComponent(memberUrn)}&q=memberShareFeed&moduleKey=member-shares:last-shared&count=20`,
+      `https://www.linkedin.com/voyager/api/feed/updatesV2?profileUrn=${encodeURIComponent(memberUrn)}&q=memberShareFeed&moduleKey=member-shares:last-shared&count=20`,
+    ]
+    for (const url of feedEndpoints) {
+      try {
+        liLog(pid, `Probando endpoint: ${url.split('?')[0].split('/').pop()}`, 'info', 'post')
+        const feedRes = await axios.get(url, {
           headers: { 'csrf-token': csrfToken, 'x-restli-protocol-version': '2.0.0', 'Cookie': cookieStr },
           timeout: 15000,
+        })
+        posts = feedRes.data?.elements || feedRes.data?.data?.elements || []
+        if (posts.length > 0) {
+          liLog(pid, `Encontrados ${posts.length} posts recientes`, 'success', 'post')
+          break
         }
-      )
-      posts = feedRes.data?.elements || []
-      liLog(pid, `Encontrados ${posts.length} posts recientes`, 'info', 'post')
-    } catch (e) {
-      liLog(pid, `Error obteniendo posts: ${e.message}`, 'error', 'post')
-      return res.json({ success: false, error: 'No se pudo obtener posts: ' + e.message })
+      } catch (e) {
+        liLog(pid, `Endpoint fallo (${e.response?.status || e.message?.slice(0, 40)})`, 'error', 'post')
+      }
+    }
+    if (!posts.length) {
+      liLog(pid, 'No se pudieron obtener posts de ningún endpoint', 'error', 'post')
+      return res.json({ success: false, error: 'No se pudieron obtener posts del perfil' })
     }
 
     res.json({ success: true, message: 'Procesando posts sin imagen en background...' })
