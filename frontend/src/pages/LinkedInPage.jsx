@@ -27,6 +27,23 @@ const TOPICS = [
   'LinkedIn como herramienta de ventas B2B',
 ]
 
+const CONTENT_PILLARS = [
+  { id: 'ia_tech', label: 'IA y Tecnologia', color: 'blue' },
+  { id: 'filosofia', label: 'Filosofia', color: 'purple' },
+  { id: 'persuasion', label: 'Persuasion y Ventas', color: 'amber' },
+  { id: 'casos', label: 'Casos de exito', color: 'green' },
+]
+
+const PILLAR_COLORS = {
+  ia_tech: { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500', activeBg: 'bg-blue-100' },
+  filosofia: { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500', activeBg: 'bg-purple-100' },
+  persuasion: { bg: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', dot: 'bg-amber-500', activeBg: 'bg-amber-100' },
+  casos: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200', dot: 'bg-green-500', activeBg: 'bg-green-100' },
+}
+
+const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+const HOUR_OPTIONS = [7, 8, 9, 10, 11, 12, 14, 16, 18, 20]
+
 export default function LinkedInPage() {
   const [profiles, setProfiles] = useState([])
   const [avatars, setAvatars] = useState([])
@@ -51,6 +68,13 @@ export default function LinkedInPage() {
   const [scheduledPosts, setScheduledPosts] = useState([])
   const [calMonth, setCalMonth] = useState(new Date())
   const [viewPost, setViewPost] = useState(null)
+  const [calConfig, setCalConfig] = useState({
+    mode: 'manual',
+    days: [1, 2, 3, 4, 5], // 0=Dom, 1=Lun...6=Sab
+    postsPerDay: 1,
+    hours: [9, 14],
+    pillars: ['ia_tech', 'filosofia', 'persuasion', 'casos'],
+  })
 
   // DM
   const [dm, setDm] = useState({ name: '', role: '', company: '', purpose: '' })
@@ -439,132 +463,266 @@ export default function LinkedInPage() {
 
               {/* Tab: Calendar */}
               {tab === 'calendar' && (
-                <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() - 1); return d })}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4 rotate-180" /></button>
-                      <h3 className="text-sm font-semibold text-gray-700 capitalize min-w-[140px] text-center">
-                        {calMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
-                      </h3>
-                      <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() + 1); return d })}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4" /></button>
+                <div className="space-y-4">
+                  {/* Config Panel */}
+                  <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                    {/* Mode Toggle */}
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-bold text-gray-800">Configurar contenido</h3>
+                      <div className="flex bg-gray-100 rounded-xl p-0.5">
+                        <button onClick={() => setCalConfig(c => ({ ...c, mode: 'manual' }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${calConfig.mode === 'manual' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400'}`}>
+                          <Settings className="w-3 h-3 inline mr-1" />Manual
+                        </button>
+                        <button onClick={() => setCalConfig(c => ({ ...c, mode: 'ai' }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${calConfig.mode === 'ai' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400'}`}>
+                          <Zap className="w-3 h-3 inline mr-1" />IA decide
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={async () => {
-                        setCalLoading(true)
-                        try {
-                          const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/generate-week`)
-                          if (data.posts) setScheduledPosts(prev => [...prev, ...data.posts])
-                        } catch {}
-                        setCalLoading(false)
-                      }} disabled={calLoading}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 disabled:opacity-40">
-                        {calLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />} Generar 7 dias con IA
-                      </button>
+
+                    {/* Manual Config */}
+                    {calConfig.mode === 'manual' && (
+                      <div className="space-y-3">
+                        {/* Days */}
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Dias de publicacion</p>
+                          <div className="flex gap-1.5">
+                            {DAY_NAMES.map((name, i) => (
+                              <button key={i} onClick={() => setCalConfig(c => ({
+                                ...c, days: c.days.includes(i) ? c.days.filter(d => d !== i) : [...c.days, i].sort()
+                              }))}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                                  calConfig.days.includes(i)
+                                    ? 'bg-purple-600 text-white shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                                }`}>{name}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Posts per day */}
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Posts por dia</p>
+                          <div className="flex gap-1.5">
+                            {[1, 2, 3].map(n => (
+                              <button key={n} onClick={() => setCalConfig(c => ({ ...c, postsPerDay: n }))}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                  calConfig.postsPerDay === n
+                                    ? 'bg-purple-600 text-white shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                                }`}>{n}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Hours */}
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Horarios preferidos</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {HOUR_OPTIONS.map(h => (
+                              <button key={h} onClick={() => setCalConfig(c => ({
+                                ...c, hours: c.hours.includes(h) ? c.hours.filter(x => x !== h) : [...c.hours, h].sort((a,b) => a - b)
+                              }))}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                                  calConfig.hours.includes(h)
+                                    ? 'bg-blue-600 text-white shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                                }`}>{String(h).padStart(2, '0')}:00</button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* AI Mode Info */}
+                    {calConfig.mode === 'ai' && (
+                      <div className="p-3 bg-gradient-to-r from-purple-50 to-blue-50 rounded-xl">
+                        <p className="text-xs text-gray-600">La IA elegira los mejores dias, horarios y cantidad de posts para maximizar engagement. Genera contenido para los proximos 14 dias con cadencia natural.</p>
+                      </div>
+                    )}
+
+                    {/* Content Pillars */}
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-500 uppercase mb-1.5">Pilares de contenido</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {CONTENT_PILLARS.map(p => {
+                          const active = calConfig.pillars.includes(p.id)
+                          const colors = PILLAR_COLORS[p.id]
+                          return (
+                            <button key={p.id} onClick={() => setCalConfig(c => ({
+                              ...c, pillars: c.pillars.includes(p.id)
+                                ? c.pillars.filter(x => x !== p.id)
+                                : [...c.pillars, p.id]
+                            }))}
+                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${
+                                active
+                                  ? `${colors.activeBg} ${colors.text} ${colors.border}`
+                                  : 'bg-gray-50 text-gray-300 border-gray-100'
+                              }`}>
+                              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 ${active ? colors.dot : 'bg-gray-300'}`} />
+                              {p.label}
+                            </button>
+                          )
+                        })}
+                      </div>
                     </div>
+
+                    {/* Generate Button */}
+                    <button onClick={async () => {
+                      if (!calConfig.pillars.length) return
+                      setCalLoading(true)
+                      try {
+                        const { data } = await api.post(`/api/linkedin-profiles/${selected.id}/generate-week`, calConfig)
+                        if (data.posts) setScheduledPosts(prev => [...prev, ...data.posts])
+                      } catch {}
+                      setCalLoading(false)
+                    }} disabled={calLoading || !calConfig.pillars.length}
+                      className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all disabled:opacity-40 ${
+                        calConfig.mode === 'ai'
+                          ? 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700'
+                          : 'bg-purple-600 text-white hover:bg-purple-700'
+                      }`}>
+                      {calLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                      {calLoading ? 'Generando posts...' : calConfig.mode === 'ai' ? 'Generar semana inteligente' : 'Generar contenido programado'}
+                    </button>
                   </div>
 
                   {/* Calendar Grid */}
-                  <div>
-                    <div className="grid grid-cols-7 gap-px mb-px">
-                      {['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'].map(d => (
-                        <div key={d} className="text-[10px] font-bold text-gray-400 text-center py-2">{d}</div>
-                      ))}
+                  <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() - 1); return d })}
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4 rotate-180" /></button>
+                        <h3 className="text-sm font-semibold text-gray-700 capitalize min-w-[140px] text-center">
+                          {calMonth.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}
+                        </h3>
+                        <button onClick={() => setCalMonth(prev => { const d = new Date(prev); d.setMonth(d.getMonth() + 1); return d })}
+                          className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-600"><ChevronRight className="w-4 h-4" /></button>
+                      </div>
+                      <span className="text-[10px] text-gray-400">{scheduledPosts.filter(p => p.status === 'pending').length} pendientes</span>
                     </div>
-                    <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden">
-                      {(() => {
-                        const year = calMonth.getFullYear(), month = calMonth.getMonth()
-                        const firstDay = new Date(year, month, 1)
-                        const lastDay = new Date(year, month + 1, 0)
-                        const startPad = (firstDay.getDay() + 6) % 7 // Monday = 0
-                        const cells = []
-                        const today = new Date()
-                        today.setHours(0,0,0,0)
 
-                        for (let i = 0; i < startPad; i++) cells.push({ day: null, key: `pad-${i}` })
-                        for (let d = 1; d <= lastDay.getDate(); d++) {
-                          const date = new Date(year, month, d)
-                          const dateStr = date.toISOString().split('T')[0]
-                          const dayPosts = scheduledPosts.filter(p => p.scheduled_at?.split('T')[0] === dateStr)
-                          const isToday = date.getTime() === today.getTime()
-                          const isPast = date < today
-                          cells.push({ day: d, date, dateStr, dayPosts, isToday, isPast, key: `day-${d}` })
-                        }
-                        const remaining = 7 - (cells.length % 7)
-                        if (remaining < 7) for (let i = 0; i < remaining; i++) cells.push({ day: null, key: `pad-end-${i}` })
+                    <div>
+                      <div className="grid grid-cols-7 gap-px mb-px">
+                        {['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'].map(d => (
+                          <div key={d} className="text-[10px] font-bold text-gray-400 text-center py-2">{d}</div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-7 gap-px bg-gray-200 rounded-xl overflow-hidden">
+                        {(() => {
+                          const year = calMonth.getFullYear(), month = calMonth.getMonth()
+                          const firstDay = new Date(year, month, 1)
+                          const lastDay = new Date(year, month + 1, 0)
+                          const startPad = (firstDay.getDay() + 6) % 7
+                          const cells = []
+                          const today = new Date()
+                          today.setHours(0,0,0,0)
 
-                        return cells.map(cell => (
-                          <div key={cell.key} className={`min-h-[80px] p-1.5 ${
-                            !cell.day ? 'bg-gray-50' :
-                            cell.isToday ? 'bg-blue-50' :
-                            cell.isPast ? 'bg-gray-50' : 'bg-white'
-                          }`}>
-                            {cell.day && (
-                              <>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className={`text-[11px] font-bold ${cell.isToday ? 'text-blue-600 bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center' : cell.isPast ? 'text-gray-300' : 'text-gray-600'}`}>
-                                    {cell.day}
-                                  </span>
-                                  {cell.dayPosts.length > 0 && (
-                                    <span className={`text-[8px] px-1 py-0.5 rounded-full font-bold ${
-                                      cell.dayPosts.some(p => p.status === 'published') ? 'bg-green-100 text-green-700' :
-                                      cell.dayPosts.some(p => p.status === 'failed') ? 'bg-red-100 text-red-700' :
-                                      'bg-amber-100 text-amber-700'
-                                    }`}>
-                                      {cell.dayPosts.some(p => p.status === 'published') ? 'Publicado' : cell.dayPosts.some(p => p.status === 'failed') ? 'Error' : `${new Date(cell.dayPosts[0].scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
+                          for (let i = 0; i < startPad; i++) cells.push({ day: null, key: `pad-${i}` })
+                          for (let d = 1; d <= lastDay.getDate(); d++) {
+                            const date = new Date(year, month, d)
+                            const dateStr = date.toISOString().split('T')[0]
+                            const dayPosts = scheduledPosts.filter(p => p.scheduled_at?.split('T')[0] === dateStr)
+                            const isToday = date.getTime() === today.getTime()
+                            const isPast = date < today
+                            cells.push({ day: d, date, dateStr, dayPosts, isToday, isPast, key: `day-${d}` })
+                          }
+                          const remaining = 7 - (cells.length % 7)
+                          if (remaining < 7) for (let i = 0; i < remaining; i++) cells.push({ day: null, key: `pad-end-${i}` })
+
+                          return cells.map(cell => (
+                            <div key={cell.key} className={`min-h-[80px] p-1.5 ${
+                              !cell.day ? 'bg-gray-50' :
+                              cell.isToday ? 'bg-blue-50' :
+                              cell.isPast ? 'bg-gray-50' : 'bg-white'
+                            }`}>
+                              {cell.day && (
+                                <>
+                                  <div className="flex items-center justify-between mb-1">
+                                    <span className={`text-[11px] font-bold ${cell.isToday ? 'text-blue-600 bg-blue-100 w-5 h-5 rounded-full flex items-center justify-center' : cell.isPast ? 'text-gray-300' : 'text-gray-600'}`}>
+                                      {cell.day}
                                     </span>
-                                  )}
-                                </div>
-                                {cell.dayPosts.map((post, pi) => (
-                                  <div key={pi} onClick={() => setViewPost(post)} className={`text-[9px] leading-tight p-1 rounded mb-0.5 cursor-pointer group relative ${
-                                    post.status === 'published' ? 'bg-green-50 text-green-700' :
-                                    post.status === 'failed' ? 'bg-red-50 text-red-600' :
-                                    'bg-purple-50 text-purple-700'
-                                  }`}>
-                                    <p className="line-clamp-2">{post.text?.slice(0, 60)}</p>
-                                    {post.image_url && <div className="w-full h-8 mt-0.5 rounded overflow-hidden"><img src={post.image_url} alt="" className="w-full h-full object-cover" /></div>}
-                                    {post.status === 'pending' && (
-                                      <button onClick={async (e) => {
-                                        e.stopPropagation()
-                                        await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${post.id}`)
-                                        setScheduledPosts(prev => prev.filter(p => p.id !== post.id))
-                                      }} className="absolute -top-1 -right-1 hidden group-hover:flex w-4 h-4 bg-red-500 text-white rounded-full items-center justify-center text-[8px] font-bold">x</button>
+                                    {cell.dayPosts.length > 0 && (
+                                      <span className={`text-[8px] px-1 py-0.5 rounded-full font-bold ${
+                                        cell.dayPosts.some(p => p.status === 'published') ? 'bg-green-100 text-green-700' :
+                                        cell.dayPosts.some(p => p.status === 'failed') ? 'bg-red-100 text-red-700' :
+                                        'bg-amber-100 text-amber-700'
+                                      }`}>
+                                        {cell.dayPosts.some(p => p.status === 'published') ? 'Publicado' : cell.dayPosts.some(p => p.status === 'failed') ? 'Error' : `${new Date(cell.dayPosts[0].scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}`}
+                                      </span>
                                     )}
                                   </div>
-                                ))}
-                              </>
-                            )}
-                          </div>
-                        ))
-                      })()}
+                                  {cell.dayPosts.map((post, pi) => (
+                                    <div key={pi} onClick={() => setViewPost(post)} className={`text-[9px] leading-tight p-1 rounded mb-0.5 cursor-pointer group relative ${
+                                      post.status === 'published' ? 'bg-green-50 text-green-700' :
+                                      post.status === 'failed' ? 'bg-red-50 text-red-600' :
+                                      'bg-purple-50 text-purple-700'
+                                    }`}>
+                                      <div className="flex items-center gap-0.5 mb-0.5">
+                                        {post.pillar && <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${PILLAR_COLORS[post.pillar]?.dot || 'bg-gray-400'}`} />}
+                                        <span className="text-[8px] text-gray-400">{new Date(post.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
+                                      </div>
+                                      <p className="line-clamp-2">{post.text?.slice(0, 60)}</p>
+                                      {post.image_url && <div className="w-full h-8 mt-0.5 rounded overflow-hidden"><img src={post.image_url} alt="" className="w-full h-full object-cover" /></div>}
+                                      {post.status === 'pending' && (
+                                        <button onClick={async (e) => {
+                                          e.stopPropagation()
+                                          await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${post.id}`)
+                                          setScheduledPosts(prev => prev.filter(p => p.id !== post.id))
+                                        }} className="absolute -top-1 -right-1 hidden group-hover:flex w-4 h-4 bg-red-500 text-white rounded-full items-center justify-center text-[8px] font-bold">x</button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </>
+                              )}
+                            </div>
+                          ))
+                        })()}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Legend */}
-                  <div className="flex items-center gap-4 text-[10px] text-gray-400">
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Programado</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400" /> Publicado</span>
-                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Error</span>
-                    <span className="ml-auto">{scheduledPosts.filter(p => p.status === 'pending').length} posts pendientes</span>
+                    {/* Legend */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-4 text-[10px] text-gray-400">
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Programado</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-400" /> Publicado</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Error</span>
+                      </div>
+                      <div className="flex items-center gap-3 text-[10px] text-gray-400">
+                        <span className="font-medium text-gray-500">Pilares:</span>
+                        {CONTENT_PILLARS.map(p => (
+                          <span key={p.id} className="flex items-center gap-0.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${PILLAR_COLORS[p.id].dot}`} /> {p.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
                   </div>
 
                   {/* Upcoming posts list */}
                   {scheduledPosts.filter(p => p.status === 'pending').length > 0 && (
-                    <div className="border-t border-gray-100 pt-4">
-                      <h4 className="text-xs font-bold text-gray-600 mb-2">Proximos posts programados</h4>
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                    <div className="bg-white rounded-2xl border border-gray-100 p-5">
+                      <h4 className="text-xs font-bold text-gray-600 mb-3">Proximos posts programados</h4>
+                      <div className="space-y-2 max-h-80 overflow-y-auto">
                         {scheduledPosts.filter(p => p.status === 'pending').sort((a,b) => new Date(a.scheduled_at) - new Date(b.scheduled_at)).map((post, i) => (
-                          <div key={i} onClick={() => setViewPost(post)} className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl cursor-pointer hover:bg-purple-100 transition-colors">
-                            <div className="text-center flex-shrink-0">
+                          <div key={i} onClick={() => setViewPost(post)} className="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                            <div className="text-center flex-shrink-0 min-w-[60px]">
                               <p className="text-[10px] font-bold text-purple-600">{new Date(post.scheduled_at).toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })}</p>
                               <p className="text-xs font-bold text-purple-800">{new Date(post.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
+                              {post.pillar && (
+                                <span className={`inline-flex items-center gap-0.5 mt-1 text-[8px] font-bold px-1.5 py-0.5 rounded-full ${PILLAR_COLORS[post.pillar]?.bg || 'bg-gray-100'} ${PILLAR_COLORS[post.pillar]?.text || 'text-gray-500'}`}>
+                                  <span className={`w-1 h-1 rounded-full ${PILLAR_COLORS[post.pillar]?.dot || 'bg-gray-400'}`} />
+                                  {CONTENT_PILLARS.find(p2 => p2.id === post.pillar)?.label?.split(' ')[0] || ''}
+                                </span>
+                              )}
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-xs text-gray-700 line-clamp-2">{post.text?.slice(0, 120)}</p>
                               {post.image_url && <img src={post.image_url} alt="" className="w-16 h-10 object-cover rounded mt-1" />}
                             </div>
-                            <button onClick={async () => {
+                            <button onClick={async (e) => {
+                              e.stopPropagation()
                               await api.delete(`/api/linkedin-profiles/${selected.id}/scheduled-posts/${post.id}`)
                               setScheduledPosts(prev => prev.filter(p => p.id !== post.id))
                             }} className="p-1 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -951,11 +1109,19 @@ export default function LinkedInPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <div>
-                <h3 className="text-sm font-bold text-gray-900">Post programado</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-gray-900">Post programado</h3>
+                  {viewPost.pillar && (
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${PILLAR_COLORS[viewPost.pillar]?.bg || 'bg-gray-100'} ${PILLAR_COLORS[viewPost.pillar]?.text || 'text-gray-500'}`}>
+                      {CONTENT_PILLARS.find(p => p.id === viewPost.pillar)?.label || viewPost.pillar}
+                    </span>
+                  )}
+                </div>
                 <p className="text-[11px] text-gray-400 mt-0.5">
                   {new Date(viewPost.scheduled_at).toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                   {' a las '}
                   {new Date(viewPost.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                  {viewPost.style && <span className="text-gray-300"> &middot; {viewPost.style}</span>}
                 </p>
               </div>
               <div className="flex items-center gap-2">

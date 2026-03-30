@@ -980,12 +980,85 @@ app.delete('/api/linkedin-profiles/:id/scheduled-posts/:postId', async (req, res
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-// Generate full week of scheduled posts with AI
+// Content pillars and styles for calendar generation
+const CALENDAR_PILLARS = {
+  ia_tech: {
+    name: 'IA y Tecnologia',
+    topics: [
+      'como la IA generativa esta cambiando el marketing digital',
+      'automatizacion de procesos repetitivos: por donde empezar',
+      'herramientas de IA que tu empresa puede usar hoy mismo',
+      'chatbots con IA vs chatbots tradicionales: diferencias clave',
+      'analisis de datos con IA para tomar mejores decisiones',
+      'vision artificial aplicada a negocios reales',
+      'IA para atencion al cliente: resultados concretos',
+      'machine learning aplicado a prediccion de ventas',
+      'como elegir la herramienta de IA correcta para tu negocio',
+    ]
+  },
+  filosofia: {
+    name: 'Filosofia y reflexion',
+    topics: [
+      'la IA no reemplaza personas, las potencia',
+      'etica en la inteligencia artificial empresarial',
+      'el futuro del trabajo: humanos + maquinas',
+      'por que la creatividad humana sigue siendo insustituible',
+      'la paradoja de la eficiencia: mas tecnologia, mas necesidad de humanidad',
+      'automatizar no es deshumanizar, es liberar potencial',
+      'como la tecnologia cambia nuestra forma de tomar decisiones',
+      'el verdadero costo de no innovar',
+      'la diferencia entre adoptar tecnologia y transformarse digitalmente',
+    ]
+  },
+  persuasion: {
+    name: 'Persuasion y ventas',
+    topics: [
+      'psicologia de ventas: por que la gente compra',
+      'copywriting para LinkedIn que genera conversiones',
+      'como generar confianza en redes sociales en segundos',
+      'el arte de vender sin parecer vendedor',
+      'growth hacking con contenido organico en LinkedIn',
+      'storytelling que convierte lectores en clientes',
+      'las 3 objeciones mas comunes y como responderlas',
+      'como escribir un hook que atrape en la primera linea',
+      'por que el contenido de valor vende mas que la publicidad directa',
+    ]
+  },
+  casos: {
+    name: 'Casos y resultados',
+    topics: [
+      'como ayudamos a un cliente a triplicar sus leads con IA',
+      'caso real: automatizamos la atencion al cliente de una PyME',
+      'resultados de implementar chatbots inteligentes en ventas B2B',
+      'de 0 a 50 leads semanales con estrategia digital e IA',
+      'transformacion digital en una empresa tradicional: paso a paso',
+      'un cliente esceptico que se convirtio en evangelista de la IA',
+      'por que nuestros clientes repiten: la clave del servicio personalizado',
+      'el antes y despues de una empresa que implemento IA en su proceso de ventas',
+      'leccion aprendida: lo que no te cuentan de implementar IA',
+    ]
+  }
+}
+
+const CALENDAR_STYLES = [
+  'storytelling personal',
+  'opinion polemica constructiva',
+  'tip practico accionable',
+  'pregunta abierta que genera debate',
+  'caso de exito con datos',
+  'tutorial paso a paso',
+  'reflexion profunda',
+  'lista de consejos',
+  'mito vs realidad',
+  'leccion aprendida de un error',
+]
+
+// Generate scheduled posts with AI (configurable calendar)
 app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
 
-    // Ensure table exists
+    // Ensure table exists with new columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS scheduled_posts (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -997,9 +1070,13 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
         status VARCHAR(20) DEFAULT 'pending',
         published_at TIMESTAMPTZ,
         error TEXT,
+        pillar VARCHAR(50),
+        style VARCHAR(50),
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `)
+    await pool.query('ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS pillar VARCHAR(50)').catch(() => {})
+    await pool.query('ALTER TABLE scheduled_posts ADD COLUMN IF NOT EXISTS style VARCHAR(50)').catch(() => {})
 
     const { rows } = await pool.query(`
       SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company, a.specialties as avatar_specialties
@@ -1007,80 +1084,135 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
     if (!rows.length) return res.status(404).json({ success: false, error: 'Profile not found' })
     const p = rows[0]
 
+    // Parse config from request body
+    const {
+      mode = 'manual',
+      days: selectedDays = [1, 2, 3, 4, 5], // 0=Dom, 1=Lun...6=Sab
+      postsPerDay = 1,
+      hours: preferredHours = [9, 14],
+      pillars: selectedPillars = ['ia_tech', 'filosofia', 'persuasion', 'casos'],
+    } = req.body || {}
+
     const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
     const today = new Date()
-    const days = []
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(today)
-      d.setDate(d.getDate() + i)
-      days.push(d.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }))
+    console.log(`[Calendar] Generating for ${p.name} mode=${mode} days=${selectedDays} ppd=${postsPerDay}`)
+
+    // Build schedule slots
+    const slots = []
+    const activePillars = selectedPillars.filter(pid => CALENDAR_PILLARS[pid])
+    if (!activePillars.length) activePillars.push('ia_tech', 'filosofia', 'persuasion', 'casos')
+    const cappedPostsPerDay = Math.min(Math.max(postsPerDay || 1, 1), 3)
+    const validHours = preferredHours?.length ? preferredHours : [9, 14]
+
+    // Shuffle helper
+    const shuffle = arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]] } return a }
+
+    if (mode === 'ai') {
+      // AI mode: pick 5-10 days from next 14, vary posts per day, optimal hours
+      const optimalHours = [8, 9, 10, 12, 14, 17]
+      const daysToPost = 5 + Math.floor(Math.random() * 4) // 5-8 days
+      const candidateDays = []
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(today)
+        d.setDate(d.getDate() + i)
+        if (d.getDay() !== 0) candidateDays.push(d) // skip Sundays
+      }
+      const pickedDays = shuffle(candidateDays).slice(0, daysToPost).sort((a, b) => a - b)
+
+      for (const day of pickedDays) {
+        const dayPostCount = Math.random() > 0.6 ? 2 : 1
+        const dayHours = shuffle(optimalHours).slice(0, dayPostCount).sort((a, b) => a - b)
+        for (const hour of dayHours) {
+          slots.push({ date: new Date(day), hour, minute: Math.floor(Math.random() * 30) })
+        }
+      }
+    } else {
+      // Manual mode: use user's config
+      for (let i = 0; i < 14; i++) {
+        const d = new Date(today)
+        d.setDate(d.getDate() + i)
+        if (!selectedDays.includes(d.getDay())) continue
+        const dayHours = shuffle(validHours).slice(0, cappedPostsPerDay).sort((a, b) => a - b)
+        for (const hour of dayHours) {
+          slots.push({ date: new Date(d), hour, minute: Math.floor(Math.random() * 30) })
+        }
+      }
     }
 
-    console.log('[Calendar] Generating week for', p.name)
+    // Assign pillars (round-robin shuffled) and styles to each slot
+    const shuffledPillars = shuffle(activePillars)
+    const shuffledStyles = shuffle(CALENDAR_STYLES)
+    const usedTopics = new Set()
+    for (let i = 0; i < slots.length; i++) {
+      const pillarId = shuffledPillars[i % shuffledPillars.length]
+      const pillar = CALENDAR_PILLARS[pillarId]
+      const availableTopics = pillar.topics.filter(t => !usedTopics.has(t))
+      const topic = availableTopics.length ? availableTopics[Math.floor(Math.random() * availableTopics.length)] : pillar.topics[Math.floor(Math.random() * pillar.topics.length)]
+      usedTopics.add(topic)
+      slots[i].pillar = pillarId
+      slots[i].pillarName = pillar.name
+      slots[i].topic = topic
+      slots[i].style = shuffledStyles[i % shuffledStyles.length]
+    }
 
-    const styles = ['storytelling', 'opinion', 'tip practico', 'pregunta abierta', 'caso de exito', 'tutorial', 'reflexion']
-    const topics = [
-      'como la IA esta transformando la atencion al cliente',
-      'automatizacion de procesos repetitivos con IA',
-      'por que las PyMEs necesitan adoptar IA ahora',
-      'chatbots inteligentes para ventas',
-      'analisis de datos con IA para tomar mejores decisiones',
-      'IA generativa aplicada al marketing digital',
-      'el futuro del trabajo con inteligencia artificial',
-    ]
-    const hours = [8, 9, 10, 11, 12, 14, 16]
-
+    // Generate posts
     const scheduled = []
-    // Generate each post individually (faster, avoids timeout)
-    for (let i = 0; i < 7; i++) {
-      const scheduledDate = new Date(today)
-      scheduledDate.setDate(scheduledDate.getDate() + i)
-      scheduledDate.setHours(hours[i] || 9, Math.floor(Math.random() * 30), 0, 0)
+    for (const slot of slots) {
+      const scheduledDate = new Date(slot.date)
+      scheduledDate.setHours(slot.hour, slot.minute, 0, 0)
       const dayName = scheduledDate.toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })
 
+      const includeCTA = slot.pillar === 'casos' || slot.pillar === 'persuasion'
       let postText = '', hashtags = []
       try {
         const resp = await analyzeWithDeepSeek(`
-Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
-Genera UN post de LinkedIn estilo "${styles[i]}" sobre: ${topics[i]}.
-REGLAS:
+Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'experto en IA y ventas digitales'} en ${p.avatar_company || 'Adbize'}.
+Adbize es una agencia de publicidad digital que usa IA para generar resultados reales para sus clientes.
+
+Genera UN post de LinkedIn estilo "${slot.style}" sobre: ${slot.topic}.
+PILAR DE CONTENIDO: ${slot.pillarName}
+
+REGLAS CRITICAS:
 - Maximo 150 palabras, español argentino natural
-- NO seas vendedor ni corporativo
-- Usa saltos de linea entre parrafos para que sea legible
-- Varia el tono segun el estilo indicado
-- NO empieces siempre con "Che" ni con preguntas
-- Los hashtags SIN el simbolo #, solo la palabra
-- Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["Tag1","Tag2","Tag3"]}
-        `)
+- NO seas generico ni corporativo. Se especifico y autentico.
+- Usa saltos de linea entre parrafos para legibilidad
+- Varia la estructura: a veces empieza con historia, a veces dato, a veces afirmacion fuerte
+- NO empieces con "Che", "Sabias que" ni preguntas retoricas siempre
+${includeCTA ? '- Incluí un call-to-action sutil relacionado con Adbize al final' : '- NO menciones Adbize directamente, solo compartí conocimiento de valor'}
+- Hashtags SIN el simbolo #, solo la palabra. Maximo 4 hashtags relevantes.
+- Cada post debe sentirse unico y diferente.
+- Responde SOLO JSON: {"post":"texto","hashtags":["Tag1","Tag2","Tag3"]}`)
         const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
-        if (parsed.post) {
-          postText = parsed.post
-          hashtags = parsed.hashtags || []
-        }
+        if (parsed.post) { postText = parsed.post; hashtags = parsed.hashtags || [] }
       } catch (aiErr) {
-        console.log(`[Calendar] AI failed for day ${i+1}, using fallback:`, aiErr.message?.slice(0, 80))
+        console.log(`[Calendar] AI failed for ${dayName}, fallback:`, aiErr.message?.slice(0, 80))
       }
 
-      // Fallback if AI failed
       if (!postText) {
-        postText = `${topics[i].charAt(0).toUpperCase() + topics[i].slice(1)}.\n\nEn ${p.avatar_company || 'Adbize'} venimos trabajando con empresas que quieren dar el salto a la inteligencia artificial. Lo que mas nos sorprende es lo rapido que se ven resultados cuando se implementa bien.\n\nLa clave no es reemplazar personas, sino potenciarlas. La IA se encarga de lo repetitivo para que tu equipo se enfoque en lo que realmente importa.\n\nSi queres ver como funciona, te ofrecemos una demo gratis.`
-        hashtags = ['InteligenciaArtificial', 'IAparaEmpresas', 'TransformacionDigital']
+        const fallbacks = {
+          ia_tech: `La inteligencia artificial ya no es el futuro, es el presente.\n\nCada dia mas empresas estan automatizando procesos que antes llevaban horas. No se trata de reemplazar al equipo, sino de darle superpoderes.\n\nLa clave esta en empezar chico: elegir UN proceso repetitivo y automatizarlo. Los resultados hablan solos.`,
+          filosofia: `Hay algo que la IA nunca va a poder replicar: tu criterio.\n\nLa tecnologia es una herramienta increible, pero el juicio humano, la empatia y la creatividad siguen siendo irremplazables.\n\nEl verdadero desafio no es aprender a usar IA. Es aprender a pensar mejor junto con ella.`,
+          persuasion: `El mejor vendedor no vende. Educa, resuelve y acompaña.\n\nCuando tu contenido le resuelve un problema real a alguien, la venta se da naturalmente. No necesitas empujar.\n\nEl truco esta en entender que necesita tu audiencia y darselo antes de que lo pidan.`,
+          casos: `La semana pasada un cliente nos dijo: "En 2 meses conseguimos mas leads que en todo el año pasado".\n\nNo fue magia. Fue estrategia + IA + ejecucion consistente.\n\nEn Adbize ayudamos a empresas a lograr resultados asi. Si queres saber como, hablemos.`,
+        }
+        postText = fallbacks[slot.pillar] || fallbacks.ia_tech
+        hashtags = ['InteligenciaArtificial', 'TransformacionDigital', 'Innovacion']
       }
 
       const cleanHashtags = hashtags.map(h => h.replace(/^#/, ''))
       const fullText = postText + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
       const { rows: inserted } = await pool.query(
-        'INSERT INTO scheduled_posts (profile_id, text, hashtags, scheduled_at) VALUES ($1,$2,$3,$4) RETURNING *',
-        [req.params.id, fullText, JSON.stringify(hashtags), scheduledDate.toISOString()]
+        'INSERT INTO scheduled_posts (profile_id, text, hashtags, scheduled_at, pillar, style) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+        [req.params.id, fullText, JSON.stringify(cleanHashtags), scheduledDate.toISOString(), slot.pillar, slot.style]
       )
-      scheduled.push({ ...inserted[0], style: styles[i], day: dayName })
-      console.log(`[Calendar] Scheduled day ${i+1}: ${dayName}`)
+      scheduled.push(inserted[0])
+      console.log(`[Calendar] Scheduled ${dayName} ${slot.hour}:${String(slot.minute).padStart(2,'0')} [${slot.pillar}] ${slot.style}`)
     }
 
     console.log('[Calendar] Scheduled', scheduled.length, 'posts')
     res.json({ success: true, posts: scheduled })
 
-    // Pre-generate images for all new posts in background
+    // Pre-generate images in background
     ;(async () => {
       try {
         const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
