@@ -328,12 +328,16 @@ class LinkedInBrowserService extends EventEmitter {
         timeout: 15000,
       }
     )
-    console.log('[LinkedIn] Register response:', JSON.stringify(regRes.data).slice(0, 300))
+    const fullResponse = JSON.stringify(regRes.data, null, 2)
+    console.log('[LinkedIn] Register response FULL:', fullResponse)
 
     const value = regRes.data?.value || regRes.data?.data?.value
     const uploadUrl = value?.singleUploadUrl
-    const urn = value?.urn
-    if (!uploadUrl) throw new Error('No uploadUrl: ' + JSON.stringify(regRes.data).slice(0, 500))
+      || value?.uploadUrl
+      || value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl
+      || value?.uploadInstructions?.[0]?.uploadUrl
+    const urn = value?.urn || value?.mediaUrn || value?.asset
+    if (!uploadUrl) throw new Error('No uploadUrl in response. Keys: ' + Object.keys(value || {}).join(',') + ' Full: ' + fullResponse.slice(0, 1000))
 
     // Step 3: Upload the actual image bytes
     const upRes = await axios.put(uploadUrl, imgBuffer, {
