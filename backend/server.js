@@ -1042,9 +1042,15 @@ app.post('/api/linkedin-profiles/:id/generate-week', async (req, res) => {
       try {
         const resp = await analyzeWithDeepSeek(`
 Sos ${p.avatar_name || p.name}, ${p.avatar_role || 'profesional'} en ${p.avatar_company || 'empresa de tecnologia'}.
-Genera UN post de LinkedIn estilo ${styles[i]} sobre: ${topics[i]}.
-Max 150 palabras, natural, no vendedor. Español argentino.
-Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["tag1","tag2","tag3"]}
+Genera UN post de LinkedIn estilo "${styles[i]}" sobre: ${topics[i]}.
+REGLAS:
+- Maximo 150 palabras, español argentino natural
+- NO seas vendedor ni corporativo
+- Usa saltos de linea entre parrafos para que sea legible
+- Varia el tono segun el estilo indicado
+- NO empieces siempre con "Che" ni con preguntas
+- Los hashtags SIN el simbolo #, solo la palabra
+- Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["Tag1","Tag2","Tag3"]}
         `)
         const parsed = JSON.parse(resp.match(/\{[\s\S]*\}/)?.[0] || '{}')
         if (parsed.post) {
@@ -1061,7 +1067,8 @@ Responde SOLO JSON sin comentarios: {"post":"texto","hashtags":["tag1","tag2","t
         hashtags = ['InteligenciaArtificial', 'IAparaEmpresas', 'TransformacionDigital']
       }
 
-      const fullText = postText + '\n\n' + hashtags.map(h => '#' + h).join(' ')
+      const cleanHashtags = hashtags.map(h => h.replace(/^#/, ''))
+      const fullText = postText + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
       const { rows: inserted } = await pool.query(
         'INSERT INTO scheduled_posts (profile_id, text, hashtags, scheduled_at) VALUES ($1,$2,$3,$4) RETURNING *',
         [req.params.id, fullText, JSON.stringify(hashtags), scheduledDate.toISOString()]
@@ -1300,7 +1307,20 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         liLog(pid, 'Conectado a LinkedIn', 'success')
 
         const cfg = config || {}
-        const topics = cfg.postTopics || ['IA para empresas']
+        const defaultTopics = [
+          'como la IA esta transformando la atencion al cliente',
+          'automatizacion de procesos repetitivos con IA',
+          'chatbots inteligentes para ventas',
+          'analisis de datos con IA para tomar mejores decisiones',
+          'IA generativa aplicada al marketing digital',
+          'el futuro del trabajo con inteligencia artificial',
+          'liderazgo y gestion de equipos en la era digital',
+          'estrategias de publicidad digital para PyMEs',
+          'como medir el ROI de tus campanas digitales',
+          'tendencias de marketing que estan cambiando el juego',
+        ]
+        const topics = cfg.postTopics?.length ? cfg.postTopics : defaultTopics
+        const styles = ['storytelling', 'opinion controversial', 'tip practico', 'pregunta abierta', 'caso de exito', 'reflexion personal', 'dato curioso']
         const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [pid])
         const p = profileRes.rows[0]
 
@@ -1308,15 +1328,25 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         if (!liAutoState.get(pid)?.running) return
         liLog(pid, 'Generando post con IA...', 'info', 'post')
         const topic = topics[Math.floor(Math.random() * topics.length)]
+        const style = styles[Math.floor(Math.random() * styles.length)]
         try {
           const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
           const postContent = await analyzeWithDeepSeek(
-            `Eres ${p?.avatar_name || p?.name || 'profesional'} de ${p?.avatar_company || 'Adbize'}. Genera un post de LinkedIn NATURAL sobre: ${topic}. Menciona sutilmente como la IA puede beneficiar empresas. No seas vendedor. Max 150 palabras. Espanol argentino. Responde SOLO con un JSON valido sin comentarios: {"post":"texto del post aqui","hashtags":["tag1","tag2","tag3"]}`
+            `Sos ${p?.avatar_name || p?.name || 'profesional'}, ${p?.avatar_role || 'Sales Representative'} en ${p?.avatar_company || 'Adbize'}.
+Genera UN post de LinkedIn estilo "${style}" sobre: ${topic}.
+REGLAS:
+- Maximo 150 palabras, español argentino natural
+- NO seas vendedor ni corporativo
+- Usa saltos de linea entre parrafos para que sea legible
+- Varia el tono: a veces serio, a veces informal, a veces con humor
+- NO empieces siempre con "Che" ni con preguntas
+- Los hashtags SIN el simbolo #, solo la palabra (ej: "InteligenciaArtificial" no "#InteligenciaArtificial")
+- Responde SOLO JSON sin comentarios: {"post":"texto del post","hashtags":["Tag1","Tag2","Tag3"]}`
           )
           let parsed = {}
           try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error', 'post') }
           if (parsed.post) {
-            liLog(pid, `Post generado: "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
+            liLog(pid, `Post generado (${style}): "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
 
             // Generate image with Freepik
             let imageUrl = null
@@ -1328,7 +1358,9 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
               if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
             } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error', 'post') }
 
-            const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
+            // Clean hashtags: remove any # prefix the AI might add
+            const cleanHashtags = (parsed.hashtags || []).map(h => h.replace(/^#/, ''))
+            const fullPost = parsed.post + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
             if (!imageUrl) {
               liLog(pid, 'No se pudo generar imagen, no se publica sin imagen', 'error', 'post')
             } else {
