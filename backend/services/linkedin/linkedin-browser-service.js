@@ -330,9 +330,10 @@ class LinkedInBrowserService extends EventEmitter {
     )
     console.log('[LinkedIn] Register response:', JSON.stringify(regRes.data).slice(0, 300))
 
-    const uploadUrl = regRes.data?.data?.value?.singleUploadUrl
-    const urn = regRes.data?.data?.value?.urn
-    if (!uploadUrl) throw new Error('No uploadUrl: ' + JSON.stringify(regRes.data).slice(0, 300))
+    const value = regRes.data?.value || regRes.data?.data?.value
+    const uploadUrl = value?.singleUploadUrl
+    const urn = value?.urn
+    if (!uploadUrl) throw new Error('No uploadUrl: ' + JSON.stringify(regRes.data).slice(0, 500))
 
     // Step 3: Upload the actual image bytes
     const upRes = await axios.put(uploadUrl, imgBuffer, {
