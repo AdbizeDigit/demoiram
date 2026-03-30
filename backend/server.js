@@ -1329,8 +1329,12 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
             } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error', 'post') }
 
             const fullPost = parsed.post + '\n\n' + (parsed.hashtags || []).map(h => '#' + h).join(' ')
-            const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl)
-            liLog(pid, postResult.success ? (imageUrl ? 'Post con imagen publicado!' : 'Post publicado!') : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
+            if (!imageUrl) {
+              liLog(pid, 'No se pudo generar imagen, no se publica sin imagen', 'error', 'post')
+            } else {
+              const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl, { requireImage: true })
+              liLog(pid, postResult.success ? 'Post con imagen publicado!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
+            }
           } else {
             liLog(pid, 'No se pudo generar post, continuando...', 'error', 'post')
           }
