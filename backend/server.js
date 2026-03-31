@@ -1582,15 +1582,41 @@ REGLAS:
               }
               await sleep(2000 + Math.random() * 2000)
 
+              // Debug: log what buttons are visible on the page
+              const pageDebug = await page.evaluate(() => {
+                const allBtns = [...document.querySelectorAll('button')]
+                const searchBtns = allBtns.filter(b => {
+                  const parent = b.closest('li, [data-view-name], .entity-result__item, .reusable-search__result-container, .search-result')
+                  return parent !== null
+                })
+                return {
+                  totalButtons: allBtns.length,
+                  searchResultButtons: searchBtns.map(b => ({
+                    text: b.textContent?.trim().slice(0, 50),
+                    ariaLabel: (b.getAttribute('aria-label') || '').slice(0, 80),
+                    classes: b.className?.slice(0, 60),
+                  })).slice(0, 20),
+                  pageTitle: document.title,
+                  url: window.location.href,
+                  resultCount: document.querySelectorAll('.entity-result__item, .reusable-search__result-container, [data-view-name="search-entity-result-universal-template"]').length,
+                }
+              })
+              liLog(pid, `Debug pagina: ${pageDebug.resultCount} resultados, ${pageDebug.totalButtons} botones, URL: ${pageDebug.url?.slice(0, 100)}`, 'info', 'connection')
+              if (pageDebug.searchResultButtons.length > 0) {
+                liLog(pid, `Botones en resultados: ${pageDebug.searchResultButtons.map(b => `"${b.text}" [${b.ariaLabel}]`).join(', ').slice(0, 300)}`, 'info', 'connection')
+              }
+
               // Find Connect buttons and extract rich contact info
               const connectButtons = await page.evaluate(() => {
-                const buttons = [...document.querySelectorAll('button')]
-                const connectBtns = buttons.filter(b => {
+                const allBtns = [...document.querySelectorAll('button')]
+                // Broader matching for connect buttons
+                const connectBtns = allBtns.filter(b => {
                   const text = b.textContent?.trim().toLowerCase() || ''
                   const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                  return (text === 'connect' || text === 'conectar' ||
+                  return (text === 'connect' || text === 'conectar' || text === 'follow' || text === 'seguir' ||
                           label.includes('connect') || label.includes('conectar') ||
-                          label.includes('invite') || label.includes('invitar'))
+                          label.includes('invite') || label.includes('invitar') ||
+                          label.includes('to connect'))
                 })
                 return connectBtns.map((b) => {
                   const card = b.closest('li, [data-view-name], .entity-result__item, .reusable-search__result-container')
