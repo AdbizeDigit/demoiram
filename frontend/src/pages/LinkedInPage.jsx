@@ -755,7 +755,20 @@ export default function LinkedInPage() {
                           Configura a quien buscar y como conectar. La prospeccion se ejecuta junto con la automatizacion.
                         </p>
                       </div>
-                      {autoRunning && <span className="flex items-center gap-1.5 text-xs font-bold text-purple-600"><span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" /> Prospectando...</span>}
+                      <button onClick={async () => {
+                        if (autoRunning) {
+                          setAutoRunning(false)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/stop`) } catch {}
+                        } else {
+                          if (!liConnected) { setShowLogin(true); return }
+                          setAutoRunning(true)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/start`, { config: autoConfig }) } catch {}
+                        }
+                      }} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                        autoRunning ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'
+                      }`}>
+                        {autoRunning ? <><X className="w-4 h-4" /> Detener</> : <><Play className="w-4 h-4" /> Iniciar Prospeccion</>}
+                      </button>
                     </div>
                   </div>
 
