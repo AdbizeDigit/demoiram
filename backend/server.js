@@ -1568,76 +1568,92 @@ REGLAS:
             const searchUrl = buildSearchUrl(searchQueries[0])
             liLog(pid, `Navegando a busqueda: ${searchQueries[0]}`, 'info', 'connection')
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-            await sleep(3000 + Math.random() * 4000)
+            await sleep(5000 + Math.random() * 3000) // Wait longer for results to render
+
+            // Wait for profile links to appear (indicates results loaded)
+            try {
+              await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 })
+              liLog(pid, 'Resultados de busqueda detectados', 'info', 'connection')
+            } catch { liLog(pid, 'No se detectaron resultados de busqueda en 10s', 'error', 'connection') }
 
             // Find Connect buttons on the page
             let connected = 0
             for (let attempt = 0; attempt < 3 && connected < maxConnections; attempt++) {
               if (!liAutoState.get(pid)?.running) break
 
-              // Scroll down slowly to load results
-              for (let s = 0; s < 3; s++) {
-                await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 600))
-                await sleep(1000 + Math.random() * 1500)
+              // Scroll down slowly to load all results
+              for (let s = 0; s < 5; s++) {
+                await page.evaluate(() => window.scrollBy(0, 300 + Math.random() * 400))
+                await sleep(800 + Math.random() * 1200)
               }
               await sleep(2000 + Math.random() * 2000)
 
-              // Debug: log what buttons are visible on the page
-              const pageDebug = await page.evaluate(() => {
-                const allBtns = [...document.querySelectorAll('button')]
-                const searchBtns = allBtns.filter(b => {
-                  const parent = b.closest('li, [data-view-name], .entity-result__item, .reusable-search__result-container, .search-result')
-                  return parent !== null
-                })
-                return {
-                  totalButtons: allBtns.length,
-                  searchResultButtons: searchBtns.map(b => ({
-                    text: b.textContent?.trim().slice(0, 50),
-                    ariaLabel: (b.getAttribute('aria-label') || '').slice(0, 80),
-                    classes: b.className?.slice(0, 60),
-                  })).slice(0, 20),
-                  pageTitle: document.title,
-                  url: window.location.href,
-                  resultCount: document.querySelectorAll('.entity-result__item, .reusable-search__result-container, [data-view-name="search-entity-result-universal-template"]').length,
-                }
-              })
-              liLog(pid, `Debug pagina: ${pageDebug.resultCount} resultados, ${pageDebug.totalButtons} botones, URL: ${pageDebug.url?.slice(0, 100)}`, 'info', 'connection')
-              if (pageDebug.searchResultButtons.length > 0) {
-                liLog(pid, `Botones en resultados: ${pageDebug.searchResultButtons.map(b => `"${b.text}" [${b.ariaLabel}]`).join(', ').slice(0, 300)}`, 'info', 'connection')
-              }
-
-              // Find Connect buttons and extract rich contact info
+              // Find people results and connect buttons using content-based detection
+              // LinkedIn's new UI uses obfuscated class names, so we find cards by profile links
               const connectButtons = await page.evaluate(() => {
+                // Find all profile links (/in/username) - these are the search result cards
+                const profileLinks = [...document.querySelectorAll('a[href*="/in/"]')]
+                const seenCards = new Set()
+                const results = []
                 const allBtns = [...document.querySelectorAll('button')]
-                // Broader matching for connect buttons
-                const connectBtns = allBtns.filter(b => {
-                  const text = b.textContent?.trim().toLowerCase() || ''
-                  const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                  return (text === 'connect' || text === 'conectar' || text === 'follow' || text === 'seguir' ||
-                          label.includes('connect') || label.includes('conectar') ||
-                          label.includes('invite') || label.includes('invitar') ||
-                          label.includes('to connect'))
-                })
-                return connectBtns.map((b) => {
-                  const card = b.closest('li, [data-view-name], .entity-result__item, .reusable-search__result-container')
-                  const nameEl = card?.querySelector('span[dir="ltr"] > span[aria-hidden="true"], .entity-result__title-text a span, a[href*="/in/"] span')
-                  const headlineEl = card?.querySelector('.entity-result__primary-subtitle, .entity-result__summary, [class*="subtitle"]')
-                  const locationEl = card?.querySelector('.entity-result__secondary-subtitle, [class*="secondary"]')
-                  const summaryEl = card?.querySelector('.entity-result__summary, .entity-result__content-summary')
-                  const snippetEl = card?.querySelector('.entity-result__snippet, [class*="snippet"]')
-                  // Try to extract company from headline (e.g. "CEO en Empresa X" or "CEO at Company")
-                  const fullHeadline = headlineEl?.textContent?.trim() || ''
-                  const companyMatch = fullHeadline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
-                  return {
-                    index: buttons.indexOf(b),
-                    name: nameEl?.textContent?.trim() || 'Persona',
-                    headline: fullHeadline,
-                    location: locationEl?.textContent?.trim() || '',
-                    company: companyMatch?.[1]?.trim() || '',
-                    summary: summaryEl?.textContent?.trim() || snippetEl?.textContent?.trim() || '',
+
+                for (const link of profileLinks) {
+                  // Walk up to find the result card container (usually a <li> or a div with the result)
+                  let card = link.closest('li') || link.parentElement?.closest('li')
+                  if (!card) {
+                    // Try walking up max 8 levels to find a container that has a button
+                    let el = link.parentElement
+                    for (let i = 0; i < 8 && el; i++) {
+                      if (el.querySelector('button') && el.querySelectorAll('a[href*="/in/"]').length <= 2) {
+                        card = el
+                        break
+                      }
+                      el = el.parentElement
+                    }
                   }
-                })
+                  if (!card || seenCards.has(card)) continue
+                  seenCards.add(card)
+
+                  // Find connect/conectar button inside this card
+                  const cardBtns = [...card.querySelectorAll('button')]
+                  const connectBtn = cardBtns.find(b => {
+                    const text = b.textContent?.trim().toLowerCase() || ''
+                    const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                    return (text === 'connect' || text === 'conectar' ||
+                            label.includes('connect') || label.includes('conectar') ||
+                            label.includes('invite') || label.includes('invitar') ||
+                            label.includes('to connect'))
+                  })
+                  if (!connectBtn) continue
+
+                  // Extract person info from the card text content
+                  const cardText = card.innerText || ''
+                  const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+
+                  // Name is usually the link text
+                  const nameEl = card.querySelector('a[href*="/in/"] span, a[href*="/in/"]')
+                  const name = nameEl?.textContent?.trim()?.replace(/\s+/g, ' ') || lines[0] || 'Persona'
+
+                  // Headline/role is usually the line after the name
+                  const nameIdx = lines.findIndex(l => l.includes(name?.split(' ')[0]))
+                  const headline = lines[nameIdx + 1] || lines[1] || ''
+                  const location = lines[nameIdx + 2] || lines[2] || ''
+
+                  // Company from headline
+                  const companyMatch = headline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
+
+                  results.push({
+                    index: allBtns.indexOf(connectBtn),
+                    name: name.slice(0, 80),
+                    headline: headline.slice(0, 150),
+                    location: location.slice(0, 80),
+                    company: companyMatch?.[1]?.trim() || '',
+                    summary: (lines.slice(nameIdx + 3, nameIdx + 5).join(' ')).slice(0, 200),
+                  })
+                }
+                return results
               })
+              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
               liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
 
               const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
