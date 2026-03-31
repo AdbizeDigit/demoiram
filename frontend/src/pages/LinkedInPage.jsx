@@ -371,8 +371,9 @@ export default function LinkedInPage() {
                 {[
                   { key: 'posts', label: 'Posts', icon: Zap },
                   { key: 'calendar', label: 'Calendario', icon: Calendar },
+                  { key: 'prospecting', label: 'Prospeccion', icon: Users },
                   { key: 'dm', label: 'Mensajes', icon: MessageSquare },
-                  { key: 'profile', label: 'Optimizar Perfil', icon: Target },
+                  { key: 'profile', label: 'Perfil', icon: Target },
                   { key: 'automation', label: 'Automatizacion', icon: Settings },
                   { key: 'saved', label: `(${(selected.posts || []).length})`, icon: FileText },
                 ].map(t => (
@@ -740,6 +741,200 @@ export default function LinkedInPage() {
                 </div>
               )}
 
+              {/* Tab: Prospecting */}
+              {tab === 'prospecting' && (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className={`rounded-2xl border-2 p-5 ${autoRunning ? 'bg-purple-50 border-purple-300' : 'bg-white border-gray-100'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                          <Users className="w-5 h-5 text-purple-500" /> Prospeccion
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Configura a quien buscar y como conectar. La prospeccion se ejecuta junto con la automatizacion.
+                        </p>
+                      </div>
+                      {autoRunning && <span className="flex items-center gap-1.5 text-xs font-bold text-purple-600"><span className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" /> Prospectando...</span>}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Search Config */}
+                    <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Target className="w-4 h-4 text-purple-500" /> Busqueda avanzada</h4>
+
+                      {/* Search Strategy */}
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Estrategia</label>
+                        <div className="flex bg-gray-100 rounded-xl p-0.5">
+                          {[{ id: 'combined', label: 'Combinada' }, { id: 'roles', label: 'Por cargos' }, { id: 'keywords', label: 'Keywords' }].map(s => (
+                            <button key={s.id} onClick={() => setAutoConfig(c => ({ ...c, searchStrategy: s.id }))}
+                              className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${autoConfig.searchStrategy === s.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400'}`}>{s.label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Cargos */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Cargos objetivo</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetRoles.map((r, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full">
+                              {r}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetRoles: c.targetRoles.filter((_, j) => j !== i) }))} className="text-purple-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="Agregar cargo..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/30" />
+                          <button onClick={() => { if (newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
+                            className="px-2.5 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs hover:bg-purple-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      {/* Industrias */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Industrias</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetIndustries.map((ind, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
+                              {ind}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetIndustries: c.targetIndustries.filter((_, j) => j !== i) }))} className="text-indigo-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newIndustry} onChange={e => setNewIndustry(e.target.value)} placeholder="Agregar industria..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                          <button onClick={() => { if (newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
+                            className="px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs hover:bg-indigo-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      {/* Keywords */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Keywords adicionales</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetKeywords.map((kw, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2.5 py-1 rounded-full">
+                              {kw}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetKeywords: c.targetKeywords.filter((_, j) => j !== i) }))} className="text-orange-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newKeyword} onChange={e => setNewKeyword(e.target.value)} placeholder="ej: e-commerce, SaaS, fintech..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
+                          <button onClick={() => { if (newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
+                            className="px-2.5 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs hover:bg-orange-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Filters & Message */}
+                    <div className="space-y-4">
+                      {/* Ubicacion */}
+                      <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
+                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-emerald-500" /> Filtros</h4>
+
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-1 block">Ubicacion geografica</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {autoConfig.targetLocations.map((loc, i) => (
+                              <span key={i} className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full">
+                                {loc}
+                                <button onClick={() => setAutoConfig(c => ({ ...c, targetLocations: c.targetLocations.filter((_, j) => j !== i) }))} className="text-emerald-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                              </span>
+                            ))}
+                          </div>
+                          <div className="flex gap-1.5 mt-1.5">
+                            <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)} placeholder="Agregar ubicacion..."
+                              onKeyDown={e => { if (e.key === 'Enter' && newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
+                              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+                            <button onClick={() => { if (newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
+                              className="px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs hover:bg-emerald-200"><Plus className="w-3 h-3" /></button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-1 block">Nivel de senioridad</label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[
+                              { id: 'owner', label: 'Dueño/Founder' },
+                              { id: 'cxo', label: 'C-Level' },
+                              { id: 'director', label: 'Director/VP' },
+                              { id: 'manager', label: 'Gerente/Manager' },
+                              { id: 'lead', label: 'Jefe/Lead' },
+                            ].map(s => (
+                              <button key={s.id} onClick={() => setAutoConfig(c => ({
+                                ...c, targetSeniority: c.targetSeniority.includes(s.id)
+                                  ? c.targetSeniority.filter(x => x !== s.id)
+                                  : [...c.targetSeniority, s.id]
+                              }))}
+                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                                  autoConfig.targetSeniority.includes(s.id)
+                                    ? 'bg-purple-600 text-white shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                                }`}>{s.label}</button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-1 block">Conexiones por dia</label>
+                          <div className="flex items-center gap-2">
+                            {[5, 10, 15, 20, 25].map(n => (
+                              <button key={n} onClick={() => setAutoConfig(c => ({ ...c, dailyConnections: n }))}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.dailyConnections === n ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Connection Note */}
+                      <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-2">
+                        <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-emerald-500" /> Nota de conexion</h4>
+                        <p className="text-[10px] text-gray-400">La IA personaliza cada mensaje usando 4 estrategias:</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {['Valor directo', 'Pregunta consultiva', 'Compartir contenido', 'Soft CTA'].map((s, i) => (
+                            <span key={i} className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium">{s}</span>
+                          ))}
+                        </div>
+                        <textarea value={autoConfig.connectionNote} onChange={e => setAutoConfig(c => ({ ...c, connectionNote: e.target.value }))} rows={2}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" placeholder="Template base (la IA lo personaliza por estrategia)" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Prospecting Logs */}
+                  <div className="bg-gray-900 rounded-2xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${autoRunning ? 'bg-purple-400 animate-pulse' : 'bg-gray-600'}`} />
+                        Logs de Prospeccion
+                      </h4>
+                      <span className="text-[10px] text-gray-500">{connectionLogs.length} conexiones</span>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto space-y-1 font-mono">
+                      {connectionLogs.length === 0 ? (
+                        <p className="text-xs text-gray-600">Los logs de prospeccion apareceran aqui cuando se envien conexiones...</p>
+                      ) : connectionLogs.map((log, i) => (
+                        <div key={i} className="flex items-start gap-2 text-[11px]">
+                          <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                          <span className="flex-shrink-0 text-[9px] px-1.5 py-0 rounded bg-purple-900/50 text-purple-400">CONN</span>
+                          <span className={`${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-400'}`}>{log.msg}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Tab: DM */}
               {tab === 'dm' && (
                 <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
@@ -932,150 +1127,7 @@ export default function LinkedInPage() {
                       </div>
                     </div>
 
-                    {/* Target Config */}
-                    <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
-                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Target className="w-4 h-4 text-purple-500" /> A quien conectar</h4>
-
-                      {/* Search Strategy */}
-                      <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Estrategia de busqueda</label>
-                        <div className="flex bg-gray-100 rounded-xl p-0.5">
-                          {[{ id: 'combined', label: 'Combinada' }, { id: 'roles', label: 'Por cargos' }, { id: 'keywords', label: 'Keywords' }].map(s => (
-                            <button key={s.id} onClick={() => setAutoConfig(c => ({ ...c, searchStrategy: s.id }))}
-                              className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${autoConfig.searchStrategy === s.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400'}`}>{s.label}</button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Cargos */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Cargos objetivo</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {autoConfig.targetRoles.map((r, i) => (
-                            <span key={i} className="flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2.5 py-1 rounded-full">
-                              {r}
-                              <button onClick={() => setAutoConfig(c => ({ ...c, targetRoles: c.targetRoles.filter((_, j) => j !== i) }))} className="text-purple-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5 mt-1.5">
-                          <input type="text" value={newRole} onChange={e => setNewRole(e.target.value)} placeholder="Agregar cargo..."
-                            onKeyDown={e => { if (e.key === 'Enter' && newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
-                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-purple-500/30" />
-                          <button onClick={() => { if (newRole.trim()) { setAutoConfig(c => ({ ...c, targetRoles: [...c.targetRoles, newRole.trim()] })); setNewRole('') }}}
-                            className="px-2.5 py-1.5 bg-purple-100 text-purple-700 rounded-lg text-xs hover:bg-purple-200"><Plus className="w-3 h-3" /></button>
-                        </div>
-                      </div>
-
-                      {/* Industrias */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Industrias</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {autoConfig.targetIndustries.map((ind, i) => (
-                            <span key={i} className="flex items-center gap-1 text-xs bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full">
-                              {ind}
-                              <button onClick={() => setAutoConfig(c => ({ ...c, targetIndustries: c.targetIndustries.filter((_, j) => j !== i) }))} className="text-indigo-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5 mt-1.5">
-                          <input type="text" value={newIndustry} onChange={e => setNewIndustry(e.target.value)} placeholder="Agregar industria..."
-                            onKeyDown={e => { if (e.key === 'Enter' && newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
-                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
-                          <button onClick={() => { if (newIndustry.trim()) { setAutoConfig(c => ({ ...c, targetIndustries: [...c.targetIndustries, newIndustry.trim()] })); setNewIndustry('') }}}
-                            className="px-2.5 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs hover:bg-indigo-200"><Plus className="w-3 h-3" /></button>
-                        </div>
-                      </div>
-
-                      {/* Ubicacion */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Ubicacion geografica</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {autoConfig.targetLocations.map((loc, i) => (
-                            <span key={i} className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full">
-                              {loc}
-                              <button onClick={() => setAutoConfig(c => ({ ...c, targetLocations: c.targetLocations.filter((_, j) => j !== i) }))} className="text-emerald-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5 mt-1.5">
-                          <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)} placeholder="Agregar ubicacion..."
-                            onKeyDown={e => { if (e.key === 'Enter' && newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
-                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
-                          <button onClick={() => { if (newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
-                            className="px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs hover:bg-emerald-200"><Plus className="w-3 h-3" /></button>
-                        </div>
-                      </div>
-
-                      {/* Senioridad */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Nivel de senioridad</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {[
-                            { id: 'owner', label: 'Dueño/Founder' },
-                            { id: 'cxo', label: 'C-Level' },
-                            { id: 'director', label: 'Director/VP' },
-                            { id: 'manager', label: 'Gerente/Manager' },
-                            { id: 'lead', label: 'Jefe/Lead' },
-                          ].map(s => (
-                            <button key={s.id} onClick={() => setAutoConfig(c => ({
-                              ...c, targetSeniority: c.targetSeniority.includes(s.id)
-                                ? c.targetSeniority.filter(x => x !== s.id)
-                                : [...c.targetSeniority, s.id]
-                            }))}
-                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
-                                autoConfig.targetSeniority.includes(s.id)
-                                  ? 'bg-purple-600 text-white shadow-sm'
-                                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-                              }`}>{s.label}</button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Keywords adicionales */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Keywords adicionales</label>
-                        <div className="flex flex-wrap gap-1.5">
-                          {autoConfig.targetKeywords.map((kw, i) => (
-                            <span key={i} className="flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2.5 py-1 rounded-full">
-                              {kw}
-                              <button onClick={() => setAutoConfig(c => ({ ...c, targetKeywords: c.targetKeywords.filter((_, j) => j !== i) }))} className="text-orange-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
-                            </span>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5 mt-1.5">
-                          <input type="text" value={newKeyword} onChange={e => setNewKeyword(e.target.value)} placeholder="ej: e-commerce, SaaS, fintech..."
-                            onKeyDown={e => { if (e.key === 'Enter' && newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
-                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
-                          <button onClick={() => { if (newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
-                            className="px-2.5 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs hover:bg-orange-200"><Plus className="w-3 h-3" /></button>
-                        </div>
-                      </div>
-
-                      {/* Conexiones por dia */}
-                      <div>
-                        <label className="text-[10px] text-gray-500 mb-1 block">Conexiones por dia</label>
-                        <div className="flex items-center gap-2">
-                          {[5, 10, 15, 20, 25].map(n => (
-                            <button key={n} onClick={() => setAutoConfig(c => ({ ...c, dailyConnections: n }))}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.dailyConnections === n ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Connection Note */}
-                  <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-2">
-                    <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-emerald-500" /> Nota de conexion</h4>
-                    <p className="text-[10px] text-gray-400">Se personaliza con IA para cada persona usando 4 estrategias que rotan: valor directo, pregunta consultiva, compartir contenido, y soft CTA.</p>
-                    <textarea value={autoConfig.connectionNote} onChange={e => setAutoConfig(c => ({ ...c, connectionNote: e.target.value }))} rows={3}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" placeholder="Template base (la IA lo personaliza)" />
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      {['Valor directo', 'Pregunta consultiva', 'Compartir contenido', 'Soft CTA'].map((s, i) => (
-                        <span key={i} className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium">{s}</span>
-                      ))}
-                    </div>
+                    {/* Content Config only - targeting moved to Prospecting tab */}
                   </div>
 
                   {/* Safety Limits */}
@@ -1091,28 +1143,30 @@ export default function LinkedInPage() {
                     </div>
                   </div>
 
-                  {/* Live Logs */}
+                  {/* Post Logs */}
                   <div className="bg-gray-900 rounded-2xl p-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${autoRunning ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-                        Logs en Vivo
+                        Logs de Publicaciones
                       </h4>
-                      <span className="text-[10px] text-gray-500">{liLogs.length} entradas</span>
+                      <span className="text-[10px] text-gray-500">{postLogs.length + liLogs.filter(l => !l.category || l.category === 'system').length} entradas</span>
                     </div>
                     <div className="max-h-64 overflow-y-auto space-y-1 font-mono">
-                      {liLogs.length === 0 ? (
-                        <p className="text-xs text-gray-600">Inicia la automatizacion para ver logs...</p>
-                      ) : liLogs.map((log, i) => (
-                        <div key={i} className="flex items-start gap-2 text-[11px]">
-                          <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                          <span className={`${
-                            log.type === 'error' ? 'text-red-400' :
-                            log.type === 'success' ? 'text-green-400' :
-                            'text-gray-400'
-                          }`}>{log.msg}</span>
-                        </div>
-                      ))}
+                      {(() => {
+                        const logs = liLogs.filter(l => !l.category || l.category === 'system' || l.category === 'post')
+                        return logs.length === 0 ? (
+                          <p className="text-xs text-gray-600">Inicia la automatizacion para ver logs...</p>
+                        ) : logs.map((log, i) => (
+                          <div key={i} className="flex items-start gap-2 text-[11px]">
+                            <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                            <span className={`flex-shrink-0 text-[9px] px-1.5 py-0 rounded ${log.category === 'post' ? 'bg-blue-900/50 text-blue-400' : 'bg-gray-800 text-gray-500'}`}>
+                              {log.category === 'post' ? 'POST' : 'SYS'}
+                            </span>
+                            <span className={`${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-400'}`}>{log.msg}</span>
+                          </div>
+                        ))
+                      })()}
                     </div>
                   </div>
                 </div>
