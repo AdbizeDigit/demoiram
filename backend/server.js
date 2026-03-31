@@ -1480,21 +1480,26 @@ REGLAS:
           if (parsed.post) {
             liLog(pid, `Post generado (${style}): "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
 
-            // Generate image with Freepik
+            // Generate image with Freepik (2 attempts with wait between)
             let imageUrl = null
-            try {
-              liLog(pid, 'Generando imagen con Freepik Mystic...', 'info', 'post')
-              const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
-              const imgResult = await freepikImageService.generateForPost(parsed.post)
-              imageUrl = imgResult?.url || null
-              if (imageUrl) liLog(pid, 'Imagen generada!', 'success', 'post')
-            } catch (imgErr) { liLog(pid, `Imagen no disponible: ${imgErr.message?.slice(0, 60)}`, 'error', 'post') }
+            const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+            for (let imgAttempt = 1; imgAttempt <= 2; imgAttempt++) {
+              try {
+                liLog(pid, `Generando imagen con Freepik Mystic (intento ${imgAttempt}/2)...`, 'info', 'post')
+                const imgResult = await freepikImageService.generateForPost(parsed.post)
+                imageUrl = imgResult?.url || null
+                if (imageUrl) { liLog(pid, 'Imagen generada!', 'success', 'post'); break }
+              } catch (imgErr) {
+                liLog(pid, `Imagen intento ${imgAttempt} fallo: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
+                if (imgAttempt < 2) await new Promise(r => setTimeout(r, 20000)) // wait 20s before retry
+              }
+            }
 
             // Clean hashtags: remove any # prefix the AI might add
             const cleanHashtags = (parsed.hashtags || []).map(h => h.replace(/^#/, ''))
             const fullPost = parsed.post + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
             if (!imageUrl) {
-              liLog(pid, 'No se pudo generar imagen, no se publica sin imagen', 'error', 'post')
+              liLog(pid, 'No se pudo generar imagen despues de 2 intentos, no se publica sin imagen', 'error', 'post')
             } else {
               const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl, { requireImage: true })
               liLog(pid, postResult.success ? 'Post con imagen publicado!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
