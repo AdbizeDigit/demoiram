@@ -1582,7 +1582,7 @@ REGLAS:
               }
               await sleep(2000 + Math.random() * 2000)
 
-              // Find Connect buttons and extract contact info (name, headline, company)
+              // Find Connect buttons and extract rich contact info
               const connectButtons = await page.evaluate(() => {
                 const buttons = [...document.querySelectorAll('button')]
                 const connectBtns = buttons.filter(b => {
@@ -1597,11 +1597,18 @@ REGLAS:
                   const nameEl = card?.querySelector('span[dir="ltr"] > span[aria-hidden="true"], .entity-result__title-text a span, a[href*="/in/"] span')
                   const headlineEl = card?.querySelector('.entity-result__primary-subtitle, .entity-result__summary, [class*="subtitle"]')
                   const locationEl = card?.querySelector('.entity-result__secondary-subtitle, [class*="secondary"]')
+                  const summaryEl = card?.querySelector('.entity-result__summary, .entity-result__content-summary')
+                  const snippetEl = card?.querySelector('.entity-result__snippet, [class*="snippet"]')
+                  // Try to extract company from headline (e.g. "CEO en Empresa X" or "CEO at Company")
+                  const fullHeadline = headlineEl?.textContent?.trim() || ''
+                  const companyMatch = fullHeadline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
                   return {
                     index: buttons.indexOf(b),
                     name: nameEl?.textContent?.trim() || 'Persona',
-                    headline: headlineEl?.textContent?.trim() || '',
+                    headline: fullHeadline,
                     location: locationEl?.textContent?.trim() || '',
+                    company: companyMatch?.[1]?.trim() || '',
+                    summary: summaryEl?.textContent?.trim() || snippetEl?.textContent?.trim() || '',
                   }
                 })
               })
@@ -1626,55 +1633,82 @@ REGLAS:
 
               let strategyIndex = 0
 
-              for (const { index, name, headline, location } of connectButtons) {
+              for (const { index, name, headline, location, company, summary } of connectButtons) {
                 if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
 
                 try {
-                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}`, 'info', 'connection')
+                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}${company ? ` (${company})` : ''}`, 'info', 'connection')
 
                   // Pick strategy (rotate)
                   const strategy = MESSAGE_STRATEGIES[strategyIndex % MESSAGE_STRATEGIES.length]
                   strategyIndex++
 
-                  // Detect seniority for tone
+                  // Detect seniority and role type for personalization
                   const headlineLower = (headline || '').toLowerCase()
-                  const isCLevel = /\b(ceo|cto|cfo|coo|cmo|founder|cofound|dueñ|president)\b/.test(headlineLower)
-                  const toneGuide = isCLevel
-                    ? 'Tono respetuoso y profesional, breve y directo. Nada de "che" ni informalidades excesivas.'
-                    : 'Tono cercano, argentino, profesional pero relajado.'
+                  const isCLevel = /\b(ceo|cto|cfo|coo|cmo|founder|cofound|dueñ|president|socio|partner)\b/.test(headlineLower)
+                  const isSales = /\b(ventas|sales|comercial|business dev|account)\b/.test(headlineLower)
+                  const isMarketing = /\b(marketing|growth|digital|contenido|brand|comunicacion)\b/.test(headlineLower)
+                  const isTech = /\b(developer|engineer|tech|sistemas|software|data|devops|it)\b/.test(headlineLower)
+                  const isHR = /\b(recursos humanos|rrhh|hr|talent|people|cultura)\b/.test(headlineLower)
 
-                  // Generate personalized AI note based on contact info
+                  // Build role context for the AI
+                  let roleContext = 'profesional'
+                  if (isCLevel) roleContext = 'tomador de decisiones de alto nivel que valora su tiempo'
+                  else if (isSales) roleContext = 'profesional de ventas que entiende el valor de las herramientas'
+                  else if (isMarketing) roleContext = 'profesional de marketing que busca resultados medibles'
+                  else if (isTech) roleContext = 'profesional tecnico que aprecia soluciones concretas'
+                  else if (isHR) roleContext = 'profesional de RRHH que busca optimizar procesos'
+
+                  const toneGuide = isCLevel
+                    ? 'Tono ejecutivo: directo, respetuoso, sin rodeos. Habla de resultados y ROI. Nada de "che".'
+                    : isTech
+                    ? 'Tono tecnico: preciso, sin buzzwords vacios. Menciona algo concreto que puedan implementar.'
+                    : 'Tono cercano y argentino, profesional pero humano. Como si hablaras con un colega.'
+
+                  // Generate highly personalized AI note
                   let aiNote = ''
                   try {
                     const senderName = p?.avatar_name || p?.name || 'profesional'
                     const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
                     const senderCompany = p?.avatar_company || 'Adbize'
                     const aiResp = await analyzeWithDeepSeek(
-                      `Sos ${senderName}, ${senderRole} en ${senderCompany} (agencia de publicidad digital con IA).
+                      `CONTEXTO: Sos ${senderName}, ${senderRole} en ${senderCompany}.
+Adbize es una agencia argentina de publicidad digital que usa IA para automatizar marketing, generar leads y escalar ventas de sus clientes.
 
-Genera un mensaje de conexion de LinkedIn para:
-Nombre: ${name}
-Cargo/Info: ${headline}
-${location ? `Ubicacion: ${location}` : ''}
+PERSONA OBJETIVO:
+- Nombre: ${name}
+- Cargo/Headline: ${headline}
+${company ? `- Empresa: ${company}` : ''}
+${location ? `- Ubicacion: ${location}` : ''}
+${summary ? `- Info adicional: ${summary}` : ''}
+- Perfil: ${roleContext}
 
-ESTRATEGIA: ${strategy.name}
+ESTRATEGIA DE MENSAJE: ${strategy.name}
 ${strategy.instruction}
 
-REGLAS CRITICAS:
-- Maximo 280 caracteres (limite de LinkedIn para notas)
-- Empieza con "Hola ${name.split(' ')[0]}!"
-- ${toneGuide}
-- Menciona algo especifico de su cargo o industria
-- NO uses emojis
-- NO pongas comillas
-- NO pidas demo ni seas vendedor agresivo
-- Que suene como un humano real, no un bot
-- Se especifico, no generico
+TECNICAS DE PERSUASION A APLICAR:
+- Especificidad: menciona su cargo, empresa o industria por nombre. NUNCA seas generico.
+- Reciprocidad: ofrece algo primero (insight, dato, recurso) antes de pedir algo.
+- Prueba social implicita: habla desde la experiencia, no desde la teoria.
+- Curiosidad: deja un gancho que invite a responder o querer saber mas.
+${isCLevel ? '- Para C-Level: habla de impacto en revenue, eficiencia operativa o ventaja competitiva.' : ''}
+${isSales ? '- Para ventas: habla de como generar mas leads o cerrar mas rapido.' : ''}
+${isMarketing ? '- Para marketing: habla de automatizar campañas o mejorar ROI publicitario.' : ''}
+${isTech ? '- Para tech: habla de integraciones, APIs o automatizacion de procesos.' : ''}
 
-Responde SOLO con el mensaje, nada mas.`
+FORMATO:
+- Maximo 280 caracteres (CRITICO: LinkedIn rechaza mensajes mas largos)
+- Empieza con "Hola ${name.split(' ')[0]}!" o "${name.split(' ')[0]},"
+- ${toneGuide}
+- NO uses emojis
+- NO pongas comillas alrededor del mensaje
+- Que suene 100% humano, como si lo escribieras vos a mano
+- JAMAS uses frases genericas como "vi tu perfil y me parecio interesante"
+
+Responde UNICAMENTE con el mensaje. Nada mas.`
                     )
                     aiNote = aiResp.trim().replace(/^["']|["']$/g, '').slice(0, 280)
-                    liLog(pid, `Nota IA [${strategy.id}]: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
+                    liLog(pid, `Nota IA [${strategy.id}]: "${aiNote.slice(0, 100)}..."`, 'info', 'connection')
                   } catch (aiErr) {
                     const firstName = name.split(' ')[0]
                     aiNote = FALLBACK_MESSAGES[strategy.id]?.(firstName) || FALLBACK_MESSAGES.contenido(firstName)
