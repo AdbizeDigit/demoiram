@@ -1588,23 +1588,22 @@ REGLAS:
               }
               await sleep(2000 + Math.random() * 2000)
 
-              // Find people results and connect buttons using content-based detection
-              // LinkedIn's new UI uses obfuscated class names, so we find cards by profile links
-              const connectButtons = await page.evaluate(() => {
-                // Find all profile links (/in/username) - these are the search result cards
+              // Detect cards and buttons - LinkedIn uses obfuscated classes, so we use profile links
+              const { connectButtons: foundButtons, debug: cardDebug } = await page.evaluate(() => {
                 const profileLinks = [...document.querySelectorAll('a[href*="/in/"]')]
                 const seenCards = new Set()
                 const results = []
                 const allBtns = [...document.querySelectorAll('button')]
+                const debugInfo = { profileLinks: profileLinks.length, cards: 0, cardButtonSamples: [] }
 
                 for (const link of profileLinks) {
-                  // Walk up to find the result card container (usually a <li> or a div with the result)
+                  // Walk up to find card container
                   let card = link.closest('li') || link.parentElement?.closest('li')
                   if (!card) {
-                    // Try walking up max 8 levels to find a container that has a button
                     let el = link.parentElement
-                    for (let i = 0; i < 8 && el; i++) {
-                      if (el.querySelector('button') && el.querySelectorAll('a[href*="/in/"]').length <= 2) {
+                    for (let i = 0; i < 10 && el; i++) {
+                      const btns = el.querySelectorAll('button')
+                      if (btns.length > 0 && btns.length <= 5) {
                         card = el
                         break
                       }
@@ -1613,33 +1612,47 @@ REGLAS:
                   }
                   if (!card || seenCards.has(card)) continue
                   seenCards.add(card)
+                  debugInfo.cards++
 
-                  // Find connect/conectar button inside this card
                   const cardBtns = [...card.querySelectorAll('button')]
+
+                  // Debug: collect button texts from first 3 cards
+                  if (debugInfo.cardButtonSamples.length < 3) {
+                    debugInfo.cardButtonSamples.push(cardBtns.map(b => ({
+                      text: b.textContent?.trim().slice(0, 40),
+                      label: (b.getAttribute('aria-label') || '').slice(0, 60),
+                      svg: b.querySelector('svg') ? 'has-svg' : '',
+                    })))
+                  }
+
+                  // Find connect button - match broadly
                   const connectBtn = cardBtns.find(b => {
-                    const text = b.textContent?.trim().toLowerCase() || ''
+                    const text = (b.textContent?.trim() || '').toLowerCase()
                     const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                    return (text === 'connect' || text === 'conectar' ||
-                            label.includes('connect') || label.includes('conectar') ||
-                            label.includes('invite') || label.includes('invitar') ||
-                            label.includes('to connect'))
+                    // Match connect/conectar in text or aria-label
+                    if (text === 'connect' || text === 'conectar') return true
+                    if (label.includes('connect') || label.includes('conectar')) return true
+                    if (label.includes('invite') || label.includes('invitar')) return true
+                    if (label.includes('to connect')) return true
+                    // LinkedIn sometimes uses aria-label like "Invite PersonName to connect"
+                    if (/invit|conect|connect/.test(label)) return true
+                    // SVG icon button with no text - check parent for connect hint
+                    if (!text && b.querySelector('svg')) {
+                      const parentText = b.parentElement?.textContent?.trim().toLowerCase() || ''
+                      if (parentText === 'conectar' || parentText === 'connect') return true
+                    }
+                    return false
                   })
                   if (!connectBtn) continue
 
-                  // Extract person info from the card text content
+                  // Extract person info
                   const cardText = card.innerText || ''
-                  const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-
-                  // Name is usually the link text
+                  const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.length < 200)
                   const nameEl = card.querySelector('a[href*="/in/"] span, a[href*="/in/"]')
                   const name = nameEl?.textContent?.trim()?.replace(/\s+/g, ' ') || lines[0] || 'Persona'
-
-                  // Headline/role is usually the line after the name
                   const nameIdx = lines.findIndex(l => l.includes(name?.split(' ')[0]))
                   const headline = lines[nameIdx + 1] || lines[1] || ''
                   const location = lines[nameIdx + 2] || lines[2] || ''
-
-                  // Company from headline
                   const companyMatch = headline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
 
                   results.push({
@@ -1651,8 +1664,16 @@ REGLAS:
                     summary: (lines.slice(nameIdx + 3, nameIdx + 5).join(' ')).slice(0, 200),
                   })
                 }
-                return results
+                return { connectButtons: results, debug: debugInfo }
               })
+
+              // Log debug info
+              liLog(pid, `Cards: ${cardDebug.cards} de ${cardDebug.profileLinks} links, botones conectar: ${foundButtons.length}`, 'info', 'connection')
+              if (cardDebug.cardButtonSamples.length > 0 && foundButtons.length === 0) {
+                const sample = cardDebug.cardButtonSamples[0]?.map(b => `"${b.text}" [${b.label}] ${b.svg}`).join(', ')
+                liLog(pid, `Botones en card 1: ${(sample || 'ninguno').slice(0, 300)}`, 'info', 'connection')
+              }
+              const connectButtons = foundButtons
               liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
               liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
 
