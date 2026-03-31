@@ -105,6 +105,10 @@ export default function LinkedInPage() {
     postFrequency: 1,
     targetRoles: ['CEO', 'Dueño', 'Gerente General', 'Director Comercial', 'Encargado de Compras', 'CTO', 'COO'],
     targetIndustries: ['Tecnologia', 'Manufactura', 'Comercio', 'Servicios', 'Gastronomia', 'Inmobiliaria'],
+    targetLocations: ['Argentina'],
+    targetSeniority: ['owner', 'director', 'manager'],
+    targetKeywords: [],
+    searchStrategy: 'combined',
     connectionNote: 'Hola! Vi tu perfil y me parecio muy interesante. En Adbize trabajamos con IA aplicada a empresas. Me encantaria conectar.',
     dailyConnections: 15,
     dailyPosts: 1,
@@ -112,6 +116,8 @@ export default function LinkedInPage() {
   const [newTopic, setNewTopic] = useState('')
   const [newRole, setNewRole] = useState('')
   const [newIndustry, setNewIndustry] = useState('')
+  const [newLocation, setNewLocation] = useState('')
+  const [newKeyword, setNewKeyword] = useState('')
   const [liLogs, setLiLogs] = useState([])
   const [postLogs, setPostLogs] = useState([])
   const [connectionLogs, setConnectionLogs] = useState([])
@@ -929,8 +935,19 @@ export default function LinkedInPage() {
                     {/* Target Config */}
                     <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
                       <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Target className="w-4 h-4 text-purple-500" /> A quien conectar</h4>
-                      <p className="text-[10px] text-gray-400">Busca y conecta con decisores de estas industrias y cargos</p>
 
+                      {/* Search Strategy */}
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Estrategia de busqueda</label>
+                        <div className="flex bg-gray-100 rounded-xl p-0.5">
+                          {[{ id: 'combined', label: 'Combinada' }, { id: 'roles', label: 'Por cargos' }, { id: 'keywords', label: 'Keywords' }].map(s => (
+                            <button key={s.id} onClick={() => setAutoConfig(c => ({ ...c, searchStrategy: s.id }))}
+                              className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${autoConfig.searchStrategy === s.id ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400'}`}>{s.label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Cargos */}
                       <div>
                         <label className="text-[10px] text-gray-500 mb-1 block">Cargos objetivo</label>
                         <div className="flex flex-wrap gap-1.5">
@@ -950,6 +967,7 @@ export default function LinkedInPage() {
                         </div>
                       </div>
 
+                      {/* Industrias */}
                       <div>
                         <label className="text-[10px] text-gray-500 mb-1 block">Industrias</label>
                         <div className="flex flex-wrap gap-1.5">
@@ -969,6 +987,72 @@ export default function LinkedInPage() {
                         </div>
                       </div>
 
+                      {/* Ubicacion */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Ubicacion geografica</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetLocations.map((loc, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full">
+                              {loc}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetLocations: c.targetLocations.filter((_, j) => j !== i) }))} className="text-emerald-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newLocation} onChange={e => setNewLocation(e.target.value)} placeholder="Agregar ubicacion..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+                          <button onClick={() => { if (newLocation.trim()) { setAutoConfig(c => ({ ...c, targetLocations: [...c.targetLocations, newLocation.trim()] })); setNewLocation('') }}}
+                            className="px-2.5 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-xs hover:bg-emerald-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      {/* Senioridad */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Nivel de senioridad</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { id: 'owner', label: 'Dueño/Founder' },
+                            { id: 'cxo', label: 'C-Level' },
+                            { id: 'director', label: 'Director/VP' },
+                            { id: 'manager', label: 'Gerente/Manager' },
+                            { id: 'lead', label: 'Jefe/Lead' },
+                          ].map(s => (
+                            <button key={s.id} onClick={() => setAutoConfig(c => ({
+                              ...c, targetSeniority: c.targetSeniority.includes(s.id)
+                                ? c.targetSeniority.filter(x => x !== s.id)
+                                : [...c.targetSeniority, s.id]
+                            }))}
+                              className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all ${
+                                autoConfig.targetSeniority.includes(s.id)
+                                  ? 'bg-purple-600 text-white shadow-sm'
+                                  : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                              }`}>{s.label}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Keywords adicionales */}
+                      <div>
+                        <label className="text-[10px] text-gray-500 mb-1 block">Keywords adicionales</label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {autoConfig.targetKeywords.map((kw, i) => (
+                            <span key={i} className="flex items-center gap-1 text-xs bg-orange-50 text-orange-700 px-2.5 py-1 rounded-full">
+                              {kw}
+                              <button onClick={() => setAutoConfig(c => ({ ...c, targetKeywords: c.targetKeywords.filter((_, j) => j !== i) }))} className="text-orange-400 hover:text-red-500"><X className="w-2.5 h-2.5" /></button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-1.5 mt-1.5">
+                          <input type="text" value={newKeyword} onChange={e => setNewKeyword(e.target.value)} placeholder="ej: e-commerce, SaaS, fintech..."
+                            onKeyDown={e => { if (e.key === 'Enter' && newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
+                            className="flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-orange-500/30" />
+                          <button onClick={() => { if (newKeyword.trim()) { setAutoConfig(c => ({ ...c, targetKeywords: [...c.targetKeywords, newKeyword.trim()] })); setNewKeyword('') }}}
+                            className="px-2.5 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs hover:bg-orange-200"><Plus className="w-3 h-3" /></button>
+                        </div>
+                      </div>
+
+                      {/* Conexiones por dia */}
                       <div>
                         <label className="text-[10px] text-gray-500 mb-1 block">Conexiones por dia</label>
                         <div className="flex items-center gap-2">
@@ -984,9 +1068,14 @@ export default function LinkedInPage() {
                   {/* Connection Note */}
                   <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-2">
                     <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><MessageSquare className="w-4 h-4 text-emerald-500" /> Nota de conexion</h4>
-                    <p className="text-[10px] text-gray-400">Se personaliza con IA para cada persona. Este es el template base:</p>
+                    <p className="text-[10px] text-gray-400">Se personaliza con IA para cada persona usando 4 estrategias que rotan: valor directo, pregunta consultiva, compartir contenido, y soft CTA.</p>
                     <textarea value={autoConfig.connectionNote} onChange={e => setAutoConfig(c => ({ ...c, connectionNote: e.target.value }))} rows={3}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" />
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" placeholder="Template base (la IA lo personaliza)" />
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {['Valor directo', 'Pregunta consultiva', 'Compartir contenido', 'Soft CTA'].map((s, i) => (
+                        <span key={i} className="text-[9px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-600 font-medium">{s}</span>
+                      ))}
+                    </div>
                   </div>
 
                   {/* Safety Limits */}

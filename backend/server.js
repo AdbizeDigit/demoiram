@@ -1510,18 +1510,58 @@ REGLAS:
         if (!liAutoState.get(pid)?.running) return
         const targetRoles = cfg.targetRoles || ['CEO', 'Gerente']
         const targetIndustries = cfg.targetIndustries || ['Tecnologia']
+        const targetLocations = cfg.targetLocations || []
+        const targetKeywords = cfg.targetKeywords || []
+        const targetSeniority = cfg.targetSeniority || ['owner', 'director', 'manager']
+        const searchStrategy = cfg.searchStrategy || 'combined'
         const maxConnections = Math.min(cfg.dailyConnections || 10, 25)
-        const searchQuery = `${targetRoles[Math.floor(Math.random() * targetRoles.length)]} ${targetIndustries[Math.floor(Math.random() * targetIndustries.length)]}`
-        liLog(pid, `Buscando "${searchQuery}" para conectar (max ${maxConnections})...`, 'info', 'connection')
+
+        // Build multiple search queries for variety
+        const buildSearchQueries = () => {
+          const queries = []
+          if (searchStrategy === 'keywords' && targetKeywords.length) {
+            // Direct keyword searches
+            for (const kw of targetKeywords.slice(0, 3)) {
+              queries.push(kw)
+            }
+          } else if (searchStrategy === 'roles') {
+            // Role-only searches
+            for (let i = 0; i < Math.min(3, targetRoles.length); i++) {
+              const role = targetRoles[Math.floor(Math.random() * targetRoles.length)]
+              queries.push(role)
+            }
+          } else {
+            // Combined: role + industry + optional keyword
+            for (let i = 0; i < 3; i++) {
+              const role = targetRoles[Math.floor(Math.random() * targetRoles.length)]
+              const industry = targetIndustries[Math.floor(Math.random() * targetIndustries.length)]
+              const kw = targetKeywords.length ? ' ' + targetKeywords[Math.floor(Math.random() * targetKeywords.length)] : ''
+              queries.push(`${role} ${industry}${kw}`)
+            }
+          }
+          return [...new Set(queries)] // deduplicate
+        }
+
+        const searchQueries = buildSearchQueries()
+        liLog(pid, `Busquedas planificadas: ${searchQueries.map(q => `"${q}"`).join(', ')} (max ${maxConnections})`, 'info', 'connection')
 
         try {
           const session = linkedinBrowser.sessions.get(pid)
           if (session?.page) {
             const { page } = session
 
-            // Go to LinkedIn search
-            const searchUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(searchQuery)}&origin=GLOBAL_SEARCH_HEADER`
-            liLog(pid, `Navegando a busqueda: ${searchQuery}`, 'info', 'connection')
+            // Build search URL with advanced filters
+            const buildSearchUrl = (query) => {
+              let url = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(query)}&network=%5B%22S%22%2C%22O%22%5D&origin=FACETED_SEARCH`
+              // Add location if specified
+              if (targetLocations.length) {
+                url += `&geoUrn=${encodeURIComponent(JSON.stringify(targetLocations))}`
+              }
+              return url
+            }
+
+            const searchUrl = buildSearchUrl(searchQueries[0])
+            liLog(pid, `Navegando a busqueda: ${searchQueries[0]}`, 'info', 'connection')
             await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
             await sleep(3000 + Math.random() * 4000)
 
@@ -1564,43 +1604,76 @@ REGLAS:
 
               const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
 
+              // Message strategies that rotate for variety
+              const MESSAGE_STRATEGIES = [
+                { id: 'valor', name: 'Valor directo', instruction: 'Comparti un insight o dato relevante a su industria/rol que demuestre tu expertise. NO vendas nada. Solo aporta valor y pedí conectar para seguir compartiendo.' },
+                { id: 'pregunta', name: 'Pregunta consultiva', instruction: 'Hace una pregunta inteligente sobre un desafio comun en su rol/industria. Mostra curiosidad genuina. NO ofrezcas solucion todavia, solo genera conversacion.' },
+                { id: 'contenido', name: 'Compartir contenido', instruction: 'Menciona que publicas contenido sobre IA/tecnologia aplicada a negocios y que te parecio que le podria interesar. Invita a conectar para que vea tus posts.' },
+                { id: 'soft_cta', name: 'Soft CTA', instruction: 'Menciona brevemente que en Adbize ayudan empresas con IA/publicidad digital. No seas agresivo. Solo decí que te encantaria charlar si le interesa el tema.' },
+              ]
+
+              const FALLBACK_MESSAGES = {
+                valor: (firstName) => `Hola ${firstName}! Lei que el 73% de las empresas que implementan IA ven resultados en menos de 3 meses. Me encantaria conectar y compartir mas sobre esto.`,
+                pregunta: (firstName) => `Hola ${firstName}! Cual es el proceso mas repetitivo en tu dia a dia? Estoy investigando como la IA esta cambiando la forma de trabajar en diferentes industrias.`,
+                contenido: (firstName) => `Hola ${firstName}! Publico contenido sobre IA aplicada a negocios y me parecio que por tu perfil te podria interesar. Conectamos?`,
+                soft_cta: (firstName) => `Hola ${firstName}! Vi tu perfil y me resulto muy interesante. En Adbize trabajamos con IA aplicada a empresas. Si te copa el tema, me encantaria charlar.`,
+              }
+
+              let strategyIndex = 0
+
               for (const { index, name, headline, location } of connectButtons) {
                 if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
 
                 try {
                   liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}`, 'info', 'connection')
 
+                  // Pick strategy (rotate)
+                  const strategy = MESSAGE_STRATEGIES[strategyIndex % MESSAGE_STRATEGIES.length]
+                  strategyIndex++
+
+                  // Detect seniority for tone
+                  const headlineLower = (headline || '').toLowerCase()
+                  const isCLevel = /\b(ceo|cto|cfo|coo|cmo|founder|cofound|dueñ|president)\b/.test(headlineLower)
+                  const toneGuide = isCLevel
+                    ? 'Tono respetuoso y profesional, breve y directo. Nada de "che" ni informalidades excesivas.'
+                    : 'Tono cercano, argentino, profesional pero relajado.'
+
                   // Generate personalized AI note based on contact info
                   let aiNote = ''
                   try {
                     const senderName = p?.avatar_name || p?.name || 'profesional'
+                    const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
                     const senderCompany = p?.avatar_company || 'Adbize'
                     const aiResp = await analyzeWithDeepSeek(
-                      `Eres ${senderName} de ${senderCompany}, experto en implementar IA en empresas.
-Genera un mensaje de conexion de LinkedIn ULTRA PERSUASIVO y personalizado para esta persona:
+                      `Sos ${senderName}, ${senderRole} en ${senderCompany} (agencia de publicidad digital con IA).
 
+Genera un mensaje de conexion de LinkedIn para:
 Nombre: ${name}
 Cargo/Info: ${headline}
 ${location ? `Ubicacion: ${location}` : ''}
 
-REGLAS:
-- Maximo 280 caracteres (limite de LinkedIn)
+ESTRATEGIA: ${strategy.name}
+${strategy.instruction}
+
+REGLAS CRITICAS:
+- Maximo 280 caracteres (limite de LinkedIn para notas)
 - Empieza con "Hola ${name.split(' ')[0]}!"
-- Menciona algo especifico de su cargo/industria
-- Da UN ejemplo concreto de como la IA puede ayudar en su rol (automatizar procesos, predecir ventas, chatbots para atencion, analisis de datos, etc)
-- Ofrece una DEMO GRATIS para que vea el potencial de la IA aplicada a su negocio
-- Termina invitando a agendar la demo o conversar
-- Tono cercano, argentino, profesional pero no formal
+- ${toneGuide}
+- Menciona algo especifico de su cargo o industria
 - NO uses emojis
 - NO pongas comillas
+- NO pidas demo ni seas vendedor agresivo
+- Que suene como un humano real, no un bot
+- Se especifico, no generico
 
 Responde SOLO con el mensaje, nada mas.`
                     )
                     aiNote = aiResp.trim().replace(/^["']|["']$/g, '').slice(0, 280)
-                    liLog(pid, `Nota IA: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
+                    liLog(pid, `Nota IA [${strategy.id}]: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
                   } catch (aiErr) {
-                    aiNote = `Hola ${name.split(' ')[0]}! Vi tu perfil y me parecio muy interesante. Estamos ayudando empresas a implementar IA para automatizar procesos y potenciar resultados. Te ofrezco una demo gratis para que veas el potencial. Conectamos?`
-                    liLog(pid, `Nota IA fallo, usando fallback`, 'error', 'connection')
+                    const firstName = name.split(' ')[0]
+                    aiNote = FALLBACK_MESSAGES[strategy.id]?.(firstName) || FALLBACK_MESSAGES.contenido(firstName)
+                    liLog(pid, `Nota IA fallo, fallback [${strategy.id}]`, 'error', 'connection')
                   }
 
                   // Click the connect button by index
@@ -1682,7 +1755,7 @@ Responde SOLO con el mensaje, nada mas.`
                 }
               }
 
-              // Next page
+              // Next page or rotate to next search query
               if (connected < maxConnections) {
                 const nextClicked = await page.evaluate(() => {
                   const btns = [...document.querySelectorAll('button')]
@@ -1696,11 +1769,18 @@ Responde SOLO con el mensaje, nada mas.`
                 })
                 if (nextClicked) {
                   await sleep(4000 + Math.random() * 5000)
+                } else if (attempt + 1 < 3 && searchQueries[attempt + 1]) {
+                  // No more pages, try next search query
+                  const nextQuery = searchQueries[attempt + 1]
+                  liLog(pid, `Cambiando busqueda a: "${nextQuery}"`, 'info', 'connection')
+                  const nextUrl = buildSearchUrl(nextQuery)
+                  await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+                  await sleep(3000 + Math.random() * 4000)
                 } else break
               }
             }
 
-            liLog(pid, `${connected} conexiones enviadas`, 'success', 'connection')
+            liLog(pid, `${connected} conexiones enviadas en total`, 'success', 'connection')
           }
         } catch (searchErr) {
           liLog(pid, `Error en busqueda: ${searchErr.message?.slice(0, 100)}`, 'error', 'connection')
