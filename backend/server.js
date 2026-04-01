@@ -1722,23 +1722,34 @@ REGLAS:
 
                   // Role detection and AI note generation happen after visiting the profile page
 
-                  // Visit profile — clear DOM completely then navigate fresh
+                  // Visit profile — clear DOM and navigate fresh
                   liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
                   const expectedSlug = profileUrl.match(/\/in\/([^/?]+)/)?.[1] || ''
-                  // Navigate to blank page first to completely destroy LinkedIn SPA state
+                  // Navigate to blank page first
                   await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                  // Now navigate to profile with full page load
-                  await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 }).catch(() => {})
-                  // Wait for profile content to render
+                  await sleep(500)
+                  // Navigate to profile
+                  try {
+                    await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 })
+                  } catch (navErr) {
+                    liLog(pid, `Error navegando: ${navErr.message?.slice(0, 60)}`, 'error', 'connection')
+                    // Retry once
+                    try { await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }) } catch {}
+                  }
+                  // Wait for h1 to render
                   try {
                     await page.waitForSelector('h1', { timeout: 12000 })
                   } catch {}
                   await sleep(2000 + Math.random() * 2000)
 
-                  // Verify URL
+                  // Log actual URL and h1 for debugging
                   const currentUrl = await page.url()
+                  const debugH1 = await page.evaluate(() => document.querySelector('h1')?.innerText?.trim()?.slice(0, 50) || 'no-h1')
+                  liLog(pid, `Nav OK: ${currentUrl.split('?')[0].split('/in/')[1] || currentUrl.split('?')[0]} h1="${debugH1}"`, 'info', 'connection')
+
+                  // Verify URL
                   if (expectedSlug && !decodeURIComponent(currentUrl).includes(decodeURIComponent(expectedSlug))) {
-                    liLog(pid, `URL no coincide: esperaba ${expectedSlug}, actual: ${currentUrl.split('?')[0]}`, 'error', 'connection')
+                    liLog(pid, `URL no coincide: esperaba ${expectedSlug}`, 'error', 'connection')
                     continue
                   }
 
