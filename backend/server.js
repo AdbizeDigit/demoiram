@@ -1578,6 +1578,7 @@ REGLAS:
 
             // Find Connect buttons on the page
             let connected = 0
+            let currentSearchUrl = searchUrl
             for (let attempt = 0; attempt < 3 && connected < maxConnections; attempt++) {
               if (!liAutoState.get(pid)?.running) break
 
@@ -1851,85 +1852,141 @@ Responde UNICAMENTE con el mensaje.`
                   } else {
                     liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${profileConnectResult.slice(0, 200)}`, 'error', 'connection')
                     // Go back to search results
-                    await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
-                    await sleep(2000)
+                    await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                    await sleep(3000 + Math.random() * 2000)
                     continue
                   }
 
                   // Handle connection modal (add note + send)
                   // Wait and retry for modal to appear (LinkedIn can be slow)
                   let modalHandled = 'no-modal'
-                  for (let modalTry = 0; modalTry < 3; modalTry++) {
-                    await sleep(1500 + Math.random() * 1000)
+                  for (let modalTry = 0; modalTry < 4; modalTry++) {
+                    await sleep(2000 + Math.random() * 1500)
                     modalHandled = await page.evaluate(() => {
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal], [class*="modal"]')
-                      if (!modal) return 'no-modal'
+                      // Try multiple selectors for modal detection
+                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
+                        || document.querySelector('div[class*="overlay"], div[class*="invitation"], section[class*="invite"]')
+                      if (!modal) {
+                        // Check if there's any overlay/popup with buttons containing send/note text
+                        const anyOverlay = [...document.querySelectorAll('div, section')].find(el => {
+                          const style = window.getComputedStyle(el)
+                          return (style.position === 'fixed' || style.position === 'absolute') &&
+                                 style.zIndex > 100 && el.querySelector('button') && el.querySelector('textarea, input[type="text"]')
+                        })
+                        if (!anyOverlay) return 'no-modal'
+                        // Use this overlay as the modal
+                        const btns = [...anyOverlay.querySelectorAll('button')]
+                        const textarea = anyOverlay.querySelector('textarea')
+                        if (textarea) return 'textarea-ready'
+                        return 'overlay-btns:' + btns.length
+                      }
+
                       const btns = [...modal.querySelectorAll('button')]
-                      // Look for "Add a note" / "Agregar nota" using multiple text extraction methods
-                      const addNote = btns.find(b => {
-                        const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
-                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                        const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
-                        const combined = `${t} ${label} ${spanText}`
+                      const allEls = [...modal.querySelectorAll('button, a, [role="button"]')]
+
+                      // Helper to extract text from element using all methods
+                      const getText = (el) => {
+                        const t = (el.innerText?.trim() || '').toLowerCase()
+                        const tc = (el.textContent?.trim() || '').toLowerCase()
+                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
+                        const spanText = [...el.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).filter(Boolean).join(' ')
+                        return `${t} ${tc} ${label} ${spanText}`
+                      }
+
+                      // Look for "Add a note" / "Agregar nota"
+                      const addNote = allEls.find(b => {
+                        const combined = getText(b)
                         return combined.includes('add a note') || combined.includes('agregar nota') ||
-                               combined.includes('añadir nota') || combined.includes('nota')
+                               combined.includes('añadir nota') || combined.includes('add note')
                       })
                       if (addNote) { addNote.click(); return 'adding-note' }
+
                       // Look for text area already visible
                       if (modal.querySelector('textarea')) return 'textarea-ready'
-                      // Debug: return all button info
-                      return 'modal-btns:' + btns.map(b => {
-                        const t = b.innerText?.trim() || b.textContent?.trim() || ''
+
+                      // Look for "Send without a note" / "Enviar sin nota" — click it as fallback
+                      const sendDirect = allEls.find(b => {
+                        const combined = getText(b)
+                        return combined.includes('send without') || combined.includes('enviar sin') ||
+                               combined.includes('send now') || combined.includes('enviar ahora')
+                      })
+                      if (sendDirect) { sendDirect.click(); return 'sent-without-note' }
+
+                      // Debug: return detailed button info
+                      return 'modal-btns:' + allEls.map(b => {
+                        const t = b.innerText?.trim() || ''
                         const label = b.getAttribute('aria-label') || ''
-                        return `[${(t || label || '?').slice(0, 30)}]`
+                        const cls = (b.className || '').toString().slice(0, 30)
+                        return `[${(t || label || cls || '?').slice(0, 40)}]`
                       }).join('')
                     })
                     if (modalHandled !== 'no-modal') break
                   }
 
-                  if (modalHandled === 'adding-note' || modalHandled === 'textarea-ready') {
+                  if (modalHandled === 'sent-without-note') {
+                    await sleep(2000 + Math.random() * 1000)
+                    connected++
+                    liLog(pid, `Conexion enviada a ${actualName} (sin nota)`, 'success', 'connection')
+                  } else if (modalHandled === 'adding-note' || modalHandled === 'textarea-ready') {
                     await sleep(1000 + Math.random() * 1000)
-                    const noteInput = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, [class*="modal"] textarea, textarea#custom-message, textarea[name="message"]')
+                    // Find textarea in any modal/overlay
+                    const noteInput = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, textarea#custom-message, textarea[name="message"], div[class*="invitation"] textarea')
+                      || await page.$('textarea')
                     if (noteInput) {
                       await noteInput.click()
                       await sleep(300)
+                      // Clear any existing text
+                      await noteInput.evaluate(el => el.value = '')
                       await noteInput.type(aiNote, { delay: 20 + Math.random() * 35 })
                       await sleep(800 + Math.random() * 1000)
                     }
                     // Click Send
-                    await page.evaluate(() => {
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal], [class*="modal"]')
-                      if (!modal) return
-                      const btns = [...modal.querySelectorAll('button')]
-                      const send = btns.find(b => {
-                        const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
-                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                        const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
-                        const combined = `${t} ${label} ${spanText}`
+                    const sendResult = await page.evaluate(() => {
+                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
+                        || document.querySelector('div[class*="overlay"], div[class*="invitation"]')
+                      if (!modal) return 'no-modal-for-send'
+                      const allEls = [...modal.querySelectorAll('button, a, [role="button"]')]
+                      const getText = (el) => {
+                        const t = (el.innerText?.trim() || '').toLowerCase()
+                        const tc = (el.textContent?.trim() || '').toLowerCase()
+                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
+                        const spanText = [...el.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).filter(Boolean).join(' ')
+                        return `${t} ${tc} ${label} ${spanText}`
+                      }
+                      const send = allEls.find(b => {
+                        const combined = getText(b)
                         return combined.includes('send') || combined.includes('enviar')
                       })
-                      if (send) send.click()
+                      if (send) { send.click(); return 'sent' }
+                      return 'no-send-btn:' + allEls.map(b => `[${(b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 25)}]`).join('')
                     })
-                    await sleep(1500 + Math.random() * 1000)
-                    connected++
-                    liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
+                    if (sendResult === 'sent') {
+                      await sleep(1500 + Math.random() * 1000)
+                      connected++
+                      liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
+                    } else {
+                      liLog(pid, `Error enviando: ${sendResult.slice(0, 150)}`, 'error', 'connection')
+                    }
                   } else {
-                    liLog(pid, `Modal: ${(modalHandled || 'none').slice(0, 100)}`, 'error', 'connection')
+                    liLog(pid, `Modal: ${(modalHandled || 'none').slice(0, 200)}`, 'error', 'connection')
                     // Dismiss any dialog
                     await page.evaluate(() => {
                       const modal = document.querySelector('[role="dialog"], .artdeco-modal')
                       if (!modal) return
-                      const dismiss = modal.querySelector('button[aria-label*="Dismiss"], button[aria-label*="Cerrar"], button[aria-label*="Close"]')
+                      const dismiss = [...modal.querySelectorAll('button')].find(b => {
+                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                        return label.includes('dismiss') || label.includes('cerrar') || label.includes('close')
+                      })
                       if (dismiss) dismiss.click()
                     })
                   }
 
-                  // Go back to search results
-                  await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
-                  await sleep(5000 + Math.random() * 10000) // 5-15s between connections (human-like)
+                  // Go back to search results (navigate directly, goBack is unreliable)
+                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                  await sleep(4000 + Math.random() * 5000) // 4-9s between connections (human-like)
                 } catch (connErr) {
-                  liLog(pid, `Error conectando con ${name}: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
-                  await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
+                  liLog(pid, `Error conectando: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
+                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
                   await sleep(3000)
                 }
               }
@@ -1948,12 +2005,14 @@ Responde UNICAMENTE con el mensaje.`
                 })
                 if (nextClicked) {
                   await sleep(4000 + Math.random() * 5000)
+                  // Update currentSearchUrl to reflect the new page
+                  currentSearchUrl = await page.url()
                 } else if (attempt + 1 < 3 && searchQueries[attempt + 1]) {
                   // No more pages, try next search query
                   const nextQuery = searchQueries[attempt + 1]
                   liLog(pid, `Cambiando busqueda a: "${nextQuery}"`, 'info', 'connection')
-                  const nextUrl = buildSearchUrl(nextQuery)
-                  await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+                  currentSearchUrl = buildSearchUrl(nextQuery)
+                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
                   await sleep(3000 + Math.random() * 4000)
                 } else break
               }
