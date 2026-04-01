@@ -1456,60 +1456,8 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [pid])
         const p = profileRes.rows[0]
 
-        // Step 2: Generate and publish post
-        if (!liAutoState.get(pid)?.running) return
-        liLog(pid, 'Generando post con IA...', 'info', 'post')
-        const topic = topics[Math.floor(Math.random() * topics.length)]
-        const style = styles[Math.floor(Math.random() * styles.length)]
-        try {
-          const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
-          const postContent = await analyzeWithDeepSeek(
-            `Sos ${p?.avatar_name || p?.name || 'profesional'}, ${p?.avatar_role || 'Sales Representative'} en ${p?.avatar_company || 'Adbize'}.
-Genera UN post de LinkedIn estilo "${style}" sobre: ${topic}.
-REGLAS:
-- Maximo 150 palabras, español argentino natural
-- NO seas vendedor ni corporativo
-- Usa saltos de linea entre parrafos para que sea legible
-- Varia el tono: a veces serio, a veces informal, a veces con humor
-- NO empieces siempre con "Che" ni con preguntas
-- Los hashtags SIN el simbolo #, solo la palabra (ej: "InteligenciaArtificial" no "#InteligenciaArtificial")
-- Responde SOLO JSON sin comentarios: {"post":"texto del post","hashtags":["Tag1","Tag2","Tag3"]}`
-          )
-          let parsed = {}
-          try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido, reintentando...', 'error', 'post') }
-          if (parsed.post) {
-            liLog(pid, `Post generado (${style}): "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
-
-            // Generate image with Freepik (2 attempts with wait between)
-            let imageUrl = null
-            const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
-            for (let imgAttempt = 1; imgAttempt <= 2; imgAttempt++) {
-              try {
-                liLog(pid, `Generando imagen con Freepik Mystic (intento ${imgAttempt}/2)...`, 'info', 'post')
-                const imgResult = await freepikImageService.generateForPost(parsed.post)
-                imageUrl = imgResult?.url || null
-                if (imageUrl) { liLog(pid, 'Imagen generada!', 'success', 'post'); break }
-              } catch (imgErr) {
-                liLog(pid, `Imagen intento ${imgAttempt} fallo: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
-                if (imgAttempt < 2) await new Promise(r => setTimeout(r, 20000)) // wait 20s before retry
-              }
-            }
-
-            // Clean hashtags: remove any # prefix the AI might add
-            const cleanHashtags = (parsed.hashtags || []).map(h => h.replace(/^#/, ''))
-            const fullPost = parsed.post + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
-            if (!imageUrl) {
-              liLog(pid, 'No se pudo generar imagen despues de 2 intentos, no se publica sin imagen', 'error', 'post')
-            } else {
-              const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl, { requireImage: true })
-              liLog(pid, postResult.success ? 'Post con imagen publicado!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
-            }
-          } else {
-            liLog(pid, 'No se pudo generar post, continuando...', 'error', 'post')
-          }
-        } catch (e) { liLog(pid, `Error publicando: ${e.message?.slice(0, 100)}`, 'error', 'post') }
-
-        await randomDelay()
+        // Step 2: Auto-post skipped — use the dedicated post endpoint instead
+        await sleep(2000 + Math.random() * 3000)
 
         // Step 3: Search and connect with decision makers
         if (!liAutoState.get(pid)?.running) return
@@ -1822,51 +1770,53 @@ Responde UNICAMENTE con el mensaje.`
                     liLog(pid, `Nota IA fallo, fallback [${strategy.id}]`, 'error', 'connection')
                   }
 
-                  // Find Connect/Conectar button on profile page using index, then click via Puppeteer
-                  const connectBtnIndex = await page.evaluate(() => {
+                  // Find and click Connect button using evaluateHandle (returns live DOM reference)
+                  let connectClicked = false
+                  const connectHandle = await page.evaluateHandle(() => {
                     const getBtnText = (b) => {
                       const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
                       const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                      const spanText = [...b.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).join(' ')
-                      return `${t} ${label} ${spanText}`
+                      return `${t} ${label}`
                     }
+                    // Look for Connect button in the main profile actions area first
+                    const actionBtns = [...document.querySelectorAll('main button, .pv-top-card button, section button')]
+                    const connectBtn = actionBtns.find(b => {
+                      const combined = getBtnText(b)
+                      return (combined.includes('connect') || combined.includes('conectar')) &&
+                             !combined.includes('disconnect') && !combined.includes('desconectar')
+                    })
+                    if (connectBtn) return connectBtn
+                    // Fallback: search all buttons
                     const allBtns = [...document.querySelectorAll('button')]
-                    // Try direct Connect button
-                    const connectIdx = allBtns.findIndex(b => {
+                    return allBtns.find(b => {
                       const combined = getBtnText(b)
-                      return combined.includes('connect') || combined.includes('conectar')
-                    })
-                    if (connectIdx >= 0) return { type: 'connect', index: connectIdx }
-                    // Try "More" dropdown
-                    const moreIdx = allBtns.findIndex(b => {
-                      const combined = getBtnText(b)
-                      return combined === 'more' || combined === 'más' || combined === 'mas' ||
-                             combined.includes('more action') || combined.includes('más acciones')
-                    })
-                    if (moreIdx >= 0) return { type: 'more', index: moreIdx }
-                    // Debug
-                    return { type: 'none', debug: allBtns.slice(0, 10).map(b => getBtnText(b).slice(0, 30)).join(' | ') }
+                      return (combined.includes('connect') || combined.includes('conectar')) &&
+                             !combined.includes('disconnect') && !combined.includes('desconectar')
+                    }) || null
                   })
 
-                  let connectClicked = false
-                  if (connectBtnIndex.type === 'connect') {
-                    // Use Puppeteer click (dispatches proper mouse events)
-                    const btns = await page.$$('button')
-                    if (btns[connectBtnIndex.index]) {
-                      await btns[connectBtnIndex.index].click()
-                      connectClicked = true
-                      liLog(pid, `Click en boton Connect`, 'info', 'connection')
-                    }
-                  } else if (connectBtnIndex.type === 'more') {
-                    const btns = await page.$$('button')
-                    if (btns[connectBtnIndex.index]) {
-                      await btns[connectBtnIndex.index].click()
+                  if (connectHandle && connectHandle.asElement()) {
+                    await connectHandle.asElement().click()
+                    connectClicked = true
+                    liLog(pid, `Click en boton Connect`, 'info', 'connection')
+                  } else {
+                    // Try "More" dropdown → Connect
+                    const moreHandle = await page.evaluateHandle(() => {
+                      const allBtns = [...document.querySelectorAll('main button, .pv-top-card button, button')]
+                      return allBtns.find(b => {
+                        const t = (b.innerText?.trim() || '').toLowerCase()
+                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                        return t === 'more' || t === 'más' || t === 'mas' ||
+                               label.includes('more action') || label.includes('más acciones')
+                      }) || null
+                    })
+                    if (moreHandle && moreHandle.asElement()) {
+                      await moreHandle.asElement().click()
                       await sleep(1500 + Math.random() * 1000)
-                      // Find Connect in dropdown via Puppeteer
                       const dropdownItems = await page.$$('[role="menuitem"], [role="option"], li button, li a, .artdeco-dropdown__item')
                       for (const item of dropdownItems) {
-                        const text = await item.evaluate(el => (el.innerText?.trim() || el.textContent?.trim() || '').toLowerCase())
-                        if (text.includes('connect') || text.includes('conectar')) {
+                        const text = await item.evaluate(el => (el.innerText?.trim() || '').toLowerCase() + ' ' + (el.getAttribute('aria-label') || '').toLowerCase())
+                        if ((text.includes('connect') || text.includes('conectar')) && !text.includes('disconnect')) {
                           await item.click()
                           connectClicked = true
                           liLog(pid, `Click en Connect desde dropdown More`, 'info', 'connection')
@@ -1877,7 +1827,11 @@ Responde UNICAMENTE con el mensaje.`
                   }
 
                   if (!connectClicked) {
-                    liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${connectBtnIndex.debug?.slice(0, 200) || 'n/a'}`, 'error', 'connection')
+                    const debugBtns = await page.evaluate(() => {
+                      return [...document.querySelectorAll('main button, .pv-top-card button')].slice(0, 8)
+                        .map(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 30)).join(' | ')
+                    })
+                    liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${debugBtns}`, 'error', 'connection')
                     await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
                     try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
                     await sleep(3000 + Math.random() * 2000)
@@ -1906,7 +1860,25 @@ Responde UNICAMENTE con el mensaje.`
                   }
 
                   // Modal appeared! Wait a bit for content to load
-                  await sleep(1500 + Math.random() * 1000)
+                  await sleep(2000 + Math.random() * 1500)
+
+                  // Check if this is an email-required modal (3rd+ degree) or connect modal
+                  const modalInfo = await page.evaluate(() => {
+                    const modal = document.querySelector('[role="dialog"], .artdeco-modal')
+                    if (!modal) return { type: 'none' }
+                    const text = (modal.innerText || '').toLowerCase()
+                    const hasEmail = text.includes('email') || text.includes('correo') || text.includes('@')
+                    const hasTextarea = !!modal.querySelector('textarea')
+                    const hasEmailInput = !!modal.querySelector('input[type="email"], input[name="email"]')
+                    return { type: hasEmail || hasEmailInput ? 'email-required' : 'connect', hasTextarea, modalText: text.slice(0, 300) }
+                  })
+
+                  if (modalInfo.type === 'email-required') {
+                    liLog(pid, `Modal pide email para ${actualName}, saltando...`, 'info', 'connection')
+                    await page.keyboard.press('Escape').catch(() => {})
+                    await sleep(1000)
+                    continue
+                  }
 
                   // Try to find "Add a note" button using Puppeteer (not evaluate)
                   let noteSent = false
@@ -1928,7 +1900,7 @@ Responde UNICAMENTE con el mensaje.`
                     if (btnInfo.combined.includes('send without') || btnInfo.combined.includes('enviar sin')) {
                       sendWithoutNoteBtn = btn
                     }
-                    if (btnInfo.combined.includes('send') || btnInfo.combined.includes('enviar')) {
+                    if ((btnInfo.combined.includes('send') || btnInfo.combined.includes('enviar')) && !btnInfo.combined.includes('without') && !btnInfo.combined.includes('sin')) {
                       sendBtn = btn
                     }
                   }
