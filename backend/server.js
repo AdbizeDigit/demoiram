@@ -1722,34 +1722,33 @@ REGLAS:
 
                   // Role detection and AI note generation happen after visiting the profile page
 
-                  // Visit profile — clear DOM and navigate fresh
+                  // Visit profile — use networkidle0 to wait for full JS rendering
                   liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
                   const expectedSlug = profileUrl.match(/\/in\/([^/?]+)/)?.[1] || ''
-                  // Navigate to blank page first
-                  await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                  await sleep(500)
-                  // Navigate to profile
+                  // Navigate with networkidle0 (waits until no network requests for 500ms)
+                  await page.goto(profileUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(async () => {
+                    // Retry with domcontentloaded on timeout
+                    await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                  })
+                  // Wait for h1 with actual text content (LinkedIn renders it via JS)
                   try {
-                    await page.goto(profileUrl, { waitUntil: 'load', timeout: 30000 })
-                  } catch (navErr) {
-                    liLog(pid, `Error navegando: ${navErr.message?.slice(0, 60)}`, 'error', 'connection')
-                    // Retry once
-                    try { await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }) } catch {}
+                    await page.waitForFunction(
+                      () => { const h1 = document.querySelector('h1'); return h1 && h1.innerText.trim().length > 0 },
+                      { timeout: 15000 }
+                    )
+                  } catch {
+                    // Fallback: wait a bit more
+                    await sleep(5000)
                   }
-                  // Wait for h1 to render
-                  try {
-                    await page.waitForSelector('h1', { timeout: 12000 })
-                  } catch {}
-                  await sleep(2000 + Math.random() * 2000)
+                  await sleep(1000 + Math.random() * 1000)
 
-                  // Log actual URL and h1 for debugging
+                  // Verify URL and log
                   const currentUrl = await page.url()
                   const debugH1 = await page.evaluate(() => document.querySelector('h1')?.innerText?.trim()?.slice(0, 50) || 'no-h1')
-                  liLog(pid, `Nav OK: ${currentUrl.split('?')[0].split('/in/')[1] || currentUrl.split('?')[0]} h1="${debugH1}"`, 'info', 'connection')
+                  liLog(pid, `Nav: ${decodeURIComponent(currentUrl.split('?')[0].split('/in/')[1] || '?')} h1="${debugH1}"`, 'info', 'connection')
 
-                  // Verify URL
                   if (expectedSlug && !decodeURIComponent(currentUrl).includes(decodeURIComponent(expectedSlug))) {
-                    liLog(pid, `URL no coincide: esperaba ${expectedSlug}`, 'error', 'connection')
+                    liLog(pid, `URL no coincide: esperaba ${decodeURIComponent(expectedSlug)}`, 'error', 'connection')
                     continue
                   }
 
@@ -1882,8 +1881,7 @@ Responde UNICAMENTE con el mensaje.`
                         .map(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 30)).join(' | ')
                     })
                     liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${debugBtns}`, 'error', 'connection')
-                    await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                    await page.goto(currentSearchUrl, { waitUntil: 'load', timeout: 25000 }).catch(() => {})
+                    await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
                     await sleep(3000 + Math.random() * 2000)
                     continue
                   }
@@ -1963,8 +1961,7 @@ Responde SOLO con un JSON (sin explicaciones):
                       liLog(pid, `Modal no es de conexion para ${actualName}, saltando...`, 'info', 'connection')
                       await page.keyboard.press('Escape').catch(() => {})
                       await sleep(1000)
-                      await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                      await page.goto(currentSearchUrl, { waitUntil: 'load', timeout: 25000 }).catch(() => {})
+                      await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
                       try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
                       await sleep(2000 + Math.random() * 2000)
                       continue
@@ -2061,15 +2058,13 @@ Responde SOLO con un JSON (sin explicaciones):
                     await page.keyboard.press('Escape').catch(() => {})
                   }
 
-                  // Go back to search results — clear DOM then navigate
-                  await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                  await page.goto(currentSearchUrl, { waitUntil: 'load', timeout: 25000 }).catch(() => {})
+                  // Go back to search results
+                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
                   try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
                   await sleep(2000 + Math.random() * 3000)
                 } catch (connErr) {
                   liLog(pid, `Error conectando: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
-                  await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                  await page.goto(currentSearchUrl, { waitUntil: 'load', timeout: 25000 }).catch(() => {})
+                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
                   try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
                   await sleep(3000)
                 }
@@ -2096,8 +2091,7 @@ Responde SOLO con un JSON (sin explicaciones):
                   const nextQuery = searchQueries[attempt + 1]
                   liLog(pid, `Cambiando busqueda a: "${nextQuery}"`, 'info', 'connection')
                   currentSearchUrl = buildSearchUrl(nextQuery)
-                  await page.goto('about:blank', { timeout: 5000 }).catch(() => {})
-                  await page.goto(currentSearchUrl, { waitUntil: 'load', timeout: 25000 }).catch(() => {})
+                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
                   await sleep(3000 + Math.random() * 4000)
                 } else break
               }
