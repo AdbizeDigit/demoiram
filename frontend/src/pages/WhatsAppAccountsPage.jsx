@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   MessageCircle, Plus, Trash2, Edit3, Save, X, Loader2,
   Phone, ToggleLeft, ToggleRight, Zap, AlertCircle, CheckCircle2,
-  RefreshCw, Shield, Settings, BarChart3,
+  RefreshCw, Shield, Settings, BarChart3, QrCode, Wifi,
 } from 'lucide-react'
 import api from '../services/api'
 
@@ -13,6 +13,9 @@ export default function WhatsAppAccountsPage() {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState({ name: '', daily_limit: 100 })
   const [saving, setSaving] = useState(false)
+  const [qrCode, setQrCode] = useState(null)
+  const [connecting, setConnecting] = useState(null) // account id being connected
+  const [qrPolling, setQrPolling] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -28,10 +31,13 @@ export default function WhatsAppAccountsPage() {
   async function addAccount() {
     setSaving(true)
     try {
-      await api.post('/api/whatsapp-accounts', form)
+      const { data } = await api.post('/api/whatsapp-accounts', form)
       setShowAdd(false)
       setForm({ name: '', daily_limit: 100 })
-      load()
+      await load()
+      // Auto-start QR pairing for the new account
+      const newAcc = data.account
+      if (newAcc?.id) connectAccount(newAcc.id)
     } catch {}
     setSaving(false)
   }
@@ -50,6 +56,35 @@ export default function WhatsAppAccountsPage() {
     if (!confirm('Eliminar esta cuenta?')) return
     await api.delete(`/api/whatsapp-accounts/${id}`)
     load()
+  }
+
+  async function connectAccount(accId) {
+    if (connecting) return
+    setConnecting(accId)
+    setQrCode(null)
+    try {
+      const { data } = await api.post('/api/outreach/whatsapp/connect')
+      const qr = data.qrCode || data.qr
+      if (qr) setQrCode(qr)
+      // Poll for status updates
+      const interval = setInterval(async () => {
+        try {
+          const res = await api.get('/api/outreach/whatsapp/status')
+          const s = res.data
+          if (s.qrCode) setQrCode(s.qrCode)
+          if (s.status === 'connected') {
+            clearInterval(interval)
+            setConnecting(null)
+            setQrCode(null)
+            load()
+          }
+        } catch {}
+      }, 3000)
+      setQrPolling(interval)
+      setTimeout(() => { clearInterval(interval); setConnecting(null); setQrCode(null) }, 120000)
+    } catch {
+      setConnecting(null)
+    }
   }
 
   async function toggleActive(acc) {
@@ -180,6 +215,14 @@ export default function WhatsAppAccountsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2">
+                    {acc.status !== 'connected' && (
+                      <button onClick={() => connectAccount(acc.id)} disabled={connecting === acc.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 disabled:opacity-50"
+                        title="Conectar WhatsApp">
+                        {connecting === acc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <QrCode className="w-3.5 h-3.5" />}
+                        {connecting === acc.id ? 'Escaneando...' : 'Conectar'}
+                      </button>
+                    )}
                     <button onClick={() => toggleActive(acc)}
                       className={`p-2 rounded-lg transition-colors ${acc.is_active ? 'text-green-600 hover:bg-green-50' : 'text-gray-400 hover:bg-gray-50'}`}
                       title={acc.is_active ? 'Desactivar' : 'Activar'}>
@@ -192,6 +235,31 @@ export default function WhatsAppAccountsPage() {
                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                     )}
                   </div>
+                </div>
+              )}
+              {/* QR Code display when connecting this account */}
+              {connecting === acc.id && qrCode && (
+                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-4">
+                  <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+                    <img src={qrCode} alt="QR Code" className="w-40 h-40" />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm font-semibold text-gray-800">Escanea el codigo QR</p>
+                    <ol className="text-xs text-gray-500 space-y-1">
+                      <li>1. Abri WhatsApp en tu telefono</li>
+                      <li>2. Toca Menu (...) o Configuracion</li>
+                      <li>3. Toca Dispositivos vinculados</li>
+                      <li>4. Escanea este codigo QR</li>
+                    </ol>
+                    <button onClick={() => { if (qrPolling) clearInterval(qrPolling); setConnecting(null); setQrCode(null) }}
+                      className="text-xs text-red-500 hover:text-red-700 mt-2">Cancelar</button>
+                  </div>
+                </div>
+              )}
+              {connecting === acc.id && !qrCode && (
+                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-3">
+                  <Loader2 className="w-5 h-5 animate-spin text-green-500" />
+                  <p className="text-sm text-gray-500">Generando codigo QR...</p>
                 </div>
               )}
             </div>
