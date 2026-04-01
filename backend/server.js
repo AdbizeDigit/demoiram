@@ -1717,28 +1717,48 @@ REGLAS:
 
                   // Role detection and AI note generation happen after visiting the profile page
 
-                  // Visit profile page to find Connect button
+                  // Visit profile page — force full reload to break LinkedIn SPA caching
                   liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
-                  await page.goto(profileUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {})
-                  // Verify navigation succeeded by waiting for profile h1 to appear
+                  // Get current h1 before navigation so we can detect when it changes
+                  const prevH1 = await page.evaluate(() => document.querySelector('h1')?.innerText?.trim() || '')
+                  // Extract expected slug from URL to verify navigation
+                  const expectedSlug = profileUrl.match(/\/in\/([^/?]+)/)?.[1] || ''
+                  // Force full page load (not SPA) by using evaluate + location.href
+                  await page.evaluate((url) => { window.location.href = url }, profileUrl)
+                  // Wait for navigation to complete
                   try {
-                    await page.waitForSelector('h1', { timeout: 8000 })
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 })
+                  } catch {}
+                  // Wait for h1 to appear and change from previous profile
+                  try {
+                    await page.waitForFunction(
+                      (prev) => {
+                        const h1 = document.querySelector('h1')
+                        return h1 && h1.innerText.trim() && h1.innerText.trim() !== prev
+                      },
+                      { timeout: 10000 },
+                      prevH1
+                    )
                   } catch {
-                    liLog(pid, `Perfil no cargo, reintentando...`, 'error', 'connection')
-                    await page.goto(profileUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {})
+                    liLog(pid, `Esperando carga de perfil...`, 'info', 'connection')
                     await sleep(3000)
                   }
-                  await sleep(2000 + Math.random() * 2000)
+                  await sleep(1000 + Math.random() * 1000)
 
-                  // Verify we're on the right page
+                  // Verify URL contains expected profile slug
                   const currentUrl = await page.url()
-                  liLog(pid, `URL actual: ${currentUrl.split('?')[0]}`, 'info', 'connection')
+                  if (expectedSlug && !currentUrl.includes(expectedSlug)) {
+                    liLog(pid, `URL no coincide: esperaba ${expectedSlug}, actual: ${currentUrl.split('?')[0]}`, 'error', 'connection')
+                    await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
+                    try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
+                    await sleep(3000)
+                    continue
+                  }
 
-                  // Re-extract name/headline from actual profile page for accurate AI messages
+                  // Extract name/headline from the profile page
                   const profilePageInfo = await page.evaluate(() => {
                     const h1 = document.querySelector('h1')
                     const profileName = h1?.innerText?.trim() || ''
-                    // Headline is usually in a div after the name section
                     const headlineEl = document.querySelector('.text-body-medium, [data-generated-suggestion-target]')
                     const profileHeadline = headlineEl?.innerText?.trim() || ''
                     return { profileName, profileHeadline }
@@ -1858,7 +1878,8 @@ Responde UNICAMENTE con el mensaje.`
 
                   if (!connectClicked) {
                     liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${connectBtnIndex.debug?.slice(0, 200) || 'n/a'}`, 'error', 'connection')
-                    await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                    await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
+                    try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
                     await sleep(3000 + Math.random() * 2000)
                     continue
                   }
@@ -1878,7 +1899,8 @@ Responde UNICAMENTE con el mensaje.`
                       return `dialogs:${dialogs.length} overlays:${overlays.length} url:${location.href.split('?')[0]}`
                     })
                     liLog(pid, `Estado pagina: ${pageState}`, 'error', 'connection')
-                    await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                    await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
+                    try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
                     await sleep(3000 + Math.random() * 2000)
                     continue
                   }
@@ -1985,12 +2007,14 @@ Responde UNICAMENTE con el mensaje.`
                     await page.keyboard.press('Escape').catch(() => {})
                   }
 
-                  // Go back to search results (navigate directly, goBack is unreliable)
-                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
-                  await sleep(3000 + Math.random() * 3000)
+                  // Go back to search results — force full page load
+                  await page.evaluate((url) => { window.location.href = url }, currentSearchUrl)
+                  try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
+                  await sleep(2000 + Math.random() * 3000)
                 } catch (connErr) {
                   liLog(pid, `Error conectando: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
-                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
+                  await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
+                  try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
                   await sleep(3000)
                 }
               }
@@ -2016,7 +2040,8 @@ Responde UNICAMENTE con el mensaje.`
                   const nextQuery = searchQueries[attempt + 1]
                   liLog(pid, `Cambiando busqueda a: "${nextQuery}"`, 'info', 'connection')
                   currentSearchUrl = buildSearchUrl(nextQuery)
-                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+                  await page.evaluate((url) => { window.location.href = url }, currentSearchUrl)
+                  try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 25000 }) } catch {}
                   await sleep(3000 + Math.random() * 4000)
                 } else break
               }
