@@ -1839,42 +1839,58 @@ Responde UNICAMENTE con el mensaje.`
                   }
 
                   // Handle connection modal — wait for it with waitForSelector
-                  await sleep(1500 + Math.random() * 1000)
+                  await sleep(2000 + Math.random() * 1000)
                   let modalEl = null
                   try {
                     modalEl = await page.waitForSelector('[role="dialog"], .artdeco-modal', { timeout: 8000 })
                   } catch {
-                    // No modal appeared - try screenshot debug
                     liLog(pid, `No aparecio modal despues de click Connect para ${actualName}`, 'error', 'connection')
-                    // Log what's on the page
-                    const pageState = await page.evaluate(() => {
-                      const dialogs = document.querySelectorAll('[role="dialog"], .artdeco-modal, [class*="modal"]')
-                      const overlays = document.querySelectorAll('[class*="overlay"]')
-                      return `dialogs:${dialogs.length} overlays:${overlays.length} url:${location.href.split('?')[0]}`
-                    })
-                    liLog(pid, `Estado pagina: ${pageState}`, 'error', 'connection')
+                    // Navigate back and continue to next profile
                     await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
                     try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
-                    await sleep(3000 + Math.random() * 2000)
+                    try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
+                    await sleep(2000 + Math.random() * 2000)
                     continue
                   }
 
                   // Modal appeared! Wait a bit for content to load
                   await sleep(2000 + Math.random() * 1500)
 
-                  // Check if this is an email-required modal (3rd+ degree) or connect modal
+                  // Check if this is an email-required/verification modal or the connect modal
                   const modalInfo = await page.evaluate(() => {
                     const modal = document.querySelector('[role="dialog"], .artdeco-modal')
                     if (!modal) return { type: 'none' }
                     const text = (modal.innerText || '').toLowerCase()
+                    const btns = [...modal.querySelectorAll('button')]
+                    const btnTexts = btns.map(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase())
                     const hasEmail = text.includes('email') || text.includes('correo') || text.includes('@')
-                    const hasTextarea = !!modal.querySelector('textarea')
                     const hasEmailInput = !!modal.querySelector('input[type="email"], input[name="email"]')
-                    return { type: hasEmail || hasEmailInput ? 'email-required' : 'connect', hasTextarea, modalText: text.slice(0, 300) }
+                    // "reset" + "done" buttons = email/verification modal (NOT the connect modal)
+                    const hasResetDone = btnTexts.some(t => t === 'reset') && btnTexts.some(t => t === 'done')
+                    const hasTextarea = !!modal.querySelector('textarea')
+                    const hasAddNote = btnTexts.some(t => t.includes('add a note') || t.includes('agregar nota') || t.includes('nota'))
+                    const hasSend = btnTexts.some(t => t.includes('send') || t.includes('enviar'))
+                    const isVerificationModal = hasEmail || hasEmailInput || hasResetDone
+                    const isConnectModal = hasTextarea || hasAddNote || hasSend
+                    return {
+                      type: isConnectModal ? 'connect' : isVerificationModal ? 'email-required' : 'unknown',
+                      hasTextarea, modalText: text.slice(0, 300), btnTexts: btnTexts.join('|')
+                    }
                   })
 
                   if (modalInfo.type === 'email-required') {
-                    liLog(pid, `Modal pide email para ${actualName}, saltando...`, 'info', 'connection')
+                    liLog(pid, `Modal de verificacion para ${actualName}, saltando...`, 'info', 'connection')
+                    await page.keyboard.press('Escape').catch(() => {})
+                    await sleep(1000)
+                    // Force navigate back to search
+                    await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
+                    try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
+                    await sleep(2000 + Math.random() * 2000)
+                    continue
+                  }
+
+                  if (modalInfo.type === 'unknown') {
+                    liLog(pid, `Modal desconocido para ${actualName}: ${modalInfo.btnTexts.slice(0, 150)}`, 'error', 'connection')
                     await page.keyboard.press('Escape').catch(() => {})
                     await sleep(1000)
                     continue
@@ -1979,14 +1995,16 @@ Responde UNICAMENTE con el mensaje.`
                     await page.keyboard.press('Escape').catch(() => {})
                   }
 
-                  // Go back to search results — force full page load
+                  // Go back to search results — force full page load and wait for results
                   await page.evaluate((url) => { window.location.href = url }, currentSearchUrl)
                   try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
+                  try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
                   await sleep(2000 + Math.random() * 3000)
                 } catch (connErr) {
                   liLog(pid, `Error conectando: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
                   await page.evaluate((url) => { window.location.href = url }, currentSearchUrl).catch(() => {})
                   try { await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }) } catch {}
+                  try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
                   await sleep(3000)
                 }
               }
