@@ -1614,14 +1614,16 @@ REGLAS:
                       el = el.parentElement
                     }
                   }
-                  // If still no card, use a reasonable ancestor for text extraction
+                  // If still no card, use a nearby ancestor that contains only this profile link
                   if (!card) {
                     let el = link.parentElement
-                    for (let i = 0; i < 8 && el; i++) {
-                      if (el.innerText && el.innerText.length > 50 && el.innerText.length < 2000) {
+                    for (let i = 0; i < 6 && el; i++) {
+                      const linksInside = el.querySelectorAll('a[href*="/in/"]')
+                      if (linksInside.length === 1 && el.innerText && el.innerText.length > 30) {
                         card = el
                         break
                       }
+                      if (linksInside.length > 1) break // went too far up
                       el = el.parentElement
                     }
                   }
@@ -1702,37 +1704,55 @@ REGLAS:
 
               let strategyIndex = 0
 
-              for (const { profileUrl, name, headline, location, company, summary } of connectButtons) {
+              for (const { profileUrl, name: searchName, headline: searchHeadline, location, company, summary } of connectButtons) {
                 if (!liAutoState.get(pid)?.running || connected >= maxConnections) break
 
                 try {
-                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${name} - ${headline}${company ? ` (${company})` : ''}`, 'info', 'connection')
+                  liLog(pid, `Conexion ${connected + 1}/${maxConnections}: ${searchName} - ${searchHeadline}${company ? ` (${company})` : ''}`, 'info', 'connection')
 
                   // Pick strategy (rotate)
                   const strategy = MESSAGE_STRATEGIES[strategyIndex % MESSAGE_STRATEGIES.length]
                   strategyIndex++
 
-                  // Detect seniority and role type
-                  const headlineLower = (headline || '').toLowerCase()
-                  const isCLevel = /\b(ceo|cto|cfo|coo|cmo|founder|cofound|dueñ|president|socio|partner)\b/.test(headlineLower)
-                  const isSales = /\b(ventas|sales|comercial|business dev|account)\b/.test(headlineLower)
-                  const isMarketing = /\b(marketing|growth|digital|contenido|brand|comunicacion)\b/.test(headlineLower)
-                  const isTech = /\b(developer|engineer|tech|sistemas|software|data|devops|it)\b/.test(headlineLower)
-                  const isHR = /\b(recursos humanos|rrhh|hr|talent|people|cultura)\b/.test(headlineLower)
+                  // Role detection and AI note generation happen after visiting the profile page
 
-                  let roleContext = 'profesional'
-                  if (isCLevel) roleContext = 'tomador de decisiones de alto nivel que valora su tiempo'
-                  else if (isSales) roleContext = 'profesional de ventas que entiende el valor de las herramientas'
-                  else if (isMarketing) roleContext = 'profesional de marketing que busca resultados medibles'
-                  else if (isTech) roleContext = 'profesional tecnico que aprecia soluciones concretas'
-                  else if (isHR) roleContext = 'profesional de RRHH que busca optimizar procesos'
+                  // Visit profile page to find Connect button
+                  liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
+                  await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
+                  await sleep(4000 + Math.random() * 3000)
 
-                  const toneGuide = isCLevel
+                  // Re-extract name/headline from actual profile page for accurate AI messages
+                  const profilePageInfo = await page.evaluate(() => {
+                    const h1 = document.querySelector('h1')
+                    const profileName = h1?.innerText?.trim() || ''
+                    // Headline is usually in a div after the name section
+                    const headlineEl = document.querySelector('.text-body-medium, [data-generated-suggestion-target]')
+                    const profileHeadline = headlineEl?.innerText?.trim() || ''
+                    return { profileName, profileHeadline }
+                  })
+                  // Update name/headline if we got better data from the profile page
+                  const actualName = profilePageInfo.profileName || searchName
+                  const actualHeadline = profilePageInfo.profileHeadline || searchHeadline
+                  liLog(pid, `Perfil: ${actualName} - ${actualHeadline.slice(0, 80)}`, 'info', 'connection')
+
+                  // Re-evaluate role context with actual headline
+                  const actualHeadlineLower = actualHeadline.toLowerCase()
+                  const actualIsCLevel = /\b(ceo|cto|cfo|coo|cmo|founder|cofound|dueñ|president|socio|partner)\b/.test(actualHeadlineLower)
+                  const actualIsSales = /\b(ventas|sales|comercial|business dev|account)\b/.test(actualHeadlineLower)
+                  const actualIsMarketing = /\b(marketing|growth|digital|contenido|brand|comunicacion)\b/.test(actualHeadlineLower)
+                  const actualIsTech = /\b(developer|engineer|tech|sistemas|software|data|devops|it)\b/.test(actualHeadlineLower)
+                  let actualRoleContext = 'profesional'
+                  if (actualIsCLevel) actualRoleContext = 'tomador de decisiones de alto nivel que valora su tiempo'
+                  else if (actualIsSales) actualRoleContext = 'profesional de ventas que entiende el valor de las herramientas'
+                  else if (actualIsMarketing) actualRoleContext = 'profesional de marketing que busca resultados medibles'
+                  else if (actualIsTech) actualRoleContext = 'profesional tecnico que aprecia soluciones concretas'
+
+                  const actualToneGuide = actualIsCLevel
                     ? 'Tono ejecutivo: directo, respetuoso, sin rodeos. Habla de resultados y ROI. Nada de "che".'
-                    : isTech ? 'Tono tecnico: preciso, sin buzzwords vacios. Menciona algo concreto.'
+                    : actualIsTech ? 'Tono tecnico: preciso, sin buzzwords vacios. Menciona algo concreto.'
                     : 'Tono cercano y argentino, profesional pero humano.'
 
-                  // Generate AI note
+                  // Generate AI note with actual profile data
                   let aiNote = ''
                   try {
                     const senderName = p?.avatar_name || p?.name || 'profesional'
@@ -1743,85 +1763,93 @@ REGLAS:
 Adbize es una agencia argentina de publicidad digital que usa IA para automatizar marketing, generar leads y escalar ventas.
 
 PERSONA OBJETIVO:
-- Nombre: ${name}
-- Cargo/Headline: ${headline}
+- Nombre: ${actualName}
+- Cargo/Headline: ${actualHeadline}
 ${company ? `- Empresa: ${company}` : ''}
 ${location ? `- Ubicacion: ${location}` : ''}
 ${summary ? `- Info adicional: ${summary}` : ''}
-- Perfil: ${roleContext}
+- Perfil: ${actualRoleContext}
 
 ESTRATEGIA: ${strategy.name} - ${strategy.instruction}
 
 PERSUASION: Especificidad (menciona cargo/empresa), reciprocidad (ofrece valor), prueba social, curiosidad.
-${isCLevel ? 'C-Level: habla de revenue, eficiencia, ventaja competitiva.' : ''}
-${isSales ? 'Ventas: habla de generar leads o cerrar mas rapido.' : ''}
-${isMarketing ? 'Marketing: habla de automatizar campañas o mejorar ROI.' : ''}
+${actualIsCLevel ? 'C-Level: habla de revenue, eficiencia, ventaja competitiva.' : ''}
+${actualIsSales ? 'Ventas: habla de generar leads o cerrar mas rapido.' : ''}
+${actualIsMarketing ? 'Marketing: habla de automatizar campañas o mejorar ROI.' : ''}
 
-FORMATO: Max 280 chars. Empieza con "Hola ${name.split(' ')[0]}!". ${toneGuide} NO emojis. NO comillas. 100% humano. JAMAS "vi tu perfil y me parecio interesante".
+FORMATO: Max 280 chars. Empieza con "Hola ${actualName.split(' ')[0]}!". ${actualToneGuide} NO emojis. NO comillas. 100% humano. JAMAS "vi tu perfil y me parecio interesante".
 
 Responde UNICAMENTE con el mensaje.`
                     )
                     aiNote = aiResp.trim().replace(/^["']|["']$/g, '').slice(0, 280)
                     liLog(pid, `Nota IA [${strategy.id}]: "${aiNote.slice(0, 100)}..."`, 'info', 'connection')
                   } catch (aiErr) {
-                    const firstName = name.split(' ')[0]
+                    const firstName = actualName.split(' ')[0]
                     aiNote = FALLBACK_MESSAGES[strategy.id]?.(firstName) || FALLBACK_MESSAGES.contenido(firstName)
                     liLog(pid, `Nota IA fallo, fallback [${strategy.id}]`, 'error', 'connection')
                   }
 
-                  // Visit profile page to find Connect button
-                  liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
-                  await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-                  await sleep(3000 + Math.random() * 3000)
-
+                  // Helper: get button text via multiple methods (LinkedIn obfuscates textContent)
                   // Look for Connect/Conectar button on profile page
                   const profileConnectResult = await page.evaluate(() => {
+                    const getBtnText = (b) => {
+                      const text = (b.textContent?.trim() || '').toLowerCase()
+                      const inner = (b.innerText?.trim() || '').toLowerCase()
+                      const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                      const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
+                      return { text, inner, label, spanText, combined: `${text} ${inner} ${label} ${spanText}` }
+                    }
+                    const isConnect = (info) => {
+                      return info.combined.includes('connect') || info.combined.includes('conectar')
+                    }
+                    const isMore = (info) => {
+                      return info.text === 'more' || info.text === 'más' || info.text === 'mas' ||
+                             info.inner === 'more' || info.inner === 'más' || info.inner === 'mas' ||
+                             info.label.includes('more action') || info.label.includes('más acciones') ||
+                             info.label.includes('mas acciones')
+                    }
+
                     const allBtns = [...document.querySelectorAll('button')]
                     // Try direct Connect button
-                    let connectBtn = allBtns.find(b => {
-                      const text = b.textContent?.trim().toLowerCase() || ''
-                      const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                      return text === 'connect' || text === 'conectar' ||
-                             label.includes('connect') || label.includes('conectar')
-                    })
+                    const connectBtn = allBtns.find(b => isConnect(getBtnText(b)))
                     if (connectBtn) {
                       connectBtn.click()
                       return 'clicked-connect'
                     }
 
-                    // Try "More" / "Mas" dropdown button to find Connect inside
-                    const moreBtn = allBtns.find(b => {
-                      const text = b.textContent?.trim().toLowerCase() || ''
-                      const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                      return text === 'more' || text === 'más' || text === 'mas' ||
-                             label.includes('more action') || label.includes('más acciones') ||
-                             label.includes('mas acciones')
-                    })
+                    // Try "More" dropdown button
+                    const moreBtn = allBtns.find(b => isMore(getBtnText(b)))
                     if (moreBtn) {
                       moreBtn.click()
                       return 'clicked-more'
                     }
 
-                    // Return button texts for debug
-                    return 'no-connect-btn:' + allBtns.slice(0, 15).map(b => b.textContent?.trim().slice(0, 30)).join('|')
+                    // Debug: return button info using all methods
+                    return 'no-connect-btn:' + allBtns.slice(0, 15).map(b => {
+                      const info = getBtnText(b)
+                      return `[${info.inner || info.text || info.label || info.spanText || '?'}]`
+                    }).join('')
                   })
 
                   if (profileConnectResult === 'clicked-more') {
                     // Wait for dropdown and find Connect inside
                     await sleep(1500 + Math.random() * 1000)
                     await page.evaluate(() => {
-                      const items = [...document.querySelectorAll('[role="menuitem"], [role="option"], li a, li button, .artdeco-dropdown__item')]
+                      const items = [...document.querySelectorAll('[role="menuitem"], [role="option"], li a, li button, .artdeco-dropdown__item, [class*="dropdown"] button, [class*="dropdown"] a')]
                       const connectItem = items.find(el => {
-                        const text = el.textContent?.trim().toLowerCase() || ''
-                        return text.includes('connect') || text.includes('conectar')
+                        const text = (el.textContent?.trim() || '').toLowerCase()
+                        const inner = (el.innerText?.trim() || '').toLowerCase()
+                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
+                        const combined = `${text} ${inner} ${label}`
+                        return combined.includes('connect') || combined.includes('conectar')
                       })
                       if (connectItem) connectItem.click()
                     })
-                    await sleep(1500 + Math.random() * 1000)
+                    await sleep(2000 + Math.random() * 1000)
                   } else if (profileConnectResult === 'clicked-connect') {
-                    await sleep(2000 + Math.random() * 1500)
+                    await sleep(2500 + Math.random() * 1500)
                   } else {
-                    liLog(pid, `No se encontro boton conectar en perfil de ${name}: ${profileConnectResult.slice(0, 100)}`, 'error', 'connection')
+                    liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${profileConnectResult.slice(0, 200)}`, 'error', 'connection')
                     // Go back to search results
                     await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
                     await sleep(2000)
@@ -1829,25 +1857,39 @@ Responde UNICAMENTE con el mensaje.`
                   }
 
                   // Handle connection modal (add note + send)
-                  await sleep(1000 + Math.random() * 1000)
-                  const modalHandled = await page.evaluate(() => {
-                    const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
-                    if (!modal) return 'no-modal'
-                    const btns = [...modal.querySelectorAll('button')]
-                    // Look for "Add a note" / "Agregar nota"
-                    const addNote = btns.find(b => {
-                      const t = b.textContent?.trim().toLowerCase() || ''
-                      return t.includes('add a note') || t.includes('agregar nota') || t.includes('añadir nota') || t.includes('nota')
+                  // Wait and retry for modal to appear (LinkedIn can be slow)
+                  let modalHandled = 'no-modal'
+                  for (let modalTry = 0; modalTry < 3; modalTry++) {
+                    await sleep(1500 + Math.random() * 1000)
+                    modalHandled = await page.evaluate(() => {
+                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal], [class*="modal"]')
+                      if (!modal) return 'no-modal'
+                      const btns = [...modal.querySelectorAll('button')]
+                      // Look for "Add a note" / "Agregar nota" using multiple text extraction methods
+                      const addNote = btns.find(b => {
+                        const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
+                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                        const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
+                        const combined = `${t} ${label} ${spanText}`
+                        return combined.includes('add a note') || combined.includes('agregar nota') ||
+                               combined.includes('añadir nota') || combined.includes('nota')
+                      })
+                      if (addNote) { addNote.click(); return 'adding-note' }
+                      // Look for text area already visible
+                      if (modal.querySelector('textarea')) return 'textarea-ready'
+                      // Debug: return all button info
+                      return 'modal-btns:' + btns.map(b => {
+                        const t = b.innerText?.trim() || b.textContent?.trim() || ''
+                        const label = b.getAttribute('aria-label') || ''
+                        return `[${(t || label || '?').slice(0, 30)}]`
+                      }).join('')
                     })
-                    if (addNote) { addNote.click(); return 'adding-note' }
-                    // Look for text area already visible
-                    if (modal.querySelector('textarea')) return 'textarea-ready'
-                    return 'modal-btns:' + btns.map(b => b.textContent?.trim().slice(0, 25)).join('|')
-                  })
+                    if (modalHandled !== 'no-modal') break
+                  }
 
                   if (modalHandled === 'adding-note' || modalHandled === 'textarea-ready') {
                     await sleep(1000 + Math.random() * 1000)
-                    const noteInput = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, textarea#custom-message, textarea[name="message"]')
+                    const noteInput = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, [class*="modal"] textarea, textarea#custom-message, textarea[name="message"]')
                     if (noteInput) {
                       await noteInput.click()
                       await sleep(300)
@@ -1856,18 +1898,21 @@ Responde UNICAMENTE con el mensaje.`
                     }
                     // Click Send
                     await page.evaluate(() => {
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
+                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal], [class*="modal"]')
                       if (!modal) return
                       const btns = [...modal.querySelectorAll('button')]
                       const send = btns.find(b => {
-                        const t = b.textContent?.trim().toLowerCase() || ''
-                        return t === 'send' || t === 'enviar' || t.includes('send invitation') || t.includes('enviar invitacion') || t.includes('enviar invitación')
+                        const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
+                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                        const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
+                        const combined = `${t} ${label} ${spanText}`
+                        return combined.includes('send') || combined.includes('enviar')
                       })
                       if (send) send.click()
                     })
                     await sleep(1500 + Math.random() * 1000)
                     connected++
-                    liLog(pid, `Conexion enviada a ${name} con nota personalizada!`, 'success', 'connection')
+                    liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
                   } else {
                     liLog(pid, `Modal: ${(modalHandled || 'none').slice(0, 100)}`, 'error', 'connection')
                     // Dismiss any dialog
