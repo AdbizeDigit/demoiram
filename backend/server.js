@@ -1597,55 +1597,78 @@ REGLAS:
                 const debugInfo = { profileLinks: profileLinks.length, cards: 0, cardButtonSamples: [] }
 
                 for (const link of profileLinks) {
-                  // Walk up to find card container
+                  const profileUrl = link.href || ''
+                  if (!profileUrl || seenCards.has(profileUrl)) continue
+                  seenCards.add(profileUrl)
+
+                  // Walk up to find card container for extra info
                   let card = link.closest('li') || link.parentElement?.closest('li')
                   if (!card) {
                     let el = link.parentElement
-                    for (let i = 0; i < 10 && el; i++) {
+                    for (let i = 0; i < 15 && el; i++) {
                       const btns = el.querySelectorAll('button')
-                      if (btns.length > 0 && btns.length <= 5) {
+                      if (btns.length > 0 && btns.length <= 8) {
                         card = el
                         break
                       }
                       el = el.parentElement
                     }
                   }
-                  if (!card || seenCards.has(card)) continue
-                  seenCards.add(card)
+                  // If still no card, use a reasonable ancestor for text extraction
+                  if (!card) {
+                    let el = link.parentElement
+                    for (let i = 0; i < 8 && el; i++) {
+                      if (el.innerText && el.innerText.length > 50 && el.innerText.length < 2000) {
+                        card = el
+                        break
+                      }
+                      el = el.parentElement
+                    }
+                  }
                   debugInfo.cards++
 
-                  const cardBtns = [...card.querySelectorAll('button')]
+                  // Extract person info from card or link
+                  let name = 'Persona'
+                  let headline = ''
+                  let location = ''
+                  let company = ''
+                  let summary = ''
 
-                  // Debug: collect button texts from first 3 cards
-                  if (debugInfo.cardButtonSamples.length < 3) {
-                    debugInfo.cardButtonSamples.push(cardBtns.map(b => ({
-                      text: b.textContent?.trim().slice(0, 40),
-                      label: (b.getAttribute('aria-label') || '').slice(0, 60),
-                      svg: b.querySelector('svg') ? 'has-svg' : '',
-                    })))
+                  if (card) {
+                    const cardBtns = [...card.querySelectorAll('button')]
+                    if (debugInfo.cardButtonSamples.length < 3) {
+                      debugInfo.cardButtonSamples.push(cardBtns.map(b => ({
+                        text: b.textContent?.trim().slice(0, 40),
+                        label: (b.getAttribute('aria-label') || '').slice(0, 60),
+                        svg: b.querySelector('svg') ? 'has-svg' : '',
+                      })))
+                    }
+
+                    const cardText = card.innerText || ''
+                    const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.length < 200)
+                    const nameEl = card.querySelector('a[href*="/in/"] span, a[href*="/in/"]')
+                    name = nameEl?.textContent?.trim()?.replace(/\s+/g, ' ') || lines[0] || 'Persona'
+                    const nameIdx = lines.findIndex(l => l.includes(name?.split(' ')[0]))
+                    headline = lines[nameIdx + 1] || lines[1] || ''
+                    location = lines[nameIdx + 2] || lines[2] || ''
+                    const companyMatch = headline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
+                    company = companyMatch?.[1]?.trim() || ''
+                    summary = (lines.slice(nameIdx + 3, nameIdx + 5).join(' ')).slice(0, 200)
+                  } else {
+                    // Fallback: extract name from link text
+                    name = link.textContent?.trim()?.replace(/\s+/g, ' ') || 'Persona'
+                    // Try aria-label for more info
+                    const label = link.getAttribute('aria-label') || ''
+                    if (label) name = label.replace(/['']/g, "'").split(',')[0].trim() || name
                   }
-
-                  // Extract profile URL and person info
-                  const profileLink = card.querySelector('a[href*="/in/"]')
-                  const profileUrl = profileLink?.href || ''
-                  if (!profileUrl) continue
-
-                  const cardText = card.innerText || ''
-                  const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.length < 200)
-                  const nameEl = card.querySelector('a[href*="/in/"] span, a[href*="/in/"]')
-                  const name = nameEl?.textContent?.trim()?.replace(/\s+/g, ' ') || lines[0] || 'Persona'
-                  const nameIdx = lines.findIndex(l => l.includes(name?.split(' ')[0]))
-                  const headline = lines[nameIdx + 1] || lines[1] || ''
-                  const location = lines[nameIdx + 2] || lines[2] || ''
-                  const companyMatch = headline.match(/(?:en|at|@|\|)\s*(.+?)(?:\s*\||$)/i)
 
                   results.push({
                     profileUrl,
                     name: name.slice(0, 80),
                     headline: headline.slice(0, 150),
                     location: location.slice(0, 80),
-                    company: companyMatch?.[1]?.trim() || '',
-                    summary: (lines.slice(nameIdx + 3, nameIdx + 5).join(' ')).slice(0, 200),
+                    company,
+                    summary,
                   })
                 }
                 return { connectButtons: results, debug: debugInfo }
@@ -1658,8 +1681,7 @@ REGLAS:
                 liLog(pid, `Botones en card 1: ${(sample || 'ninguno').slice(0, 300)}`, 'info', 'connection')
               }
               const connectButtons = foundButtons
-              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
-              liLog(pid, `Encontrados ${connectButtons.length} botones de conexion en pagina ${attempt + 1}`, 'info', 'connection')
+              liLog(pid, `Encontrados ${connectButtons.length} perfiles para conectar en pagina ${attempt + 1}`, 'info', 'connection')
 
               const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
 
