@@ -1719,8 +1719,20 @@ REGLAS:
 
                   // Visit profile page to find Connect button
                   liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
-                  await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-                  await sleep(4000 + Math.random() * 3000)
+                  await page.goto(profileUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {})
+                  // Verify navigation succeeded by waiting for profile h1 to appear
+                  try {
+                    await page.waitForSelector('h1', { timeout: 8000 })
+                  } catch {
+                    liLog(pid, `Perfil no cargo, reintentando...`, 'error', 'connection')
+                    await page.goto(profileUrl, { waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {})
+                    await sleep(3000)
+                  }
+                  await sleep(2000 + Math.random() * 2000)
+
+                  // Verify we're on the right page
+                  const currentUrl = await page.url()
+                  liLog(pid, `URL actual: ${currentUrl.split('?')[0]}`, 'info', 'connection')
 
                   // Re-extract name/headline from actual profile page for accurate AI messages
                   const profilePageInfo = await page.evaluate(() => {
@@ -1790,203 +1802,195 @@ Responde UNICAMENTE con el mensaje.`
                     liLog(pid, `Nota IA fallo, fallback [${strategy.id}]`, 'error', 'connection')
                   }
 
-                  // Helper: get button text via multiple methods (LinkedIn obfuscates textContent)
-                  // Look for Connect/Conectar button on profile page
-                  const profileConnectResult = await page.evaluate(() => {
+                  // Find Connect/Conectar button on profile page using index, then click via Puppeteer
+                  const connectBtnIndex = await page.evaluate(() => {
                     const getBtnText = (b) => {
-                      const text = (b.textContent?.trim() || '').toLowerCase()
-                      const inner = (b.innerText?.trim() || '').toLowerCase()
+                      const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
                       const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                      const spanText = [...b.querySelectorAll('span')].map(s => s.innerText?.trim().toLowerCase()).join(' ')
-                      return { text, inner, label, spanText, combined: `${text} ${inner} ${label} ${spanText}` }
+                      const spanText = [...b.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).join(' ')
+                      return `${t} ${label} ${spanText}`
                     }
-                    const isConnect = (info) => {
-                      return info.combined.includes('connect') || info.combined.includes('conectar')
-                    }
-                    const isMore = (info) => {
-                      return info.text === 'more' || info.text === 'más' || info.text === 'mas' ||
-                             info.inner === 'more' || info.inner === 'más' || info.inner === 'mas' ||
-                             info.label.includes('more action') || info.label.includes('más acciones') ||
-                             info.label.includes('mas acciones')
-                    }
-
                     const allBtns = [...document.querySelectorAll('button')]
                     // Try direct Connect button
-                    const connectBtn = allBtns.find(b => isConnect(getBtnText(b)))
-                    if (connectBtn) {
-                      connectBtn.click()
-                      return 'clicked-connect'
-                    }
-
-                    // Try "More" dropdown button
-                    const moreBtn = allBtns.find(b => isMore(getBtnText(b)))
-                    if (moreBtn) {
-                      moreBtn.click()
-                      return 'clicked-more'
-                    }
-
-                    // Debug: return button info using all methods
-                    return 'no-connect-btn:' + allBtns.slice(0, 15).map(b => {
-                      const info = getBtnText(b)
-                      return `[${info.inner || info.text || info.label || info.spanText || '?'}]`
-                    }).join('')
+                    const connectIdx = allBtns.findIndex(b => {
+                      const combined = getBtnText(b)
+                      return combined.includes('connect') || combined.includes('conectar')
+                    })
+                    if (connectIdx >= 0) return { type: 'connect', index: connectIdx }
+                    // Try "More" dropdown
+                    const moreIdx = allBtns.findIndex(b => {
+                      const combined = getBtnText(b)
+                      return combined === 'more' || combined === 'más' || combined === 'mas' ||
+                             combined.includes('more action') || combined.includes('más acciones')
+                    })
+                    if (moreIdx >= 0) return { type: 'more', index: moreIdx }
+                    // Debug
+                    return { type: 'none', debug: allBtns.slice(0, 10).map(b => getBtnText(b).slice(0, 30)).join(' | ') }
                   })
 
-                  if (profileConnectResult === 'clicked-more') {
-                    // Wait for dropdown and find Connect inside
-                    await sleep(1500 + Math.random() * 1000)
-                    await page.evaluate(() => {
-                      const items = [...document.querySelectorAll('[role="menuitem"], [role="option"], li a, li button, .artdeco-dropdown__item, [class*="dropdown"] button, [class*="dropdown"] a')]
-                      const connectItem = items.find(el => {
-                        const text = (el.textContent?.trim() || '').toLowerCase()
-                        const inner = (el.innerText?.trim() || '').toLowerCase()
-                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
-                        const combined = `${text} ${inner} ${label}`
-                        return combined.includes('connect') || combined.includes('conectar')
-                      })
-                      if (connectItem) connectItem.click()
-                    })
-                    await sleep(2000 + Math.random() * 1000)
-                  } else if (profileConnectResult === 'clicked-connect') {
-                    await sleep(2500 + Math.random() * 1500)
-                  } else {
-                    liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${profileConnectResult.slice(0, 200)}`, 'error', 'connection')
-                    // Go back to search results
+                  let connectClicked = false
+                  if (connectBtnIndex.type === 'connect') {
+                    // Use Puppeteer click (dispatches proper mouse events)
+                    const btns = await page.$$('button')
+                    if (btns[connectBtnIndex.index]) {
+                      await btns[connectBtnIndex.index].click()
+                      connectClicked = true
+                      liLog(pid, `Click en boton Connect`, 'info', 'connection')
+                    }
+                  } else if (connectBtnIndex.type === 'more') {
+                    const btns = await page.$$('button')
+                    if (btns[connectBtnIndex.index]) {
+                      await btns[connectBtnIndex.index].click()
+                      await sleep(1500 + Math.random() * 1000)
+                      // Find Connect in dropdown via Puppeteer
+                      const dropdownItems = await page.$$('[role="menuitem"], [role="option"], li button, li a, .artdeco-dropdown__item')
+                      for (const item of dropdownItems) {
+                        const text = await item.evaluate(el => (el.innerText?.trim() || el.textContent?.trim() || '').toLowerCase())
+                        if (text.includes('connect') || text.includes('conectar')) {
+                          await item.click()
+                          connectClicked = true
+                          liLog(pid, `Click en Connect desde dropdown More`, 'info', 'connection')
+                          break
+                        }
+                      }
+                    }
+                  }
+
+                  if (!connectClicked) {
+                    liLog(pid, `No se encontro boton conectar en perfil de ${actualName}: ${connectBtnIndex.debug?.slice(0, 200) || 'n/a'}`, 'error', 'connection')
                     await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
                     await sleep(3000 + Math.random() * 2000)
                     continue
                   }
 
-                  // Handle connection modal (add note + send)
-                  // Wait and retry for modal to appear (LinkedIn can be slow)
-                  let modalHandled = 'no-modal'
-                  for (let modalTry = 0; modalTry < 4; modalTry++) {
-                    await sleep(2000 + Math.random() * 1500)
-                    modalHandled = await page.evaluate(() => {
-                      // Try multiple selectors for modal detection
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
-                        || document.querySelector('div[class*="overlay"], div[class*="invitation"], section[class*="invite"]')
-                      if (!modal) {
-                        // Check if there's any overlay/popup with buttons containing send/note text
-                        const anyOverlay = [...document.querySelectorAll('div, section')].find(el => {
-                          const style = window.getComputedStyle(el)
-                          return (style.position === 'fixed' || style.position === 'absolute') &&
-                                 style.zIndex > 100 && el.querySelector('button') && el.querySelector('textarea, input[type="text"]')
-                        })
-                        if (!anyOverlay) return 'no-modal'
-                        // Use this overlay as the modal
-                        const btns = [...anyOverlay.querySelectorAll('button')]
-                        const textarea = anyOverlay.querySelector('textarea')
-                        if (textarea) return 'textarea-ready'
-                        return 'overlay-btns:' + btns.length
-                      }
-
-                      const btns = [...modal.querySelectorAll('button')]
-                      const allEls = [...modal.querySelectorAll('button, a, [role="button"]')]
-
-                      // Helper to extract text from element using all methods
-                      const getText = (el) => {
-                        const t = (el.innerText?.trim() || '').toLowerCase()
-                        const tc = (el.textContent?.trim() || '').toLowerCase()
-                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
-                        const spanText = [...el.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).filter(Boolean).join(' ')
-                        return `${t} ${tc} ${label} ${spanText}`
-                      }
-
-                      // Look for "Add a note" / "Agregar nota"
-                      const addNote = allEls.find(b => {
-                        const combined = getText(b)
-                        return combined.includes('add a note') || combined.includes('agregar nota') ||
-                               combined.includes('añadir nota') || combined.includes('add note')
-                      })
-                      if (addNote) { addNote.click(); return 'adding-note' }
-
-                      // Look for text area already visible
-                      if (modal.querySelector('textarea')) return 'textarea-ready'
-
-                      // Look for "Send without a note" / "Enviar sin nota" — click it as fallback
-                      const sendDirect = allEls.find(b => {
-                        const combined = getText(b)
-                        return combined.includes('send without') || combined.includes('enviar sin') ||
-                               combined.includes('send now') || combined.includes('enviar ahora')
-                      })
-                      if (sendDirect) { sendDirect.click(); return 'sent-without-note' }
-
-                      // Debug: return detailed button info
-                      return 'modal-btns:' + allEls.map(b => {
-                        const t = b.innerText?.trim() || ''
-                        const label = b.getAttribute('aria-label') || ''
-                        const cls = (b.className || '').toString().slice(0, 30)
-                        return `[${(t || label || cls || '?').slice(0, 40)}]`
-                      }).join('')
+                  // Handle connection modal — wait for it with waitForSelector
+                  await sleep(1500 + Math.random() * 1000)
+                  let modalEl = null
+                  try {
+                    modalEl = await page.waitForSelector('[role="dialog"], .artdeco-modal', { timeout: 8000 })
+                  } catch {
+                    // No modal appeared - try screenshot debug
+                    liLog(pid, `No aparecio modal despues de click Connect para ${actualName}`, 'error', 'connection')
+                    // Log what's on the page
+                    const pageState = await page.evaluate(() => {
+                      const dialogs = document.querySelectorAll('[role="dialog"], .artdeco-modal, [class*="modal"]')
+                      const overlays = document.querySelectorAll('[class*="overlay"]')
+                      return `dialogs:${dialogs.length} overlays:${overlays.length} url:${location.href.split('?')[0]}`
                     })
-                    if (modalHandled !== 'no-modal') break
+                    liLog(pid, `Estado pagina: ${pageState}`, 'error', 'connection')
+                    await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                    await sleep(3000 + Math.random() * 2000)
+                    continue
                   }
 
-                  if (modalHandled === 'sent-without-note') {
-                    await sleep(2000 + Math.random() * 1000)
-                    connected++
-                    liLog(pid, `Conexion enviada a ${actualName} (sin nota)`, 'success', 'connection')
-                  } else if (modalHandled === 'adding-note' || modalHandled === 'textarea-ready') {
-                    await sleep(1000 + Math.random() * 1000)
-                    // Find textarea in any modal/overlay
-                    const noteInput = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, textarea#custom-message, textarea[name="message"], div[class*="invitation"] textarea')
-                      || await page.$('textarea')
+                  // Modal appeared! Wait a bit for content to load
+                  await sleep(1500 + Math.random() * 1000)
+
+                  // Try to find "Add a note" button using Puppeteer (not evaluate)
+                  let noteSent = false
+                  const modalBtns = await page.$$('[role="dialog"] button, .artdeco-modal button')
+                  const modalBtnTexts = []
+                  let addNoteBtn = null
+                  let sendWithoutNoteBtn = null
+                  let sendBtn = null
+                  for (const btn of modalBtns) {
+                    const btnInfo = await btn.evaluate(b => {
+                      const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
+                      const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                      return { text: t, label, combined: `${t} ${label}` }
+                    })
+                    modalBtnTexts.push(btnInfo.combined.slice(0, 40))
+                    if (btnInfo.combined.includes('add a note') || btnInfo.combined.includes('agregar nota') || btnInfo.combined.includes('añadir nota')) {
+                      addNoteBtn = btn
+                    }
+                    if (btnInfo.combined.includes('send without') || btnInfo.combined.includes('enviar sin')) {
+                      sendWithoutNoteBtn = btn
+                    }
+                    if (btnInfo.combined.includes('send') || btnInfo.combined.includes('enviar')) {
+                      sendBtn = btn
+                    }
+                  }
+                  liLog(pid, `Modal btns: ${modalBtnTexts.join(' | ') || 'ninguno'}`, 'info', 'connection')
+
+                  if (addNoteBtn) {
+                    await addNoteBtn.click()
+                    await sleep(1500 + Math.random() * 1000)
+                    // Wait for textarea to appear
+                    let noteInput = null
+                    try {
+                      noteInput = await page.waitForSelector('[role="dialog"] textarea, .artdeco-modal textarea, textarea', { timeout: 5000 })
+                    } catch {}
                     if (noteInput) {
                       await noteInput.click()
                       await sleep(300)
-                      // Clear any existing text
-                      await noteInput.evaluate(el => el.value = '')
                       await noteInput.type(aiNote, { delay: 20 + Math.random() * 35 })
                       await sleep(800 + Math.random() * 1000)
-                    }
-                    // Click Send
-                    const sendResult = await page.evaluate(() => {
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal, .send-invite, [data-test-modal]')
-                        || document.querySelector('div[class*="overlay"], div[class*="invitation"]')
-                      if (!modal) return 'no-modal-for-send'
-                      const allEls = [...modal.querySelectorAll('button, a, [role="button"]')]
-                      const getText = (el) => {
-                        const t = (el.innerText?.trim() || '').toLowerCase()
-                        const tc = (el.textContent?.trim() || '').toLowerCase()
-                        const label = (el.getAttribute('aria-label') || '').toLowerCase()
-                        const spanText = [...el.querySelectorAll('span')].map(s => (s.innerText?.trim() || '').toLowerCase()).filter(Boolean).join(' ')
-                        return `${t} ${tc} ${label} ${spanText}`
+                      // Find and click Send button
+                      const sendBtns = await page.$$('[role="dialog"] button, .artdeco-modal button')
+                      for (const btn of sendBtns) {
+                        const text = await btn.evaluate(b => {
+                          const t = (b.innerText?.trim() || b.textContent?.trim() || '').toLowerCase()
+                          const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                          return `${t} ${label}`
+                        })
+                        if (text.includes('send') || text.includes('enviar')) {
+                          await btn.click()
+                          await sleep(2000 + Math.random() * 1000)
+                          connected++
+                          liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
+                          noteSent = true
+                          break
+                        }
                       }
-                      const send = allEls.find(b => {
-                        const combined = getText(b)
-                        return combined.includes('send') || combined.includes('enviar')
-                      })
-                      if (send) { send.click(); return 'sent' }
-                      return 'no-send-btn:' + allEls.map(b => `[${(b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 25)}]`).join('')
-                    })
-                    if (sendResult === 'sent') {
-                      await sleep(1500 + Math.random() * 1000)
-                      connected++
-                      liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
-                    } else {
-                      liLog(pid, `Error enviando: ${sendResult.slice(0, 150)}`, 'error', 'connection')
                     }
-                  } else {
-                    liLog(pid, `Modal: ${(modalHandled || 'none').slice(0, 200)}`, 'error', 'connection')
-                    // Dismiss any dialog
+                  } else if (sendWithoutNoteBtn || sendBtn) {
+                    // No "Add note" button — send without note
+                    await (sendWithoutNoteBtn || sendBtn).click()
+                    await sleep(2000 + Math.random() * 1000)
+                    connected++
+                    liLog(pid, `Conexion enviada a ${actualName} (sin nota)`, 'success', 'connection')
+                    noteSent = true
+                  }
+
+                  // Also check for textarea already visible (some modals skip "add note" step)
+                  if (!noteSent) {
+                    const textarea = await page.$('[role="dialog"] textarea, .artdeco-modal textarea')
+                    if (textarea) {
+                      await textarea.click()
+                      await sleep(300)
+                      await textarea.type(aiNote, { delay: 20 + Math.random() * 35 })
+                      await sleep(800 + Math.random() * 1000)
+                      const sendBtns2 = await page.$$('[role="dialog"] button, .artdeco-modal button')
+                      for (const btn of sendBtns2) {
+                        const text = await btn.evaluate(b => (b.innerText?.trim() || '').toLowerCase() + ' ' + (b.getAttribute('aria-label') || '').toLowerCase())
+                        if (text.includes('send') || text.includes('enviar')) {
+                          await btn.click()
+                          await sleep(2000 + Math.random() * 1000)
+                          connected++
+                          liLog(pid, `Conexion enviada a ${actualName} con nota!`, 'success', 'connection')
+                          noteSent = true
+                          break
+                        }
+                      }
+                    }
+                  }
+
+                  if (!noteSent) {
+                    liLog(pid, `No se pudo enviar conexion a ${actualName} - modal btns: ${modalBtnTexts.join('|')}`, 'error', 'connection')
+                    // Dismiss modal
                     await page.evaluate(() => {
-                      const modal = document.querySelector('[role="dialog"], .artdeco-modal')
-                      if (!modal) return
-                      const dismiss = [...modal.querySelectorAll('button')].find(b => {
-                        const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                        return label.includes('dismiss') || label.includes('cerrar') || label.includes('close')
-                      })
+                      const dismiss = document.querySelector('[role="dialog"] button[aria-label*="Dismiss"], [role="dialog"] button[aria-label*="Cerrar"], [role="dialog"] button[aria-label*="Close"]')
                       if (dismiss) dismiss.click()
-                    })
+                    }).catch(() => {})
+                    await page.keyboard.press('Escape').catch(() => {})
                   }
 
                   // Go back to search results (navigate directly, goBack is unreliable)
-                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-                  await sleep(4000 + Math.random() * 5000) // 4-9s between connections (human-like)
+                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
+                  await sleep(3000 + Math.random() * 3000)
                 } catch (connErr) {
                   liLog(pid, `Error conectando: ${connErr.message?.slice(0, 80)}`, 'error', 'connection')
-                  await page.goto(currentSearchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                  await page.goto(currentSearchUrl, { waitUntil: 'networkidle2', timeout: 25000 }).catch(() => {})
                   await sleep(3000)
                 }
               }
