@@ -695,6 +695,13 @@ setInterval(async () => {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
     for (const post of rows) {
       try {
+        // Skip if prospecting is running for this profile (don't interfere with browser)
+        const autoState = liAutoState.get(post.profile_id)
+        if (autoState?.running) {
+          console.log(`[Scheduler] Prospecting active for ${post.profile_name}, postponing post`)
+          continue
+        }
+
         // Mark as processing immediately to prevent duplicate runs
         const { rowCount } = await pool.query(
           "UPDATE scheduled_posts SET status = 'processing' WHERE id = $1 AND status = 'pending'", [post.id]
