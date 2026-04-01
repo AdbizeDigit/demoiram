@@ -1412,8 +1412,9 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
     const { config } = req.body
     if (liAutoState.get(pid)?.running) return res.json({ success: false, error: 'Ya esta corriendo' })
 
-    liAutoState.set(pid, { running: true, config: config || {}, startedAt: new Date().toISOString() })
-    liLog(pid, 'Automatizacion iniciada', 'success')
+    const mode = req.body.mode || 'full' // 'prospecting' = only connections, 'full' = posts + connections
+    liAutoState.set(pid, { running: true, config: config || {}, mode, startedAt: new Date().toISOString() })
+    liLog(pid, mode === 'prospecting' ? 'Prospeccion iniciada (solo conexiones)' : 'Automatizacion iniciada (posts + conexiones)', 'success')
 
     const { pool } = await import('./config/database.js')
     await pool.query('UPDATE linkedin_profiles SET stats = jsonb_set(COALESCE(stats,\'{}\'::jsonb), \'{autoConfig}\', $1::jsonb) WHERE id = $2',
@@ -1456,8 +1457,57 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [pid])
         const p = profileRes.rows[0]
 
-        // Step 2: Auto-post skipped — use the dedicated post endpoint instead
-        await sleep(2000 + Math.random() * 3000)
+        // Step 2: Generate and publish post (only in 'full' mode, skipped in 'prospecting' mode)
+        if (mode !== 'prospecting') {
+          if (!liAutoState.get(pid)?.running) return
+          liLog(pid, 'Generando post con IA...', 'info', 'post')
+          const topic = topics[Math.floor(Math.random() * topics.length)]
+          const style = styles[Math.floor(Math.random() * styles.length)]
+          try {
+            const { analyzeWithDeepSeek } = await import('./services/deepseek.js')
+            const postContent = await analyzeWithDeepSeek(
+              `Sos ${p?.avatar_name || p?.name || 'profesional'}, ${p?.avatar_role || 'Sales Representative'} en ${p?.avatar_company || 'Adbize'}.
+Genera UN post de LinkedIn estilo "${style}" sobre: ${topic}.
+REGLAS:
+- Maximo 150 palabras, español argentino natural
+- NO seas vendedor ni corporativo
+- Usa saltos de linea entre parrafos para que sea legible
+- Varia el tono: a veces serio, a veces informal, a veces con humor
+- NO empieces siempre con "Che" ni con preguntas
+- Los hashtags SIN el simbolo #, solo la palabra (ej: "InteligenciaArtificial" no "#InteligenciaArtificial")
+- Responde SOLO JSON sin comentarios: {"post":"texto del post","hashtags":["Tag1","Tag2","Tag3"]}`
+            )
+            let parsed = {}
+            try { parsed = JSON.parse(postContent.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch { liLog(pid, 'IA devolvio JSON invalido', 'error', 'post') }
+            if (parsed.post) {
+              liLog(pid, `Post generado (${style}): "${parsed.post.slice(0, 80)}..."`, 'info', 'post')
+              let imageUrl = null
+              const { freepikImageService } = await import('./services/linkedin/freepik-image-service.js')
+              for (let imgAttempt = 1; imgAttempt <= 2; imgAttempt++) {
+                try {
+                  liLog(pid, `Generando imagen (intento ${imgAttempt}/2)...`, 'info', 'post')
+                  const imgResult = await freepikImageService.generateForPost(parsed.post)
+                  imageUrl = imgResult?.url || null
+                  if (imageUrl) { liLog(pid, 'Imagen generada!', 'success', 'post'); break }
+                } catch (imgErr) {
+                  liLog(pid, `Imagen intento ${imgAttempt} fallo: ${imgErr.message?.slice(0, 60)}`, 'error', 'post')
+                  if (imgAttempt < 2) await sleep(20000)
+                }
+              }
+              const cleanHashtags = (parsed.hashtags || []).map(h => h.replace(/^#/, ''))
+              const fullPost = parsed.post + '\n\n' + cleanHashtags.map(h => '#' + h).join(' ')
+              if (imageUrl) {
+                const postResult = await linkedinBrowser.createPost(pid, fullPost, imageUrl, { requireImage: true })
+                liLog(pid, postResult.success ? 'Post publicado!' : `Error: ${postResult.message}`, postResult.success ? 'success' : 'error', 'post')
+              } else {
+                liLog(pid, 'No se pudo generar imagen, post no publicado', 'error', 'post')
+              }
+            }
+          } catch (e) { liLog(pid, `Error publicando: ${e.message?.slice(0, 100)}`, 'error', 'post') }
+          await randomDelay()
+        } else {
+          await sleep(2000 + Math.random() * 3000)
+        }
 
         // Step 3: Search and connect with decision makers
         if (!liAutoState.get(pid)?.running) return
