@@ -1414,6 +1414,171 @@ app.get('/api/linkedin-profiles/:id/logs', (req, res) => {
   res.json({ success: true, logs: allLogs, postLogs, connectionLogs, engagementLogs, systemLogs, running: liAutoState.get(req.params.id)?.running || false })
 })
 
+// Engagement-only endpoint (likes + comments, no connections)
+app.post('/api/linkedin-profiles/:id/engagement/start', async (req, res) => {
+  const pid = req.params.id
+  try {
+    const { config } = req.body
+    if (liAutoState.get(pid)?.running) return res.json({ success: false, error: 'Ya esta corriendo' })
+    liAutoState.set(pid, { running: true, config: config || {}, mode: 'engagement', startedAt: new Date().toISOString() })
+    liLog(pid, 'Engagement iniciado (solo likes y comentarios)', 'success', 'engagement')
+    res.json({ success: true, message: 'Engagement iniciado' })
+
+    ;(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms))
+      try {
+        liLog(pid, 'Verificando conexion a LinkedIn...', 'info', 'engagement')
+        const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
+        const connected = await linkedinBrowser.ensureConnected(pid)
+        if (!connected) {
+          liLog(pid, 'No se pudo conectar a LinkedIn.', 'error', 'engagement')
+          liAutoState.delete(pid)
+          return
+        }
+        liLog(pid, 'Conectado a LinkedIn', 'success', 'engagement')
+
+        const cfg = config || {}
+        const { pool } = await import('./config/database.js')
+        const profileRes = await pool.query('SELECT lp.*, a.name as avatar_name, a.role as avatar_role, a.company as avatar_company FROM linkedin_profiles lp LEFT JOIN avatars a ON a.id = lp.avatar_id WHERE lp.id = $1', [pid])
+        const p = profileRes.rows[0]
+        const maxLikes = Math.min(cfg.maxLikes || 15, 25)
+        const maxComments = Math.min(cfg.maxComments || 5, 12)
+
+        const session = linkedinBrowser.sessions.get(pid)
+        if (!session?.page) { liAutoState.delete(pid); return }
+        const engPage = session.page
+        const { analyzeWithDeepSeek: engAI } = await import('./services/deepseek.js')
+        const senderName = p?.avatar_name || p?.name || 'profesional'
+        const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
+        const senderCompany = p?.avatar_company || 'Adbize'
+
+        liLog(pid, `Navegando al feed (max ${maxLikes} likes, ${maxComments} comentarios)...`, 'info', 'engagement')
+        await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle0', timeout: 30000 }).catch(async () => {
+          await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+        })
+        try {
+          await engPage.waitForFunction(
+            () => document.querySelectorAll('[data-urn]').length > 0 || document.querySelectorAll('.feed-shared-update-v2').length > 0,
+            { timeout: 15000 }
+          )
+        } catch {}
+        await sleep(3000 + Math.random() * 2000)
+
+        let totalLikes = 0
+        let totalComments = 0
+        const processedPosts = new Set()
+
+        for (let scroll = 0; scroll < 10 && liAutoState.get(pid)?.running && (totalLikes < maxLikes || totalComments < maxComments); scroll++) {
+          const posts = await engPage.evaluate(() => {
+            const postEls = document.querySelectorAll('[data-urn], .feed-shared-update-v2, [data-id]')
+            const results = []
+            for (const post of postEls) {
+              const urn = post.getAttribute('data-urn') || post.getAttribute('data-id') || ''
+              if (!urn || urn.includes('SPONSORED')) continue
+              const textEl = post.querySelector('.feed-shared-text, .break-words, [dir="ltr"]')
+              const postText = (textEl?.innerText?.trim() || '').slice(0, 500)
+              if (!postText || postText.length < 30) continue
+              const authorEl = post.querySelector('.feed-shared-actor__name, .update-components-actor__name, a[href*="/in/"] span')
+              const author = authorEl?.innerText?.trim() || ''
+              const headlineEl = post.querySelector('.feed-shared-actor__description, .update-components-actor__description')
+              const headline = headlineEl?.innerText?.trim()?.slice(0, 100) || ''
+              const likeBtn = post.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
+              const alreadyLiked = likeBtn?.getAttribute('aria-pressed') === 'true'
+              const commentBtn = post.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
+              results.push({ urn, postText, author, headline, alreadyLiked, hasLikeBtn: !!likeBtn, hasCommentBtn: !!commentBtn })
+            }
+            return results
+          })
+
+          for (const post of posts) {
+            if (!liAutoState.get(pid)?.running) break
+            if (processedPosts.has(post.urn)) continue
+            processedPosts.add(post.urn)
+
+            if (totalLikes < maxLikes && !post.alreadyLiked && post.hasLikeBtn) {
+              try {
+                const liked = await engPage.evaluate((urn) => {
+                  const postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                  if (!postEl) return false
+                  const likeBtn = postEl.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
+                  if (likeBtn && likeBtn.getAttribute('aria-pressed') !== 'true') { likeBtn.click(); return true }
+                  return false
+                }, post.urn)
+                if (liked) {
+                  totalLikes++
+                  liLog(pid, `Like #${totalLikes}: ${post.author || 'post'} - "${post.postText.slice(0, 60)}..."`, 'success', 'engagement')
+                  await sleep(3000 + Math.random() * 5000)
+                }
+              } catch {}
+            }
+
+            if (totalComments < maxComments && post.hasCommentBtn && post.postText.length > 80 && Math.random() < 0.3) {
+              try {
+                const comment = (await engAI(
+                  `Sos ${senderName}, ${senderRole} en ${senderCompany}.
+Escribi un comentario breve y genuino en este post de LinkedIn.
+
+POST de ${post.author}${post.headline ? ` (${post.headline})` : ''}:
+"${post.postText.slice(0, 400)}"
+
+REGLAS:
+- Max 150 caracteres, relevante al contenido
+- NO vendas nada, NO menciones tu empresa
+- Se natural, como un profesional interesado
+- Español argentino, max 1 emoji
+- NO uses "Excelente post!" o frases genericas
+Responde UNICAMENTE con el comentario.`
+                )).trim().replace(/^["']|["']$/g, '').slice(0, 200)
+                if (comment.length < 10) continue
+
+                const commentOpened = await engPage.evaluate((urn) => {
+                  const postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                  if (!postEl) return false
+                  const btn = postEl.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"]')
+                  if (btn) { btn.click(); return true }
+                  return false
+                }, post.urn)
+
+                if (commentOpened) {
+                  await sleep(2000 + Math.random() * 1500)
+                  const commentInput = await engPage.$('.ql-editor[contenteditable="true"], [role="textbox"][contenteditable="true"]')
+                  if (commentInput) {
+                    await commentInput.click()
+                    await sleep(500)
+                    await commentInput.type(comment, { delay: 25 + Math.random() * 40 })
+                    await sleep(1000 + Math.random() * 1000)
+                    const submitted = await engPage.evaluate(() => {
+                      const btn = [...document.querySelectorAll('button.comments-comment-box__submit-button, button[type="submit"]')]
+                        .find(b => { const t = (b.innerText?.trim() || '').toLowerCase(); return t.includes('post') || t.includes('publicar') || t.includes('comentar') })
+                      if (btn && !btn.disabled) { btn.click(); return true }
+                      return false
+                    })
+                    if (submitted) {
+                      totalComments++
+                      liLog(pid, `Comentario #${totalComments} en post de ${post.author}: "${comment.slice(0, 60)}..."`, 'success', 'engagement')
+                      await sleep(15000 + Math.random() * 15000)
+                    }
+                  }
+                }
+              } catch (e) { liLog(pid, `Error comentando: ${e.message?.slice(0, 60)}`, 'error', 'engagement') }
+            }
+          }
+
+          await engPage.evaluate(() => window.scrollBy(0, 800 + Math.random() * 600))
+          await sleep(2000 + Math.random() * 3000)
+        }
+
+        liLog(pid, `Engagement completado: ${totalLikes} likes, ${totalComments} comentarios`, 'success', 'engagement')
+      } catch (e) {
+        liLog(pid, `Error: ${e.message?.slice(0, 100)}`, 'error', 'engagement')
+      } finally {
+        liAutoState.delete(pid)
+        liLog(pid, 'Engagement finalizado', 'info', 'engagement')
+      }
+    })()
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
   const pid = req.params.id
   try {

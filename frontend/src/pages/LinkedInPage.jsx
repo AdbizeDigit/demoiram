@@ -124,6 +124,8 @@ export default function LinkedInPage() {
   const [liLogs, setLiLogs] = useState([])
   const [postLogs, setPostLogs] = useState([])
   const [connectionLogs, setConnectionLogs] = useState([])
+  const [engagementLogs, setEngagementLogs] = useState([])
+  const [engRunning, setEngRunning] = useState(false)
   const [logTab, setLogTab] = useState('all')
   const [logsPolling, setLogsPolling] = useState(false)
 
@@ -176,7 +178,8 @@ export default function LinkedInPage() {
         const { data } = await api.get(`/api/linkedin-profiles/${selected.id}/logs`)
         setLiLogs(data.logs || [])
         setPostLogs(data.postLogs || [])
-        setConnectionLogs(data.connectionLogs || [])
+        setConnectionLogs((data.connectionLogs || []).filter(l => l.category === 'connection'))
+        setEngagementLogs(data.engagementLogs || [])
         setAutoRunning(data.running || false)
       } catch {}
     }
@@ -375,6 +378,7 @@ export default function LinkedInPage() {
                   { key: 'posts', label: 'Posts', icon: Zap },
                   { key: 'calendar', label: 'Calendario', icon: Calendar },
                   { key: 'prospecting', label: 'Prospeccion', icon: Users },
+                  { key: 'engagement', label: 'Engagement', icon: Star },
                   { key: 'dm', label: 'Mensajes', icon: MessageSquare },
                   { key: 'profile', label: 'Perfil', icon: Target },
                   { key: 'automation', label: 'Automatizacion', icon: Settings },
@@ -925,42 +929,6 @@ export default function LinkedInPage() {
                           className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" placeholder="Template base (la IA lo personaliza por estrategia)" />
                       </div>
 
-                      {/* Engagement Config */}
-                      <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500" /> Engagement en Feed</h4>
-                          <button onClick={() => setAutoConfig(c => ({ ...c, engagementEnabled: !c.engagementEnabled }))}
-                            className={`p-1.5 rounded-lg transition-all ${autoConfig.engagementEnabled ? 'text-amber-600 bg-amber-50' : 'text-gray-300 bg-gray-50'}`}>
-                            {autoConfig.engagementEnabled ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
-                          </button>
-                        </div>
-                        {autoConfig.engagementEnabled && (
-                          <>
-                            <p className="text-[10px] text-gray-400">Antes de conectar, el bot da likes y comenta en el feed para calentar la cuenta y parecer humano.</p>
-                            <div>
-                              <label className="text-[10px] text-gray-500 mb-1 block">Likes por sesion</label>
-                              <div className="flex items-center gap-2">
-                                {[5, 10, 15, 20, 25].map(n => (
-                                  <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxLikes: n }))}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.maxLikes === n ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
-                                ))}
-                              </div>
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-gray-500 mb-1 block">Comentarios por sesion</label>
-                              <div className="flex items-center gap-2">
-                                {[0, 3, 5, 8, 10].map(n => (
-                                  <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxComments: n }))}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.maxComments === n ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
-                                ))}
-                              </div>
-                            </div>
-                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5">
-                              <p className="text-[10px] text-amber-700">Los comentarios son generados por IA, relevantes al contenido del post. Se aplican delays aleatorios de 3-8s entre likes y 15-30s entre comentarios.</p>
-                            </div>
-                          </>
-                        )}
-                      </div>
                     </div>
                   </div>
 
@@ -983,6 +951,105 @@ export default function LinkedInPage() {
                           <span className={`${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-400'}`}>{log.msg}</span>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Engagement */}
+              {tab === 'engagement' && (
+                <div className="space-y-4">
+                  {/* Header */}
+                  <div className="bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                          <Star className="w-5 h-5 text-amber-500" /> Engagement en Feed
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Da likes y comenta en publicaciones del feed para calentar la cuenta y aumentar visibilidad.
+                        </p>
+                      </div>
+                      <button onClick={async () => {
+                        if (engRunning) {
+                          setEngRunning(false)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/automation/stop`) } catch {}
+                        } else {
+                          if (!liConnected) { setShowLogin(true); return }
+                          setEngRunning(true)
+                          try { await api.post(`/api/linkedin-profiles/${selected.id}/engagement/start`, { config: autoConfig }) } catch {}
+                        }
+                      }} className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                        engRunning ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-amber-500 text-white hover:bg-amber-600'
+                      }`}>
+                        {engRunning ? <><X className="w-4 h-4" /> Detener</> : <><Play className="w-4 h-4" /> Iniciar Engagement</>}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Config */}
+                    <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-4">
+                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Settings className="w-4 h-4 text-amber-500" /> Configuracion</h4>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Likes por sesion</label>
+                        <div className="flex items-center gap-2">
+                          {[5, 10, 15, 20, 25].map(n => (
+                            <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxLikes: n }))}
+                              className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all ${autoConfig.maxLikes === n ? 'bg-amber-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{n}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1.5 block">Comentarios por sesion</label>
+                        <div className="flex items-center gap-2">
+                          {[0, 3, 5, 8, 10].map(n => (
+                            <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxComments: n }))}
+                              className={`flex-1 py-2 rounded-xl text-xs font-medium transition-all ${autoConfig.maxComments === n ? 'bg-amber-500 text-white shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{n}</button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                        <p className="text-xs font-semibold text-amber-800">Limites seguros</p>
+                        <ul className="text-[10px] text-amber-700 space-y-0.5">
+                          <li>- 3-8 segundos entre likes</li>
+                          <li>- 15-30 segundos entre comentarios</li>
+                          <li>- Solo posts con contenido relevante (80+ chars)</li>
+                          <li>- Comenta en ~30% de los posts visibles</li>
+                          <li>- Comentarios unicos generados por IA</li>
+                          <li>- No interactua con contenido patrocinado</li>
+                        </ul>
+                      </div>
+
+                      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                        <p className="text-xs font-semibold text-blue-800">Como funcionan los comentarios</p>
+                        <p className="text-[10px] text-blue-700 mt-1">La IA lee cada post y genera un comentario relevante y natural. No vende ni menciona tu empresa. Aporta valor genuino para aumentar tu visibilidad.</p>
+                      </div>
+                    </div>
+
+                    {/* Logs */}
+                    <div className="bg-gray-900 rounded-2xl p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${engRunning ? 'bg-amber-400 animate-pulse' : 'bg-gray-600'}`} />
+                          Logs de Engagement
+                        </h4>
+                        <span className="text-[10px] text-gray-500">{engagementLogs.length} acciones</span>
+                      </div>
+                      <div className="max-h-96 overflow-y-auto space-y-1 font-mono">
+                        {engagementLogs.length === 0 ? (
+                          <p className="text-xs text-gray-600">Los logs de engagement apareceran aqui cuando se den likes y comentarios...</p>
+                        ) : engagementLogs.map((log, i) => (
+                          <div key={i} className="flex items-start gap-2 text-[11px]">
+                            <span className="text-gray-600 flex-shrink-0">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                            <span className="flex-shrink-0 text-[9px] px-1.5 py-0 rounded bg-amber-900/50 text-amber-400">ENG</span>
+                            <span className={`${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-green-400' : 'text-gray-400'}`}>{log.msg}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
