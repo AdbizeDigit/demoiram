@@ -1408,9 +1408,10 @@ function liLog(profileId, msg, type = 'info', category = 'system') {
 app.get('/api/linkedin-profiles/:id/logs', (req, res) => {
   const allLogs = liLogs.get(req.params.id) || []
   const postLogs = allLogs.filter(l => l.category === 'post')
-  const connectionLogs = allLogs.filter(l => l.category === 'connection')
+  const connectionLogs = allLogs.filter(l => l.category === 'connection' || l.category === 'engagement')
+  const engagementLogs = allLogs.filter(l => l.category === 'engagement')
   const systemLogs = allLogs.filter(l => l.category === 'system')
-  res.json({ success: true, logs: allLogs, postLogs, connectionLogs, systemLogs, running: liAutoState.get(req.params.id)?.running || false })
+  res.json({ success: true, logs: allLogs, postLogs, connectionLogs, engagementLogs, systemLogs, running: liAutoState.get(req.params.id)?.running || false })
 })
 
 app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
@@ -1514,6 +1515,182 @@ REGLAS:
           await randomDelay()
         } else {
           await sleep(2000 + Math.random() * 3000)
+        }
+
+        // Step 2.5: Feed engagement (likes + comments) — runs in all modes
+        if (!liAutoState.get(pid)?.running) return
+        const engagementEnabled = cfg.engagementEnabled !== false // enabled by default
+        const maxLikes = Math.min(cfg.maxLikes || 15, 25)
+        const maxComments = Math.min(cfg.maxComments || 5, 12)
+        if (engagementEnabled && (maxLikes > 0 || maxComments > 0)) {
+          liLog(pid, `Iniciando engagement en feed (max ${maxLikes} likes, ${maxComments} comentarios)...`, 'info', 'engagement')
+          try {
+            const session = linkedinBrowser.sessions.get(pid)
+            if (session?.page) {
+              const engPage = session.page
+              const { analyzeWithDeepSeek: engAI } = await import('./services/deepseek.js')
+              const senderName = p?.avatar_name || p?.name || 'profesional'
+              const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
+              const senderCompany = p?.avatar_company || 'Adbize'
+
+              // Navigate to LinkedIn feed
+              await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle0', timeout: 30000 }).catch(async () => {
+                await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+              })
+              try {
+                await engPage.waitForFunction(
+                  () => document.querySelectorAll('[data-urn]').length > 0 || document.querySelectorAll('.feed-shared-update-v2').length > 0,
+                  { timeout: 15000 }
+                )
+              } catch {}
+              await sleep(3000 + Math.random() * 2000)
+
+              let totalLikes = 0
+              let totalComments = 0
+              const processedPosts = new Set()
+
+              // Scroll and engage with posts
+              for (let scroll = 0; scroll < 8 && (totalLikes < maxLikes || totalComments < maxComments); scroll++) {
+                if (!liAutoState.get(pid)?.running) break
+
+                // Extract posts from current viewport
+                const posts = await engPage.evaluate(() => {
+                  const postEls = document.querySelectorAll('[data-urn], .feed-shared-update-v2, [data-id]')
+                  const results = []
+                  for (const post of postEls) {
+                    const urn = post.getAttribute('data-urn') || post.getAttribute('data-id') || ''
+                    if (!urn || urn.includes('SPONSORED')) continue
+                    const textEl = post.querySelector('.feed-shared-text, .break-words, [dir="ltr"]')
+                    const postText = (textEl?.innerText?.trim() || '').slice(0, 500)
+                    if (!postText || postText.length < 30) continue
+                    const authorEl = post.querySelector('.feed-shared-actor__name, .update-components-actor__name, a[href*="/in/"] span')
+                    const author = authorEl?.innerText?.trim() || ''
+                    const headlineEl = post.querySelector('.feed-shared-actor__description, .update-components-actor__description')
+                    const headline = headlineEl?.innerText?.trim()?.slice(0, 100) || ''
+                    // Check if already liked
+                    const likeBtn = post.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
+                    const alreadyLiked = likeBtn?.getAttribute('aria-pressed') === 'true' || likeBtn?.classList?.contains('react-button--active')
+                    // Check comment count
+                    const commentBtn = post.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
+                    results.push({
+                      urn,
+                      postText,
+                      author,
+                      headline,
+                      alreadyLiked,
+                      hasLikeBtn: !!likeBtn,
+                      hasCommentBtn: !!commentBtn,
+                    })
+                  }
+                  return results
+                })
+
+                for (const post of posts) {
+                  if (!liAutoState.get(pid)?.running) break
+                  if (processedPosts.has(post.urn)) continue
+                  processedPosts.add(post.urn)
+
+                  // Like the post (if not already liked)
+                  if (totalLikes < maxLikes && !post.alreadyLiked && post.hasLikeBtn) {
+                    try {
+                      const liked = await engPage.evaluate((urn) => {
+                        const postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                        if (!postEl) return false
+                        const likeBtn = postEl.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
+                        if (likeBtn && likeBtn.getAttribute('aria-pressed') !== 'true') {
+                          likeBtn.click()
+                          return true
+                        }
+                        return false
+                      }, post.urn)
+                      if (liked) {
+                        totalLikes++
+                        liLog(pid, `Like #${totalLikes}: ${post.author || 'post'} - "${post.postText.slice(0, 60)}..."`, 'success', 'engagement')
+                        await sleep(3000 + Math.random() * 5000) // 3-8s between likes
+                      }
+                    } catch {}
+                  }
+
+                  // Comment on select posts (less frequent, more impactful)
+                  if (totalComments < maxComments && post.hasCommentBtn && post.postText.length > 80) {
+                    // Only comment on ~30% of posts we see (more selective)
+                    if (Math.random() > 0.3) continue
+
+                    try {
+                      // Generate relevant comment with AI
+                      const commentResp = await engAI(
+                        `Sos ${senderName}, ${senderRole} en ${senderCompany}.
+Necesitas escribir un comentario breve y genuino en un post de LinkedIn.
+
+POST de ${post.author}${post.headline ? ` (${post.headline})` : ''}:
+"${post.postText.slice(0, 400)}"
+
+REGLAS:
+- Maximo 150 caracteres
+- Tiene que ser un comentario RELEVANTE al contenido del post
+- NO vendas nada, NO menciones tu empresa
+- Se natural, como un profesional que genuinamente le intereso el tema
+- Puede ser: un insight, una pregunta, compartir experiencia, o simplemente valorar el contenido
+- Español argentino natural, sin emojis excesivos (maximo 1)
+- NO uses frases genericas como "Excelente post!" o "Muy interesante!"
+
+Responde UNICAMENTE con el comentario.`
+                      )
+                      const comment = commentResp.trim().replace(/^["']|["']$/g, '').slice(0, 200)
+                      if (comment.length < 10) continue
+
+                      // Click comment button
+                      const commentOpened = await engPage.evaluate((urn) => {
+                        const postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                        if (!postEl) return false
+                        const commentBtn = postEl.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
+                        if (commentBtn) { commentBtn.click(); return true }
+                        return false
+                      }, post.urn)
+
+                      if (commentOpened) {
+                        await sleep(2000 + Math.random() * 1500)
+                        // Find comment textarea/editor
+                        const commentInput = await engPage.$('.ql-editor[contenteditable="true"], [role="textbox"][contenteditable="true"], .comments-comment-box__form textarea')
+                        if (commentInput) {
+                          await commentInput.click()
+                          await sleep(500)
+                          await commentInput.type(comment, { delay: 25 + Math.random() * 40 })
+                          await sleep(1000 + Math.random() * 1000)
+                          // Click post/submit button for the comment
+                          const submitted = await engPage.evaluate(() => {
+                            const submitBtns = [...document.querySelectorAll('button.comments-comment-box__submit-button, button[type="submit"]')]
+                            const postBtn = submitBtns.find(b => {
+                              const t = (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase()
+                              return t.includes('post') || t.includes('publicar') || t.includes('comentar') || t.includes('submit')
+                            })
+                            if (postBtn && !postBtn.disabled) { postBtn.click(); return true }
+                            return false
+                          })
+                          if (submitted) {
+                            totalComments++
+                            liLog(pid, `Comentario #${totalComments} en post de ${post.author}: "${comment.slice(0, 60)}..."`, 'success', 'engagement')
+                            await sleep(15000 + Math.random() * 15000) // 15-30s between comments
+                          }
+                        }
+                      }
+                    } catch (commentErr) {
+                      liLog(pid, `Error comentando: ${commentErr.message?.slice(0, 60)}`, 'error', 'engagement')
+                    }
+                  }
+                }
+
+                // Scroll down to load more posts
+                await engPage.evaluate(() => window.scrollBy(0, 800 + Math.random() * 600))
+                await sleep(2000 + Math.random() * 3000)
+              }
+
+              liLog(pid, `Engagement completado: ${totalLikes} likes, ${totalComments} comentarios`, 'success', 'engagement')
+            }
+          } catch (engErr) {
+            liLog(pid, `Error en engagement: ${engErr.message?.slice(0, 100)}`, 'error', 'engagement')
+          }
+          await sleep(5000 + Math.random() * 5000)
         }
 
         // Step 3: Search and connect with decision makers

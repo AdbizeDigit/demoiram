@@ -112,6 +112,9 @@ export default function LinkedInPage() {
     connectionNote: 'Hola! Vi tu perfil y me parecio muy interesante. En Adbize trabajamos con IA aplicada a empresas. Me encantaria conectar.',
     dailyConnections: 15,
     dailyPosts: 1,
+    engagementEnabled: true,
+    maxLikes: 15,
+    maxComments: 5,
   })
   const [newTopic, setNewTopic] = useState('')
   const [newRole, setNewRole] = useState('')
@@ -921,6 +924,43 @@ export default function LinkedInPage() {
                         <textarea value={autoConfig.connectionNote} onChange={e => setAutoConfig(c => ({ ...c, connectionNote: e.target.value }))} rows={2}
                           className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 resize-none" placeholder="Template base (la IA lo personaliza por estrategia)" />
                       </div>
+
+                      {/* Engagement Config */}
+                      <div className="bg-white rounded-2xl border border-gray-100 p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2"><Zap className="w-4 h-4 text-amber-500" /> Engagement en Feed</h4>
+                          <button onClick={() => setAutoConfig(c => ({ ...c, engagementEnabled: !c.engagementEnabled }))}
+                            className={`p-1.5 rounded-lg transition-all ${autoConfig.engagementEnabled ? 'text-amber-600 bg-amber-50' : 'text-gray-300 bg-gray-50'}`}>
+                            {autoConfig.engagementEnabled ? <ToggleRight className="w-5 h-5" /> : <ToggleLeft className="w-5 h-5" />}
+                          </button>
+                        </div>
+                        {autoConfig.engagementEnabled && (
+                          <>
+                            <p className="text-[10px] text-gray-400">Antes de conectar, el bot da likes y comenta en el feed para calentar la cuenta y parecer humano.</p>
+                            <div>
+                              <label className="text-[10px] text-gray-500 mb-1 block">Likes por sesion</label>
+                              <div className="flex items-center gap-2">
+                                {[5, 10, 15, 20, 25].map(n => (
+                                  <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxLikes: n }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.maxLikes === n ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-500 mb-1 block">Comentarios por sesion</label>
+                              <div className="flex items-center gap-2">
+                                {[0, 3, 5, 8, 10].map(n => (
+                                  <button key={n} onClick={() => setAutoConfig(c => ({ ...c, maxComments: n }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium ${autoConfig.maxComments === n ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600'}`}>{n}</button>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+                              <p className="text-[10px] text-amber-700">Los comentarios son generados por IA, relevantes al contenido del post. Se aplican delays aleatorios de 3-8s entre likes y 15-30s entre comentarios.</p>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1242,8 +1282,8 @@ export default function LinkedInPage() {
             {(logTab === 'all' ? liLogs : logTab === 'post' ? postLogs : connectionLogs).slice(0, 50).map((log, i) => (
               <div key={i} className="flex items-start gap-2 text-[11px] py-0.5">
                 <span className="text-gray-600 flex-shrink-0 w-16">{new Date(log.time).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                {log.category && <span className={`flex-shrink-0 text-[9px] px-1.5 py-0 rounded ${log.category === 'post' ? 'bg-blue-900/50 text-blue-400' : log.category === 'connection' ? 'bg-purple-900/50 text-purple-400' : 'bg-gray-800 text-gray-500'}`}>
-                  {log.category === 'post' ? 'POST' : log.category === 'connection' ? 'CONN' : 'SYS'}
+                {log.category && <span className={`flex-shrink-0 text-[9px] px-1.5 py-0 rounded ${log.category === 'post' ? 'bg-blue-900/50 text-blue-400' : log.category === 'connection' ? 'bg-purple-900/50 text-purple-400' : log.category === 'engagement' ? 'bg-amber-900/50 text-amber-400' : 'bg-gray-800 text-gray-500'}`}>
+                  {log.category === 'post' ? 'POST' : log.category === 'connection' ? 'CONN' : log.category === 'engagement' ? 'ENG' : 'SYS'}
                 </span>}
                 <span className={`${
                   log.type === 'error' ? 'text-red-400' :
