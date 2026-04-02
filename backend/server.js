@@ -695,10 +695,17 @@ setInterval(async () => {
     const { linkedinBrowser } = await import('./services/linkedin/linkedin-browser-service.js')
     for (const post of rows) {
       try {
-        // Skip if prospecting is running for this profile (don't interfere with browser)
+        // Skip if ANY automation (prospecting/engagement) is running for this profile
         const autoState = liAutoState.get(post.profile_id)
         if (autoState?.running) {
-          console.log(`[Scheduler] Prospecting active for ${post.profile_name}, postponing post`)
+          console.log(`[Scheduler] Automation active for ${post.profile_name}, postponing post`)
+          continue
+        }
+        // Also check if any other profile has automation running (shared browser)
+        let anyRunning = false
+        for (const [, state] of liAutoState) { if (state?.running) { anyRunning = true; break } }
+        if (anyRunning) {
+          console.log(`[Scheduler] Another automation is active, postponing post for ${post.profile_name}`)
           continue
         }
 
