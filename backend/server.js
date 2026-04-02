@@ -1471,31 +1471,103 @@ app.post('/api/linkedin-profiles/:id/engagement/start', async (req, res) => {
         } catch {}
         await sleep(3000 + Math.random() * 2000)
 
+        // Debug: log feed state
+        const feedDebug = await engPage.evaluate(() => {
+          const url = location.href
+          const allBtns = document.querySelectorAll('button')
+          const likeBtns = [...allBtns].filter(b => {
+            const label = (b.getAttribute('aria-label') || '').toLowerCase()
+            return label.includes('like') || label.includes('gusta') || label.includes('react')
+          })
+          const commentBtns = [...allBtns].filter(b => {
+            const label = (b.getAttribute('aria-label') || '').toLowerCase()
+            return label.includes('comment') || label.includes('comentar')
+          })
+          // Try multiple selectors for posts
+          const s1 = document.querySelectorAll('[data-urn]').length
+          const s2 = document.querySelectorAll('.feed-shared-update-v2').length
+          const s3 = document.querySelectorAll('[data-id]').length
+          const s4 = document.querySelectorAll('div[data-urn*="activity"]').length
+          const s5 = document.querySelectorAll('.occludable-update').length
+          const s6 = document.querySelectorAll('[class*="feed"]').length
+          // Try to find post containers by looking for like buttons and walking up
+          const postContainers = likeBtns.slice(0, 3).map(btn => {
+            let el = btn.parentElement
+            for (let i = 0; i < 15 && el; i++) {
+              if (el.getAttribute('data-urn') || el.getAttribute('data-id') || el.classList?.toString()?.includes('update')) return {
+                tag: el.tagName, classes: el.className?.toString()?.slice(0, 80), urn: el.getAttribute('data-urn') || el.getAttribute('data-id') || ''
+              }
+              el = el.parentElement
+            }
+            return null
+          }).filter(Boolean)
+          return { url: url.split('?')[0], likeBtns: likeBtns.length, commentBtns: commentBtns.length, s1, s2, s3, s4, s5, s6, postContainers, totalBtns: allBtns.length }
+        })
+        liLog(pid, `Feed: ${feedDebug.url} likes:${feedDebug.likeBtns} comments:${feedDebug.commentBtns} [urn:${feedDebug.s1} shared:${feedDebug.s2} id:${feedDebug.s3} activity:${feedDebug.s4} occludable:${feedDebug.s5} feed:${feedDebug.s6}]`, 'info', 'engagement')
+        if (feedDebug.postContainers.length > 0) {
+          liLog(pid, `Post containers: ${feedDebug.postContainers.map(c => `${c.tag}[${c.urn?.slice(0,30) || c.classes?.slice(0,40)}]`).join(', ')}`, 'info', 'engagement')
+        }
+
         let totalLikes = 0
         let totalComments = 0
         const processedPosts = new Set()
 
         for (let scroll = 0; scroll < 10 && liAutoState.get(pid)?.running && (totalLikes < maxLikes || totalComments < maxComments); scroll++) {
+          // Find posts using multiple strategies
           const posts = await engPage.evaluate(() => {
-            const postEls = document.querySelectorAll('[data-urn], .feed-shared-update-v2, [data-id]')
             const results = []
-            for (const post of postEls) {
-              const urn = post.getAttribute('data-urn') || post.getAttribute('data-id') || ''
-              if (!urn || urn.includes('SPONSORED')) continue
-              const textEl = post.querySelector('.feed-shared-text, .break-words, [dir="ltr"]')
-              const postText = (textEl?.innerText?.trim() || '').slice(0, 500)
-              if (!postText || postText.length < 30) continue
-              const authorEl = post.querySelector('.feed-shared-actor__name, .update-components-actor__name, a[href*="/in/"] span')
-              const author = authorEl?.innerText?.trim() || ''
-              const headlineEl = post.querySelector('.feed-shared-actor__description, .update-components-actor__description')
-              const headline = headlineEl?.innerText?.trim()?.slice(0, 100) || ''
-              const likeBtn = post.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
-              const alreadyLiked = likeBtn?.getAttribute('aria-pressed') === 'true'
-              const commentBtn = post.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
-              results.push({ urn, postText, author, headline, alreadyLiked, hasLikeBtn: !!likeBtn, hasCommentBtn: !!commentBtn })
+            const seen = new Set()
+
+            // Strategy 1: Find like buttons and walk up to find post container
+            const allBtns = [...document.querySelectorAll('button')]
+            const likeBtns = allBtns.filter(b => {
+              const label = (b.getAttribute('aria-label') || '').toLowerCase()
+              return label.includes('like') || label.includes('gusta') || label.includes('react')
+            })
+
+            for (const likeBtn of likeBtns) {
+              // Walk up to find post container
+              let postEl = likeBtn.parentElement
+              for (let i = 0; i < 15 && postEl; i++) {
+                const urn = postEl.getAttribute('data-urn') || postEl.getAttribute('data-id') || ''
+                const classes = postEl.className?.toString() || ''
+                if (urn || classes.includes('update') || classes.includes('occludable') || classes.includes('feed-shared')) {
+                  if (!seen.has(postEl)) {
+                    seen.add(postEl)
+                    const id = urn || `post-${results.length}`
+                    // Find text content
+                    const textEl = postEl.querySelector('.feed-shared-text, .break-words, [dir="ltr"], .update-components-text')
+                    const postText = (textEl?.innerText?.trim() || '').slice(0, 500)
+                    // Find author
+                    const authorEl = postEl.querySelector('.feed-shared-actor__name, .update-components-actor__name, a[href*="/in/"] span, [class*="actor"] span')
+                    const author = authorEl?.innerText?.trim()?.replace(/\s+/g, ' ') || ''
+                    // Find comment button near the like button
+                    const commentBtn = postEl.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
+                    const alreadyLiked = likeBtn.getAttribute('aria-pressed') === 'true'
+
+                    if (postText.length >= 20) {
+                      results.push({
+                        urn: id,
+                        postText,
+                        author: author.slice(0, 60),
+                        headline: '',
+                        alreadyLiked,
+                        hasLikeBtn: true,
+                        hasCommentBtn: !!commentBtn,
+                      })
+                    }
+                  }
+                  break
+                }
+                postEl = postEl.parentElement
+              }
             }
             return results
           })
+
+          if (scroll === 0 || posts.length > 0) {
+            liLog(pid, `Scroll ${scroll + 1}: ${posts.length} posts encontrados (${posts.filter(p => !p.alreadyLiked).length} sin like)`, 'info', 'engagement')
+          }
 
           for (const post of posts) {
             if (!liAutoState.get(pid)?.running) break
@@ -1505,7 +1577,13 @@ app.post('/api/linkedin-profiles/:id/engagement/start', async (req, res) => {
             if (totalLikes < maxLikes && !post.alreadyLiked && post.hasLikeBtn) {
               try {
                 const liked = await engPage.evaluate((urn) => {
-                  const postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                  // Try to find the specific post by urn/id first
+                  let postEl = document.querySelector(`[data-urn="${urn}"], [data-id="${urn}"]`)
+                  // Fallback: find by post text matching
+                  if (!postEl) {
+                    const allEls = [...document.querySelectorAll('[data-urn], [data-id], .occludable-update, [class*="feed-shared-update"]')]
+                    postEl = allEls.find(el => el.innerText?.includes(urn.slice(0, 40)))
+                  }
                   if (!postEl) return false
                   const likeBtn = postEl.querySelector('button[aria-label*="Like"], button[aria-label*="gusta"], button[aria-label*="React"]')
                   if (likeBtn && likeBtn.getAttribute('aria-pressed') !== 'true') { likeBtn.click(); return true }
