@@ -355,25 +355,11 @@ router.post('/whatsapp/test', async (req, res) => {
 // POST /whatsapp/connect - Start WhatsApp connection (generates QR)
 router.post('/whatsapp/connect', async (req, res) => {
   try {
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
+    const { accountId } = req.body || {};
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
 
-    // Reset retry count for fresh connection
-    whatsappConnection.retryCount = 0;
-
-    // Start connection (async, don't await full connection)
-    whatsappConnection.connect().catch(err => {
-      console.error('[WhatsApp Route] Connection error:', err.message);
-    });
-
-    // Wait up to 15 seconds for QR to appear
-    let status = whatsappConnection.getStatus();
-    for (let i = 0; i < 15; i++) {
-      if (status.qrCode || status.status === 'connected') break;
-      await new Promise(r => setTimeout(r, 1000));
-      status = whatsappConnection.getStatus();
-    }
-
-    res.json({ success: true, ...status });
+    const result = await waManager.connectAccount(accountId || 'main');
+    res.json(result);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -382,8 +368,9 @@ router.post('/whatsapp/connect', async (req, res) => {
 // POST /whatsapp/disconnect - Disconnect and clear session
 router.post('/whatsapp/disconnect', async (req, res) => {
   try {
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const result = await whatsappConnection.disconnect();
+    const { accountId } = req.body || {};
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await waManager.disconnectAccount(accountId || 'main');
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -393,8 +380,9 @@ router.post('/whatsapp/disconnect', async (req, res) => {
 // GET /whatsapp/status - Get connection status + QR
 router.get('/whatsapp/status', async (req, res) => {
   try {
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const status = whatsappConnection.getStatus();
+    const accountId = req.query.accountId || 'main';
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
+    const status = waManager.getStatus(accountId);
     res.json({ success: true, ...status });
   } catch (error) {
     console.error('[WhatsApp Status] Error:', error.message);
@@ -406,8 +394,9 @@ router.get('/whatsapp/status', async (req, res) => {
 // GET /whatsapp/qr - Get QR code image
 router.get('/whatsapp/qr', async (req, res) => {
   try {
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const status = whatsappConnection.getStatus();
+    const accountId = req.query.accountId || 'main';
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
+    const status = waManager.getStatus(accountId);
     if (status.qrCode) {
       res.json({ success: true, qrCode: status.qrCode });
     } else if (status.status === 'connected') {

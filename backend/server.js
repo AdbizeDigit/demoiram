@@ -566,13 +566,22 @@ app.get('/api/whatsapp-accounts', async (req, res) => {
     const { rows } = await pool.query('SELECT id, name, phone, status, daily_limit, messages_today, messages_total, is_active, created_at FROM whatsapp_accounts ORDER BY created_at')
     // Get connection status from WhatsApp service
     try {
-      const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
-      const mainStatus = waConn.connectionStatus
-      const mainPhone = waConn.connectedPhone
+      const { waManager } = await import('./services/outreach/whatsapp-connection-service.js')
+      const mainStatus = waManager.getStatus('main')
       // Add main account as first if not in DB
       const hasMain = rows.some(r => r.name === 'Principal')
       if (!hasMain) {
-        rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainPhone || 'Sin conectar', status: mainStatus, daily_limit: 30, messages_today: 0, messages_total: 0, is_active: true, isMain: true })
+        rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainStatus.phone || 'Sin conectar', status: mainStatus.status, daily_limit: 30, messages_today: 0, messages_total: 0, is_active: true, isMain: true })
+      }
+      // Merge live connection status for secondary accounts
+      for (const row of rows) {
+        if (row.id !== 'main' && !row.isMain) {
+          const accStatus = waManager.getStatus(row.id)
+          if (accStatus.status === 'connected') {
+            row.status = 'connected'
+            row.phone = accStatus.phone || row.phone
+          }
+        }
       }
     } catch {}
     res.json({ success: true, accounts: rows })

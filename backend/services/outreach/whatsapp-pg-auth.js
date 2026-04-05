@@ -6,7 +6,7 @@ const { proto, initAuthCreds } = baileys;
  * PostgreSQL-based auth state for Baileys.
  * Persists WhatsApp session across Dokku deploys.
  */
-export async function usePgAuthState() {
+export async function usePgAuthState(accountId = 'main') {
   // Create table if not exists
   await pool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_auth (
@@ -16,6 +16,11 @@ export async function usePgAuthState() {
     )
   `);
 
+  // Prefix keys with accountId to isolate sessions per account
+  const prefix = accountId === 'main' ? '' : `acc_${accountId}__`;
+
+  const prefixKey = (key) => `${prefix}${key}`;
+
   const writeData = async (key, data) => {
     const value = JSON.stringify(data, baileys.BufferJSON?.replacer || ((k, v) => {
       if (v instanceof Uint8Array || Buffer.isBuffer(v)) return { type: 'Buffer', data: Array.from(v) };
@@ -23,12 +28,12 @@ export async function usePgAuthState() {
     }));
     await pool.query(
       'INSERT INTO whatsapp_auth (key, value, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()',
-      [key, value]
+      [prefixKey(key), value]
     );
   };
 
   const readData = async (key) => {
-    const res = await pool.query('SELECT value FROM whatsapp_auth WHERE key = $1', [key]);
+    const res = await pool.query('SELECT value FROM whatsapp_auth WHERE key = $1', [prefixKey(key)]);
     if (res.rows.length === 0) return null;
     try {
       return JSON.parse(res.rows[0].value, baileys.BufferJSON?.reviver || ((k, v) => {
@@ -41,11 +46,16 @@ export async function usePgAuthState() {
   };
 
   const removeData = async (key) => {
-    await pool.query('DELETE FROM whatsapp_auth WHERE key = $1', [key]);
+    await pool.query('DELETE FROM whatsapp_auth WHERE key = $1', [prefixKey(key)]);
   };
 
   const clearAll = async () => {
-    await pool.query('DELETE FROM whatsapp_auth');
+    if (prefix) {
+      await pool.query("DELETE FROM whatsapp_auth WHERE key LIKE $1", [`${prefix}%`]);
+    } else {
+      // Main account: delete only keys without any acc_ prefix
+      await pool.query("DELETE FROM whatsapp_auth WHERE key NOT LIKE 'acc_%'");
+    }
   };
 
   // Load or create creds

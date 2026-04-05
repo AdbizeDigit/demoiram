@@ -16,6 +16,7 @@ export default function WhatsAppAccountsPage() {
   const [qrCode, setQrCode] = useState(null)
   const [connecting, setConnecting] = useState(null) // account id being connected
   const [qrPolling, setQrPolling] = useState(null)
+  const [connectError, setConnectError] = useState(null)
 
   const load = useCallback(async () => {
     try {
@@ -62,27 +63,39 @@ export default function WhatsAppAccountsPage() {
     if (connecting) return
     setConnecting(accId)
     setQrCode(null)
+    setConnectError(null)
+    // Use 'main' for the main account, otherwise pass the DB account id
+    const accountId = accId === 'main' ? 'main' : accId
     try {
-      const { data } = await api.post('/api/outreach/whatsapp/connect')
+      const { data } = await api.post('/api/outreach/whatsapp/connect', { accountId })
+      console.log('[WA Connect] Response:', data)
+      if (data.error) {
+        setConnectError(data.error)
+        setConnecting(null)
+        return
+      }
       const qr = data.qrCode || data.qr
       if (qr) setQrCode(qr)
-      // Poll for status updates
+      // Poll for status updates for THIS specific account
       const interval = setInterval(async () => {
         try {
-          const res = await api.get('/api/outreach/whatsapp/status')
+          const res = await api.get(`/api/outreach/whatsapp/status?accountId=${accountId}`)
           const s = res.data
           if (s.qrCode) setQrCode(s.qrCode)
           if (s.status === 'connected') {
             clearInterval(interval)
             setConnecting(null)
             setQrCode(null)
+            setConnectError(null)
             load()
           }
         } catch {}
       }, 3000)
       setQrPolling(interval)
       setTimeout(() => { clearInterval(interval); setConnecting(null); setQrCode(null) }, 120000)
-    } catch {
+    } catch (err) {
+      console.error('[WA Connect] Error:', err)
+      setConnectError(err.response?.data?.error || err.message || 'Error de conexion')
       setConnecting(null)
     }
   }
@@ -260,6 +273,16 @@ export default function WhatsAppAccountsPage() {
                 <div className="mt-4 pt-4 border-t border-gray-100 flex items-center gap-3">
                   <Loader2 className="w-5 h-5 animate-spin text-green-500" />
                   <p className="text-sm text-gray-500">Generando codigo QR...</p>
+                </div>
+              )}
+              {!connecting && connectError && (
+                <div className="mt-4 pt-4 border-t border-red-100 flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-red-500" />
+                  <div>
+                    <p className="text-sm text-red-600 font-medium">Error al conectar</p>
+                    <p className="text-xs text-red-400">{connectError}</p>
+                  </div>
+                  <button onClick={() => setConnectError(null)} className="ml-auto text-xs text-gray-400 hover:text-gray-600">Cerrar</button>
                 </div>
               )}
             </div>

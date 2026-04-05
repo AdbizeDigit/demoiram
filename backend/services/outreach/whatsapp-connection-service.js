@@ -20,21 +20,23 @@ class WhatsAppConnectionService extends EventEmitter {
     this.jidToLead = new Map();   // maps WhatsApp JID → lead_id for matching replies
     this.retryCount = 0;
     this.maxRetries = 5;
+    this.accountId = 'main';
   }
 
-  async connect() {
+  async connect(accountId = 'main') {
     if (this.connectionStatus === 'connected') {
       return { status: 'already_connected', phone: this.connectedPhone };
     }
 
+    this.accountId = accountId;
     this.connectionStatus = 'connecting';
     this.emit('status', { status: 'connecting' });
 
     try {
       // Use PostgreSQL auth state (persists across Dokku deploys)
-      const { state, saveCreds, clearAll } = await usePgAuthState();
+      const { state, saveCreds, clearAll } = await usePgAuthState(accountId);
       this._clearAuth = clearAll;
-      const logger = pino({ level: 'silent' });
+      const logger = pino({ level: accountId !== 'main' ? 'warn' : 'silent' });
 
       // Fetch latest version to avoid 405 errors
       let version;
@@ -47,6 +49,7 @@ class WhatsAppConnectionService extends EventEmitter {
         console.log('[WhatsApp] Using fallback version');
       }
 
+      console.log(`[WhatsApp:${accountId}] Creating socket with version ${version}, hasCreds=${!!state.creds?.me}`);
       this.socket = makeWASocket({
         version,
         auth: {
@@ -85,18 +88,26 @@ class WhatsAppConnectionService extends EventEmitter {
           const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
           const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
-          console.log('[WhatsApp] Connection closed. Status:', statusCode);
+          console.log(`[WhatsApp${this.accountId !== 'main' ? ':' + this.accountId : ''}] Connection closed. Status:`, statusCode);
           this.connectionStatus = 'disconnected';
           this.connectedPhone = null;
           this.connectedName = null;
           this.qrCode = null;
           this.emit('status', { status: 'disconnected', reason: statusCode });
 
-          if (shouldReconnect) {
+          // Update DB status for non-main accounts
+          if (this.accountId && this.accountId !== 'main') {
+            try {
+              const { pool } = await import('../../config/database.js');
+              await pool.query("UPDATE whatsapp_accounts SET status = 'disconnected' WHERE id = $1", [this.accountId]);
+            } catch {}
+          }
+
+          if (shouldReconnect && this.retryCount < this.maxRetries) {
             this.retryCount++;
             const waitTime = Math.min(5000 * this.retryCount, 60000); // Max 60s between retries
-            console.log(`[WhatsApp] Reconnecting in ${waitTime/1000}s... attempt ${this.retryCount}`);
-            setTimeout(() => this.connect(), waitTime);
+            console.log(`[WhatsApp:${this.accountId}] Reconnecting in ${waitTime/1000}s... attempt ${this.retryCount}/${this.maxRetries}`);
+            setTimeout(() => this.connect(this.accountId), waitTime);
           } else if (statusCode === DisconnectReason.loggedOut) {
             console.log('[WhatsApp] Logged out. Need to re-scan QR.');
             // Clear auth from DB to force new QR
@@ -125,6 +136,17 @@ class WhatsAppConnectionService extends EventEmitter {
             phone: this.connectedPhone,
             name: this.connectedName
           });
+
+          // Update account record in DB with phone and connected status
+          if (this.accountId && this.accountId !== 'main') {
+            try {
+              const { pool } = await import('../../config/database.js');
+              await pool.query(
+                "UPDATE whatsapp_accounts SET status = 'connected', phone = $1 WHERE id = $2",
+                [this.connectedPhone, this.accountId]
+              );
+            } catch {}
+          }
         }
       });
 
@@ -511,6 +533,91 @@ Responde SOLO JSON: {"message":"texto"}`
   }
 }
 
-// Singleton
+// Singleton for main account (backward compatible)
 export const whatsappConnection = new WhatsAppConnectionService();
+
+// Multi-account manager
+class WhatsAppMultiAccountManager {
+  constructor() {
+    this.connections = new Map(); // accountId -> WhatsAppConnectionService
+    // Register main connection
+    this.connections.set('main', whatsappConnection);
+  }
+
+  getConnection(accountId) {
+    if (!accountId || accountId === 'main') return whatsappConnection;
+    return this.connections.get(accountId) || null;
+  }
+
+  getOrCreateConnection(accountId) {
+    if (!accountId || accountId === 'main') return whatsappConnection;
+    let conn = this.connections.get(accountId);
+    if (!conn) {
+      conn = new WhatsAppConnectionService();
+      conn.accountId = accountId;
+      this.connections.set(accountId, conn);
+    }
+    return conn;
+  }
+
+  async connectAccount(accountId) {
+    const conn = this.getOrCreateConnection(accountId);
+    conn.retryCount = 0;
+    let connectError = null;
+    conn.connect(accountId).catch(err => {
+      console.error(`[WhatsApp:${accountId}] Connection error:`, err.message);
+      connectError = err.message;
+    });
+
+    // Wait up to 20 seconds for QR to appear
+    let status = conn.getStatus();
+    for (let i = 0; i < 20; i++) {
+      if (status.qrCode || status.status === 'connected') break;
+      // If it went back to disconnected after trying, stop waiting
+      if (i > 2 && status.status === 'disconnected') break;
+      if (connectError) break;
+      await new Promise(r => setTimeout(r, 1000));
+      status = conn.getStatus();
+    }
+    console.log(`[WhatsApp:${accountId}] connectAccount result: status=${status.status}, hasQR=${!!status.qrCode}, error=${connectError}`);
+    return { success: !connectError, accountId, error: connectError, ...status };
+  }
+
+  getStatus(accountId) {
+    const conn = this.getConnection(accountId);
+    if (!conn) return { status: 'disconnected', phone: null, name: null, qrCode: null, messageCount: 0 };
+    return conn.getStatus();
+  }
+
+  async disconnectAccount(accountId) {
+    const conn = this.getConnection(accountId);
+    if (!conn) return { status: 'disconnected' };
+    const result = await conn.disconnect();
+    // Update DB for non-main
+    if (accountId && accountId !== 'main') {
+      try {
+        const { pool } = await import('../../config/database.js');
+        await pool.query("UPDATE whatsapp_accounts SET status = 'disconnected' WHERE id = $1", [accountId]);
+      } catch {}
+    }
+    return result;
+  }
+
+  // Get any connected instance that can send messages
+  getConnectedInstance(accountId) {
+    if (accountId) {
+      const conn = this.getConnection(accountId);
+      if (conn && conn.connectionStatus === 'connected') return conn;
+    }
+    // Fallback to main
+    if (whatsappConnection.connectionStatus === 'connected') return whatsappConnection;
+    // Try any connected one
+    for (const [, conn] of this.connections) {
+      if (conn.connectionStatus === 'connected') return conn;
+    }
+    return null;
+  }
+}
+
+export const waManager = new WhatsAppMultiAccountManager();
 export default whatsappConnection;
