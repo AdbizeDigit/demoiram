@@ -569,8 +569,16 @@ app.get('/api/whatsapp-accounts', async (req, res) => {
       const { waManager } = await import('./services/outreach/whatsapp-connection-service.js')
       const mainStatus = waManager.getStatus('main')
       // Add main account as first if not in DB
-      const hasMain = rows.some(r => r.name === 'Principal')
-      if (!hasMain) {
+      const hasMain = rows.some(r => r.name === 'Principal' || r.name?.startsWith('Principal'))
+      if (hasMain) {
+        // Merge live status into existing Principal row
+        const mainRow = rows.find(r => r.name === 'Principal' || r.name?.startsWith('Principal'))
+        if (mainRow) {
+          mainRow.isMain = true
+          mainRow.status = mainStatus.status || mainRow.status
+          mainRow.phone = mainStatus.phone || mainRow.phone
+        }
+      } else {
         rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainStatus.phone || 'Sin conectar', status: mainStatus.status, daily_limit: 30, messages_today: 0, messages_total: 0, is_active: true, isMain: true })
       }
       // Merge live connection status for secondary accounts
@@ -604,6 +612,19 @@ app.put('/api/whatsapp-accounts/:id', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
     const { name, daily_limit, is_active } = req.body
+    if (req.params.id === 'main') {
+      // Main account is virtual - store settings in a config row or just acknowledge
+      // Upsert into whatsapp_accounts with a known 'main' name
+      const existing = await pool.query("SELECT id FROM whatsapp_accounts WHERE name = 'Principal' OR name LIKE 'Principal%' LIMIT 1")
+      if (existing.rows[0]) {
+        await pool.query('UPDATE whatsapp_accounts SET name=$1, daily_limit=$2, is_active=$3 WHERE id=$4',
+          [name || 'Principal', daily_limit || 30, is_active !== false, existing.rows[0].id])
+      } else {
+        await pool.query('INSERT INTO whatsapp_accounts (name, daily_limit, is_active) VALUES ($1, $2, $3)',
+          [name || 'Principal', daily_limit || 30, is_active !== false])
+      }
+      return res.json({ success: true })
+    }
     await pool.query('UPDATE whatsapp_accounts SET name=$1, daily_limit=$2, is_active=$3 WHERE id=$4',
       [name, daily_limit || 100, is_active !== false, req.params.id])
     res.json({ success: true })
