@@ -2659,8 +2659,41 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
 
       // Navigate to connections page and collect profiles
       liLog(pid, 'Navegando a pagina de conexiones...', 'info', 'connection')
-      await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
-      await sleep(3000 + Math.random() * 2000)
+      await page.goto('https://www.linkedin.com/mynetwork/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+      await sleep(3000 + Math.random() * 1000)
+
+      // Try to find and click "Connections" / "Conexiones" link
+      const connLinkClicked = await page.evaluate(() => {
+        const links = [...document.querySelectorAll('a')]
+        const connLink = links.find(a => {
+          const t = (a.innerText?.trim() || '').toLowerCase()
+          const href = (a.href || '').toLowerCase()
+          return href.includes('connections') || t.includes('connections') || t.includes('conexiones')
+        })
+        if (connLink) { connLink.click(); return connLink.href }
+        return null
+      })
+
+      if (connLinkClicked) {
+        liLog(pid, `Click en link de conexiones: ${connLinkClicked}`, 'info', 'connection')
+        await sleep(3000 + Math.random() * 2000)
+      } else {
+        // Try direct URL variants
+        liLog(pid, 'No se encontro link, probando URL directa...', 'info', 'connection')
+        await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+        await sleep(3000)
+      }
+
+      // Debug: log current URL and page content
+      const currentUrl = await page.url()
+      const pageDebug = await page.evaluate(() => {
+        const allLinks = [...document.querySelectorAll('a[href*="/in/"]')].length
+        const h1 = document.querySelector('h1')?.innerText?.trim() || ''
+        const cards = document.querySelectorAll('li').length
+        const body = document.body?.innerText?.slice(0, 500) || ''
+        return { allLinks, h1, cards, bodyPreview: body }
+      })
+      liLog(pid, `URL: ${currentUrl}, links /in/: ${pageDebug.allLinks}, h1: "${pageDebug.h1}", lis: ${pageDebug.cards}`, 'info', 'connection')
 
       // Scroll to load more connections
       for (let i = 0; i < 5; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
