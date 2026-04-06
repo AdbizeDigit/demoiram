@@ -2366,35 +2366,57 @@ Responde UNICAMENTE con el mensaje.`
                     continue
                   }
 
-                  // Handle connect modal: deterministic approach first, LLM as fallback
-                  await sleep(2500 + Math.random() * 1500)
+                  // Handle connect modal: deterministic approach
+                  await sleep(3000 + Math.random() * 2000)
                   let noteSent = false
 
-                  // Step 1: Check if a dialog/modal appeared
+                  // Step 1: Check modal state - search broadly in entire page for modal elements
                   const modalState = await page.evaluate(() => {
-                    const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
-                    if (!dialog) return { hasModal: false }
-                    const text = (dialog.innerText || '').toLowerCase()
-                    const hasTextarea = !!dialog.querySelector('textarea')
-                    const buttons = [...dialog.querySelectorAll('button')].map(b => ({
-                      text: (b.innerText?.trim() || '').toLowerCase(),
-                      ariaLabel: (b.getAttribute('aria-label') || '').toLowerCase(),
-                    }))
-                    const isVerification = text.includes('email') && (text.includes('verify') || text.includes('verificar'))
-                    const isHowKnow = text.includes('how do you know') || text.includes('como conoces')
-                    return { hasModal: true, hasTextarea, buttons, isVerification, isHowKnow, textPreview: text.slice(0, 300) }
+                    // Find modal using multiple strategies
+                    const modalSelectors = '[role="dialog"], .artdeco-modal, [class*="send-invite"], [class*="artdeco-modal"], [data-test-modal]'
+                    const dialog = document.querySelector(modalSelectors)
+                    // Also check for any overlay/modal by looking for visible overlays
+                    const overlay = document.querySelector('.artdeco-modal-overlay, [class*="modal-overlay"], [class*="overlay--visible"]')
+                    const modalRoot = dialog || (overlay ? overlay.querySelector('[role="document"], [role="dialog"], div > div') : null)
+
+                    if (!modalRoot && !dialog && !overlay) return { hasModal: false }
+
+                    // Search for buttons ANYWHERE on the page that are in a modal context
+                    const searchRoot = modalRoot || dialog || overlay || document
+                    const allBtns = [...searchRoot.querySelectorAll('button, [role="button"], a[role="button"]')]
+                    // Also get ALL visible buttons on page as fallback
+                    const pageBtns = [...document.querySelectorAll('button, [role="button"]')]
+                      .filter(b => b.offsetWidth > 0 && b.offsetHeight > 0)
+
+                    const buttons = [...new Set([...allBtns, ...pageBtns])].map(b => {
+                      const t = (b.innerText?.trim() || '').toLowerCase()
+                      const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                      return { text: t.slice(0, 60), ariaLabel: label.slice(0, 60) }
+                    }).filter(b => b.text || b.ariaLabel)
+
+                    const hasTextarea = !!(document.querySelector('[role="dialog"] textarea, .artdeco-modal textarea, textarea[name*="message"], textarea[id*="message"]'))
+                    const fullText = (searchRoot.innerText || document.querySelector('[role="dialog"]')?.innerText || '').toLowerCase()
+                    const isVerification = fullText.includes('email') && (fullText.includes('verify') || fullText.includes('verificar'))
+                    const isHowKnow = fullText.includes('how do you know') || fullText.includes('como conoces')
+
+                    // Debug: get modal HTML structure
+                    const modalHtml = (dialog || overlay || document.querySelector('[role="dialog"]'))?.innerHTML?.slice(0, 500) || 'no-modal-html'
+
+                    return { hasModal: true, hasTextarea, buttons, isVerification, isHowKnow, textPreview: fullText.slice(0, 300), modalHtml }
                   })
 
-                  liLog(pid, `Modal: ${modalState.hasModal ? 'SI' : 'NO'}, textarea: ${modalState.hasTextarea}, btns: ${modalState.buttons?.map(b => b.text).join('|') || 'none'}`, 'info', 'connection')
+                  const btnSummary = modalState.buttons?.slice(0, 10).map(b => b.text || b.ariaLabel).join(' | ') || 'none'
+                  liLog(pid, `Modal: ${modalState.hasModal ? 'SI' : 'NO'}, textarea: ${modalState.hasTextarea}, btns(${modalState.buttons?.length || 0}): ${btnSummary}`, 'info', 'connection')
+                  if (modalState.hasModal) {
+                    liLog(pid, `Modal text: ${(modalState.textPreview || '').slice(0, 150)}`, 'info', 'connection')
+                  }
 
                   if (!modalState.hasModal) {
-                    // Maybe it was sent directly or no modal appeared
-                    liLog(pid, `No aparecio modal para ${actualName}, verificando...`, 'info', 'connection')
-                    await sleep(1500)
-                    // Check again after a short wait
-                    const retryModal = await page.$('[role="dialog"], .artdeco-modal')
+                    liLog(pid, `No aparecio modal para ${actualName}, esperando mas...`, 'info', 'connection')
+                    await sleep(3000)
+                    const retryModal = await page.$('[role="dialog"], .artdeco-modal, [class*="artdeco-modal"]')
                     if (!retryModal) {
-                      liLog(pid, `Sin modal - posible envio directo o error`, 'info', 'connection')
+                      liLog(pid, `Sin modal despues de espera extra`, 'info', 'connection')
                       continue
                     }
                   }
@@ -2409,66 +2431,79 @@ Responde UNICAMENTE con el mensaje.`
                     continue
                   }
 
-                  // Step 2: Try to click "Add a note" button (deterministic - check multiple text variations)
-                  const addNoteTexts = ['add a note', 'agregar nota', 'add note', 'añadir nota', 'personalizar invitacion']
+                  // Step 2: Try to click "Add a note" button - search entire page, not just modal
+                  const addNoteTexts = ['add a note', 'agregar nota', 'add note', 'añadir nota', 'personalizar']
                   if (!modalState.hasTextarea) {
-                    const addNoteClicked = await page.evaluate((texts) => {
-                      const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
-                      if (!dialog) return false
-                      const btns = [...dialog.querySelectorAll('button, [role="button"], a')]
-                      for (const btn of btns) {
-                        const btnText = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
-                        if (texts.some(t => btnText.includes(t))) {
+                    const addNoteResult = await page.evaluate((texts) => {
+                      // Search ALL visible buttons on the page
+                      const allBtns = [...document.querySelectorAll('button, [role="button"], a')]
+                        .filter(b => b.offsetWidth > 0 && b.offsetHeight > 0)
+                      for (const btn of allBtns) {
+                        const btnText = (btn.innerText?.trim() || '').toLowerCase()
+                        const ariaLabel = (btn.getAttribute('aria-label') || '').toLowerCase()
+                        const combined = btnText + ' ' + ariaLabel
+                        if (texts.some(t => combined.includes(t))) {
                           btn.click()
-                          return true
+                          return { clicked: true, text: btnText }
                         }
                       }
-                      return false
+                      // Debug: list all button texts
+                      const debug = allBtns.slice(0, 15).map(b => (b.innerText?.trim() || '').slice(0, 30)).join(' | ')
+                      return { clicked: false, debug }
                     }, addNoteTexts)
 
-                    if (addNoteClicked) {
-                      liLog(pid, `Click en "Add a note"`, 'info', 'connection')
-                      await sleep(1500 + Math.random() * 1000)
+                    if (addNoteResult.clicked) {
+                      liLog(pid, `Click en "Add a note" (${addNoteResult.text})`, 'info', 'connection')
+                      await sleep(2000 + Math.random() * 1000)
                     } else {
-                      liLog(pid, `No se encontro boton "Add a note", buscando textarea...`, 'info', 'connection')
+                      liLog(pid, `No "Add a note" btn. Visibles: ${addNoteResult.debug}`, 'info', 'connection')
                     }
                   }
 
-                  // Step 3: Find and fill textarea with the AI note
-                  let textarea = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, [class*="send-invite"] textarea')
+                  // Step 3: Find and fill textarea - search broadly
+                  let textarea = await page.$('[role="dialog"] textarea, .artdeco-modal textarea')
+                  if (!textarea) textarea = await page.$('textarea[name*="message"], textarea[id*="invite"], textarea[id*="note"]')
                   if (!textarea) {
-                    await sleep(1000)
+                    await sleep(1500)
                     textarea = await page.$('textarea')
                   }
                   if (textarea && aiNote) {
-                    await textarea.click({ clickCount: 3 }) // select all existing text
+                    await textarea.click({ clickCount: 3 })
                     await sleep(300)
                     await textarea.type(aiNote, { delay: 20 + Math.random() * 35 })
                     await sleep(800 + Math.random() * 500)
                     liLog(pid, `Nota escrita: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
                   } else {
-                    liLog(pid, `No se encontro textarea para nota`, 'info', 'connection')
+                    liLog(pid, `No textarea encontrado en pagina`, 'info', 'connection')
                   }
 
-                  // Step 4: Click Send button (prefer "Send" over "Send without a note")
+                  // Step 4: Click Send button - search entire page
                   const sendTexts = ['send', 'enviar']
                   const skipTexts = ['without', 'sin nota', 'sin un']
                   const sendClicked = await page.evaluate((sendT, skipT) => {
-                    const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
-                    const container = dialog || document
-                    const btns = [...container.querySelectorAll('button, [role="button"]')]
-                    // First try: find "Send" that is NOT "Send without a note"
-                    for (const btn of btns) {
-                      const t = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
-                      if (sendT.some(s => t.includes(s)) && !skipT.some(s => t.includes(s)) && btn.offsetWidth > 0) {
+                    const allBtns = [...document.querySelectorAll('button, [role="button"]')]
+                      .filter(b => b.offsetWidth > 0 && b.offsetHeight > 0)
+                    // First try: "Send" NOT "Send without a note" — prefer buttons inside dialog
+                    const dialogBtns = [...document.querySelectorAll('[role="dialog"] button, .artdeco-modal button, [class*="artdeco-modal"] button')]
+                      .filter(b => b.offsetWidth > 0)
+                    const searchOrder = [...dialogBtns, ...allBtns]
+                    const seen = new Set()
+                    for (const btn of searchOrder) {
+                      if (seen.has(btn)) continue
+                      seen.add(btn)
+                      const t = (btn.innerText?.trim() || '').toLowerCase()
+                      const label = (btn.getAttribute('aria-label') || '').toLowerCase()
+                      const combined = t + ' ' + label
+                      if (sendT.some(s => combined.includes(s)) && !skipT.some(s => combined.includes(s))) {
                         btn.click()
                         return 'send'
                       }
                     }
                     // Fallback: any send button
-                    for (const btn of btns) {
-                      const t = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
-                      if (sendT.some(s => t.includes(s)) && btn.offsetWidth > 0) {
+                    for (const btn of searchOrder) {
+                      const t = (btn.innerText?.trim() || '').toLowerCase()
+                      const label = (btn.getAttribute('aria-label') || '').toLowerCase()
+                      if (sendT.some(s => t.includes(s) || label.includes(s))) {
                         btn.click()
                         return 'send_fallback'
                       }
