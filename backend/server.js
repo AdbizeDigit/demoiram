@@ -2657,46 +2657,57 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       const senderName = p?.avatar_name || p?.name || 'profesional'
       const senderCompany = p?.avatar_company || 'Adbize'
 
-      // Navigate to connections/followers page
-      liLog(pid, 'Navegando a pagina de conexiones...', 'info', 'connection')
-      await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
-      await sleep(4000 + Math.random() * 2000)
-
-      // Scroll to load more connections
-      for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
-
-      // LinkedIn uses "Mostrar más acciones" buttons (one per contact card)
-      // Click each one to open dropdown, then click "Enviar mensaje" inside
-      const connections = await page.evaluate(() => {
-        // Find all action buttons that repeat (one per card)
-        const actionBtns = [...document.querySelectorAll('button')]
-          .filter(b => {
-            const label = (b.getAttribute('aria-label') || '').toLowerCase()
-            return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
-          })
-        return actionBtns.map((btn, idx) => {
-          const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
-          const link = card ? card.querySelector('a[href*="/in/"]') : null
-          const url = link ? (link.href || '').split('?')[0].replace(/\/$/, '') : ''
-          const slug = url.match(/\/in\/([^/]+)/)?.[1] || ''
-          const allText = card ? card.innerText || '' : ''
-          const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde|mostrar más)/i))
-          return { idx, name: (lines[0] || '').slice(0, 80), headline: (lines[1] || '').slice(0, 150), url, slug }
-        }).filter(c => c.name)
-      })
-
-      liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
-      if (connections.length > 0) liLog(pid, `Ejemplo: ${connections[0].name} - ${connections[0].headline?.slice(0, 50)}`, 'info', 'connection')
-      if (connections.length === 0) { liLog(pid, 'No se encontraron conexiones', 'error', 'connection'); return }
-
-      // Check DB for already messaged connections
+      // Get already messaged connections from DB
       const alreadyMessaged = await pool.query(
         "SELECT linkedin_url FROM linkedin_connections WHERE profile_id = $1 AND followup_sent = true", [pid]
       )
       const messagedSlugs = new Set(alreadyMessaged.rows.map(r => (r.linkedin_url || '').match(/\/in\/([^/]+)/)?.[1]?.toLowerCase()).filter(Boolean))
+      liLog(pid, `${messagedSlugs.size} conexiones ya contactadas en DB`, 'info', 'connection')
 
-      const toMessage = connections.filter(c => !c.slug || !messagedSlugs.has(c.slug.toLowerCase()))
-      liLog(pid, `${toMessage.length} sin mensaje (${messagedSlugs.size} ya contactadas)`, 'info', 'connection')
+      // Function to extract connections from current page
+      const extractConnections = async () => {
+        await sleep(2000)
+        for (let i = 0; i < 5; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1200) }
+        return page.evaluate(() => {
+          const actionBtns = [...document.querySelectorAll('button')]
+            .filter(b => {
+              const label = (b.getAttribute('aria-label') || '').toLowerCase()
+              return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
+            })
+          return actionBtns.map((btn, idx) => {
+            const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
+            const link = card ? card.querySelector('a[href*="/in/"]') : null
+            const url = link ? (link.href || '').split('?')[0].replace(/\/$/, '') : ''
+            const slug = url.match(/\/in\/([^/]+)/)?.[1] || ''
+            const allText = card ? card.innerText || '' : ''
+            const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde|mostrar más)/i))
+            return { idx, name: (lines[0] || '').slice(0, 80), headline: (lines[1] || '').slice(0, 150), url, slug }
+          }).filter(c => c.name && c.slug)
+        })
+      }
+
+      // Iterate through alphabet letters to search all connections
+      const letters = 'abcdefghijklmnopqrstuvwxyz'.split('')
+      let totalFound = 0
+      const allConnections = []
+
+      for (const letter of letters) {
+        if (sent >= maxMessages) break
+
+        // Navigate to connections page with search
+        liLog(pid, `Buscando conexiones con "${letter}"...`, 'info', 'connection')
+        await page.goto(`https://www.linkedin.com/mynetwork/invite-connect/connections/?search=${letter}`, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+        await sleep(3000 + Math.random() * 1500)
+
+        const connections = await extractConnections()
+        const newConns = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()) && !allConnections.find(a => a.slug === c.slug))
+
+        if (newConns.length === 0) continue
+        totalFound += newConns.length
+        allConnections.push(...newConns)
+        liLog(pid, `Letra "${letter}": ${connections.length} resultados, ${newConns.length} sin mensaje`, 'info', 'connection')
+
+        const toMessage = newConns.slice(0, maxMessages - sent)
 
       let sent = 0
       const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
@@ -2801,7 +2812,9 @@ Responde UNICAMENTE con el mensaje.`
         }
       }
 
-      liLog(pid, `Completado: ${sent} mensajes enviados de ${Math.min(toMessage.length, maxMessages)} pendientes`, 'success', 'connection')
+      } // end letter loop
+
+      liLog(pid, `Completado: ${sent} mensajes enviados, ${totalFound} conexiones sin mensaje encontradas en total`, 'success', 'connection')
     } catch (err) { liLog(pid, `Error en follow-up: ${err.message?.slice(0, 80)}`, 'error', 'connection') }
   })()
 })
