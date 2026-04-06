@@ -2665,230 +2665,145 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       // Scroll to load more connections
       for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
 
-      // Debug: dump all /in/ links to understand the page structure
-      const debugLinks = await page.evaluate(() => {
-        const all = [...document.querySelectorAll('a[href*="/in/"]')]
-        return all.slice(0, 5).map(a => ({
-          href: a.href?.slice(0, 100),
-          text: (a.innerText?.trim() || '').slice(0, 40),
-          visible: a.getBoundingClientRect().width > 0,
-          parentTag: a.parentElement?.tagName,
-          parentClass: (a.parentElement?.className || '').slice(0, 60),
-        }))
-      })
-      liLog(pid, `Debug links: ${JSON.stringify(debugLinks).slice(0, 400)}`, 'info', 'connection')
-
-      // Extract ALL profile links - group by slug, merge name/headline
+      // Find all "Enviar mensaje" buttons on the connections page and extract info
       const connections = await page.evaluate(() => {
-        const links = [...document.querySelectorAll('a[href*="/in/"]')]
-        const profileMap = new Map() // slug -> { url, name, headline }
-
-        for (const a of links) {
-          const fullHref = a.href || ''
-          const match = fullHref.match(/linkedin\.com\/in\/([^/?#]+)/)
-          if (!match) continue
-          const slug = match[1]
-          const url = `https://www.linkedin.com/in/${slug}`
-
-          // Get text from this link (may be empty for photo links)
-          const linkText = (a.innerText?.trim() || '').replace(/\s+/g, ' ')
-
-          if (!profileMap.has(slug)) {
-            profileMap.set(slug, { url, slug, name: '', headline: '' })
-          }
-
-          const entry = profileMap.get(slug)
-
-          // Extract name: first non-empty link text for this slug
-          if (!entry.name && linkText.length > 1) {
-            entry.name = linkText.split('\n')[0]?.trim()?.replace(/\s+/g, ' ') || ''
-            // Rest might be headline
-            const parts = linkText.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-            if (parts.length > 1) entry.headline = parts[1]
-          }
-
-          // Also try to get info from parent card
-          if (!entry.headline) {
-            const card = a.closest('li') || a.closest('[class*="card"]') || a.parentElement?.parentElement?.parentElement
-            if (card) {
-              const allText = card.innerText || ''
-              const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 5 && l.length < 150)
-              // Name is usually first meaningful line, headline is second
-              if (!entry.name && lines[0]) entry.name = lines[0]
-              if (lines[1] && lines[1] !== entry.name) entry.headline = lines[1]
-            }
-          }
-        }
-
-        return [...profileMap.values()].filter(c => c.name.length > 0)
+        const msgButtons = [...document.querySelectorAll('button')]
+          .filter(b => {
+            const t = (b.innerText?.trim() || '').toLowerCase()
+            return (t === 'enviar mensaje' || t === 'message' || t === 'send message') && b.offsetWidth > 0
+          })
+        return msgButtons.map((btn, idx) => {
+          const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
+          const link = card ? card.querySelector('a[href*="/in/"]') : null
+          const url = link ? (link.href || '').split('?')[0].replace(/\/$/, '') : ''
+          const slug = url.match(/\/in\/([^/]+)/)?.[1] || ''
+          const allText = card ? card.innerText || '' : ''
+          const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde)/i))
+          return { idx, name: (lines[0] || '').slice(0, 80), headline: (lines[1] || '').slice(0, 150), url, slug }
+        }).filter(c => c.name)
       })
 
-      liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
-      if (connections.length > 0) {
-        liLog(pid, `Ejemplo: ${connections[0].name} - ${connections[0].headline?.slice(0, 50)} (${connections[0].slug})`, 'info', 'connection')
-      }
+      liLog(pid, `Encontradas ${connections.length} conexiones con boton "Enviar mensaje"`, 'info', 'connection')
+      if (connections.length > 0) liLog(pid, `Ejemplo: ${connections[0].name} - ${connections[0].headline?.slice(0, 50)}`, 'info', 'connection')
+      if (connections.length === 0) { liLog(pid, 'No se encontraron botones "Enviar mensaje"', 'error', 'connection'); return }
 
-      liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
-      if (connections.length === 0) { liLog(pid, 'No se encontraron conexiones', 'error', 'connection'); return }
-
-      // Check which ones already have a message sent (from our DB)
+      // Check DB for already messaged connections
       const alreadyMessaged = await pool.query(
-        "SELECT linkedin_url FROM linkedin_connections WHERE profile_id = $1 AND followup_sent = true",
-        [pid]
+        "SELECT linkedin_url FROM linkedin_connections WHERE profile_id = $1 AND followup_sent = true", [pid]
       )
-      const messagedSlugs = new Set(alreadyMessaged.rows.map(r => r.linkedin_url.match(/\/in\/([^/]+)/)?.[1]?.toLowerCase()).filter(Boolean))
+      const messagedSlugs = new Set(alreadyMessaged.rows.map(r => (r.linkedin_url || '').match(/\/in\/([^/]+)/)?.[1]?.toLowerCase()).filter(Boolean))
 
-      const toMessage = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()))
-      liLog(pid, `${toMessage.length} conexiones sin mensaje (${messagedSlugs.size} ya contactadas)`, 'info', 'connection')
+      const toMessage = connections.filter(c => !c.slug || !messagedSlugs.has(c.slug.toLowerCase()))
+      liLog(pid, `${toMessage.length} sin mensaje (${messagedSlugs.size} ya contactadas)`, 'info', 'connection')
 
       let sent = 0
       const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
 
       for (const conn of toMessage) {
         if (sent >= maxMessages) break
-
         try {
-          liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] Visitando ${conn.name} (${conn.slug})...`, 'info', 'connection')
+          liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] ${conn.name}...`, 'info', 'connection')
 
-          // Visit the profile
-          await page.goto(conn.url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-          // Wait for profile to render
-          try {
-            await page.waitForFunction(
-              () => { const h1 = document.querySelector('h1'); return h1 && h1.innerText.trim().length > 0 },
-              { timeout: 10000 }
-            )
-          } catch { await sleep(4000) }
-          await sleep(1500 + Math.random() * 1000)
+          // Click the "Enviar mensaje" button directly on the connections page (by index)
+          const clicked = await page.evaluate((targetIdx) => {
+            const msgButtons = [...document.querySelectorAll('button')]
+              .filter(b => {
+                const t = (b.innerText?.trim() || '').toLowerCase()
+                return (t === 'enviar mensaje' || t === 'message' || t === 'send message') && b.offsetWidth > 0
+              })
+            if (msgButtons[targetIdx]) { msgButtons[targetIdx].click(); return true }
+            return false
+          }, conn.idx)
 
-          // Verify we're on the right page
-          const navUrl = await page.url()
-          const profileInfo = await page.evaluate(() => {
-            const h1 = document.querySelector('h1')?.innerText?.trim() || ''
-            const headline = document.querySelector('.text-body-medium, [data-generated-suggestion-target]')?.innerText?.trim() || ''
-            const company = headline.match(/(?:en|at|@)\s+(.+?)(?:\s*\||$)/i)?.[1]?.trim() || ''
-            // Debug: list visible buttons in main area
-            const mainBtns = [...document.querySelectorAll('main button, .pv-top-card button, section button')]
-              .filter(b => b.offsetWidth > 0)
-              .slice(0, 8)
-              .map(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 25))
-            return { name: h1, headline, company, mainBtns }
-          })
-
-          const actualName = profileInfo.name || conn.name
-          const actualHeadline = profileInfo.headline || conn.headline
-          liLog(pid, `Perfil: ${actualName}, btns: ${profileInfo.mainBtns.join(' | ')}`, 'info', 'connection')
-
-          // Click Message/Mensaje button - search broadly
-          const msgClicked = await page.evaluate(() => {
-            const btns = [...document.querySelectorAll('button, [role="button"]')]
-              .filter(b => b.offsetWidth > 0 && b.offsetHeight > 0)
-            const msgBtn = btns.find(b => {
-              const t = (b.innerText?.trim() || '').toLowerCase()
-              const label = (b.getAttribute('aria-label') || '').toLowerCase()
-              const combined = t + ' ' + label
-              return (combined.includes('message') || combined.includes('mensaje') ||
-                      combined.includes('enviar mensaje') || combined.includes('send a message')) &&
-                     !combined.includes('inmessage')
-            })
-            if (msgBtn) { msgBtn.click(); return { clicked: true, text: msgBtn.innerText?.trim()?.slice(0, 30) } }
-            return { clicked: false }
-          })
-
-          if (!msgClicked.clicked) {
-            liLog(pid, `No boton Mensaje para ${actualName} (${navUrl.split('/in/')[1]?.split('/')[0] || '?'})`, 'info', 'connection')
-            continue
-          }
-          liLog(pid, `Click en "${msgClicked.text}" para ${actualName}`, 'info', 'connection')
-
+          if (!clicked) { liLog(pid, `No se pudo clickear boton #${conn.idx}`, 'error', 'connection'); continue }
           await sleep(2500 + Math.random() * 1500)
 
-          // Check if there are existing messages in the conversation
-          const hasExistingMessages = await page.evaluate(() => {
-            const msgContainer = document.querySelector('.msg-s-message-list, [class*="msg-s-message-list"], [class*="message-list"]')
-            if (!msgContainer) return false
-            const msgs = msgContainer.querySelectorAll('.msg-s-message-group, [class*="msg-s-message-group"], [class*="message-group"]')
-            return msgs.length > 0
+          // Check if messaging overlay opened and has existing messages
+          const msgState = await page.evaluate(() => {
+            const overlay = document.querySelector('.msg-overlay-conversation-bubble, [class*="msg-overlay"]')
+            if (!overlay) return { hasOverlay: false }
+            const thread = overlay.querySelector('.msg-s-message-list, [class*="msg-thread"]')
+            const groups = thread ? [...thread.querySelectorAll('.msg-s-message-group, [class*="message-group"]')] : []
+            const hasExisting = groups.length > 0
+            const input = overlay.querySelector('.msg-form__contenteditable div[contenteditable="true"], div[contenteditable="true"]')
+            return { hasOverlay: true, hasExisting, hasInput: !!input }
           })
 
-          if (hasExistingMessages) {
-            liLog(pid, `${actualName} ya tiene conversacion, saltando`, 'info', 'connection')
-            await page.keyboard.press('Escape').catch(() => {})
+          if (!msgState.hasOverlay) { liLog(pid, `Overlay no se abrio para ${conn.name}`, 'error', 'connection'); continue }
+
+          if (msgState.hasExisting) {
+            liLog(pid, `${conn.name} ya tiene conversacion, saltando`, 'info', 'connection')
+            await page.evaluate(() => {
+              const btn = [...document.querySelectorAll('.msg-overlay-conversation-bubble button')].find(b => (b.getAttribute('aria-label') || '').toLowerCase().includes('cierra'))
+              if (btn) btn.click()
+            })
             await sleep(1000)
-            // Mark as already messaged in DB
-            await pool.query(
-              `INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, followup_sent, status)
-               VALUES ($1, $2, $3, $4, true, 'accepted')
-               ON CONFLICT DO NOTHING`,
-              [pid, conn.url, actualName, actualHeadline]
-            )
+            if (conn.url) await pool.query(`INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, followup_sent, status) VALUES ($1,$2,$3,$4,true,'accepted') ON CONFLICT DO NOTHING`, [pid, conn.url, conn.name, conn.headline])
             continue
           }
 
           // Generate AI message
           const aiMsg = await aiGen(
-            `CONTEXTO: Sos ${senderName} de ${senderCompany}. Acabas de conectar con ${actualName} en LinkedIn.
-Cargo: ${actualHeadline || 'no disponible'}
-Empresa: ${profileInfo.company || 'no disponible'}
+            `CONTEXTO: Sos ${senderName} de ${senderCompany}. Estas conectado con ${conn.name} en LinkedIn.
+Cargo: ${conn.headline || 'no disponible'}
 
-Genera un primer mensaje corto para LinkedIn. Debe:
-1. Saludar mencionando su nombre
-2. Hacer referencia a su cargo/empresa de forma especifica
-3. Mencionar brevemente que en ${senderCompany} trabajan con IA/publicidad digital
-4. Ofrecer algo de valor (demo gratuito, contenido, caso de exito del rubro)
-5. Cerrar con pregunta abierta
+Genera un primer mensaje corto para LinkedIn DM. Debe:
+1. Saludar con nombre de pila
+2. Referencia especifica a su cargo si lo tiene
+3. Mencionar que en ${senderCompany} trabajan con IA/publicidad digital
+4. Ofrecer valor concreto (demo, contenido, caso de exito)
+5. Pregunta abierta para generar respuesta
 
-Max 300 chars. Español argentino. Tono cercano profesional. Sin emojis. Sin comillas.
+Max 300 chars. Español argentino. Cercano profesional. Sin emojis. Sin comillas.
 Responde UNICAMENTE con el mensaje.`
           )
           const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 300)
 
-          // Find message input and type
-          const msgInput = await page.$('.msg-form__contenteditable div[contenteditable="true"], [role="dialog"] div[contenteditable="true"]')
-            || await page.$('div[contenteditable="true"]')
-
+          // Type in the message input
+          const msgInput = await page.$('.msg-form__contenteditable div[contenteditable="true"]') || await page.$('div[contenteditable="true"]')
           if (msgInput) {
             await msgInput.click()
             await sleep(500)
             await msgInput.type(cleanMsg, { delay: 25 + Math.random() * 30 })
             await sleep(1000 + Math.random() * 500)
 
-            // Click Send
-            const sendResult = await page.evaluate(() => {
-              const btns = [...document.querySelectorAll('button, [role="button"]')]
-              const sendBtn = btns.find(b => {
-                const t = (b.innerText?.trim() || '').toLowerCase()
-                const l = (b.getAttribute('aria-label') || '').toLowerCase()
-                return (t === 'send' || t === 'enviar' || l.includes('send') || l.includes('enviar')) && b.offsetWidth > 0
-              })
+            // Click Send/Enviar
+            await sleep(500)
+            const sendOk = await page.evaluate(() => {
+              // Try the specific send button first
+              const sendBtn = document.querySelector('.msg-form__send-button:not([disabled])')
               if (sendBtn) { sendBtn.click(); return true }
+              // Fallback
+              const btns = [...document.querySelectorAll('button[type="submit"], button')]
+              const fb = btns.find(b => (b.innerText?.trim() || '').toLowerCase() === 'enviar' && !b.disabled && b.offsetWidth > 0)
+              if (fb) { fb.click(); return true }
               return false
             })
 
-            if (sendResult) {
+            if (sendOk) {
               sent++
-              liLog(pid, `Mensaje enviado a ${actualName}: "${cleanMsg.slice(0, 60)}..."`, 'success', 'connection')
-              // Save to DB
-              await pool.query(
-                `INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, company, followup_sent, followup_message, followup_at, status)
-                 VALUES ($1, $2, $3, $4, $5, true, $6, NOW(), 'accepted')
-                 ON CONFLICT DO NOTHING`,
-                [pid, conn.url, actualName, actualHeadline, profileInfo.company || '', cleanMsg]
-              )
+              liLog(pid, `Mensaje enviado a ${conn.name}: "${cleanMsg.slice(0, 60)}..."`, 'success', 'connection')
+              await sleep(2000)
+              if (conn.url) await pool.query(`INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, followup_sent, followup_message, followup_at, status) VALUES ($1,$2,$3,$4,true,$5,NOW(),'accepted') ON CONFLICT DO NOTHING`, [pid, conn.url, conn.name, conn.headline, cleanMsg])
             } else {
-              liLog(pid, `Boton Send no encontrado para ${actualName}`, 'error', 'connection')
+              liLog(pid, `Boton Enviar no disponible para ${conn.name}`, 'error', 'connection')
             }
           } else {
-            liLog(pid, `Input de mensaje no encontrado para ${actualName}`, 'error', 'connection')
+            liLog(pid, `Input mensaje no encontrado para ${conn.name}`, 'error', 'connection')
           }
 
-          await page.keyboard.press('Escape').catch(() => {})
-          await sleep(1000)
-          // Anti-ban delay between messages
-          await sleep(4000 + Math.random() * 5000)
+          // Close overlay
+          await page.evaluate(() => {
+            const btn = [...document.querySelectorAll('.msg-overlay-conversation-bubble button')].find(b => (b.getAttribute('aria-label') || '').toLowerCase().includes('cierra'))
+            if (btn) btn.click()
+          }).catch(() => {})
+          await sleep(1500)
+          await sleep(4000 + Math.random() * 5000) // anti-ban
 
         } catch (connErr) {
           liLog(pid, `Error con ${conn.name}: ${connErr.message?.slice(0, 60)}`, 'error', 'connection')
+          await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') || '').includes('Cierra')); if (b) b.click() }).catch(() => {})
+          await sleep(1000)
         }
       }
 
