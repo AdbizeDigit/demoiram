@@ -2687,6 +2687,8 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       }
 
       // Iterate through alphabet letters to search all connections
+      let sent = 0
+      const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
       const letters = 'abcdefghijklmnopqrstuvwxyz'.split('')
       let totalFound = 0
       const allConnections = []
@@ -2709,13 +2711,10 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
 
         const toMessage = newConns.slice(0, maxMessages - sent)
 
-      let sent = 0
-      const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
-
-      for (const conn of toMessage) {
-        if (sent >= maxMessages) break
-        try {
-          liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] ${conn.name}...`, 'info', 'connection')
+        for (const conn of toMessage) {
+          if (sent >= maxMessages) break
+          try {
+            liLog(pid, `[${sent + 1}/${maxMessages}] ${conn.name}...`, 'info', 'connection')
 
           // Navigate directly to messaging page for this connection
           if (!conn.slug) { liLog(pid, `Sin slug para ${conn.name}, saltando`, 'error', 'connection'); continue }
