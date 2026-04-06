@@ -116,6 +116,7 @@ export default function LinkedInPage() {
     maxLikes: 15,
     maxComments: 5,
   })
+  const [followupRunning, setFollowupRunning] = useState(false)
   const [newTopic, setNewTopic] = useState('')
   const [newRole, setNewRole] = useState('')
   const [newIndustry, setNewIndustry] = useState('')
@@ -775,6 +776,18 @@ export default function LinkedInPage() {
                         autoRunning ? 'bg-red-500 text-white hover:bg-red-600' : 'bg-purple-600 text-white hover:bg-purple-700'
                       }`}>
                         {autoRunning ? <><X className="w-4 h-4" /> Detener</> : <><Play className="w-4 h-4" /> Iniciar Prospeccion</>}
+                      </button>
+                      <button onClick={async () => {
+                        if (!selected || followupRunning) return
+                        if (!liConnected) { setShowLogin(true); return }
+                        setFollowupRunning(true)
+                        try {
+                          await api.post(`/api/linkedin-profiles/${selected.id}/followup-accepted`)
+                        } catch {}
+                        setTimeout(() => setFollowupRunning(false), 5000)
+                      }} disabled={followupRunning || autoRunning}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                        {followupRunning ? <><Loader2 className="w-4 h-4 animate-spin" /> Revisando...</> : <><Send className="w-4 h-4" /> Follow-up Aceptados</>}
                       </button>
                     </div>
                   </div>
