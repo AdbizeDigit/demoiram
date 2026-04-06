@@ -674,6 +674,29 @@ app.post('/api/whatsapp-accounts/:id/increment', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// Email daily stats
+app.get('/api/email-daily-stats', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const today = await pool.query(
+      "SELECT COUNT(*) as sent_today FROM outreach_messages WHERE channel = 'EMAIL' AND status = 'SENT' AND sent_at >= CURRENT_DATE"
+    )
+    const total = await pool.query(
+      "SELECT COUNT(*) as sent_total FROM outreach_messages WHERE channel = 'EMAIL' AND status = 'SENT'"
+    )
+    // Check if Brevo/SMTP is configured
+    const hasBrevo = !!process.env.BREVO_API_KEY
+    const hasSmtp = !!process.env.SMTP_HOST
+    res.json({
+      success: true,
+      sent_today: parseInt(today.rows[0]?.sent_today || 0),
+      sent_total: parseInt(total.rows[0]?.sent_total || 0),
+      configured: hasBrevo || hasSmtp,
+      provider: hasBrevo ? 'Brevo' : hasSmtp ? 'SMTP' : 'No configurado'
+    })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // ── LinkedIn Profiles ─────────────────────────────────────────────────────────
 import('./config/database.js').then(({ pool }) => {
   pool.query(`

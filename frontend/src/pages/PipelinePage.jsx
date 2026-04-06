@@ -999,11 +999,19 @@ export default function PipelinePage() {
   const [autoProgress, setAutoProgress] = useState({ done: 0, total: 0, current: '' })
   const [repliedLeads, setRepliedLeads] = useState([])
   const [waAccounts, setWaAccounts] = useState([])
+  const [emailStats, setEmailStats] = useState(null)
 
   const loadWaAccounts = useCallback(async () => {
     try {
       const { data } = await api.get('/api/whatsapp-accounts')
       setWaAccounts(data.accounts || [])
+    } catch {}
+  }, [])
+
+  const loadEmailStats = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/email-daily-stats')
+      setEmailStats(data)
     } catch {}
   }, [])
 
@@ -1042,11 +1050,11 @@ export default function PipelinePage() {
   }, [])
 
   useEffect(() => { loadLeads() }, [loadLeads])
-  useEffect(() => { loadWaAccounts() }, [loadWaAccounts])
+  useEffect(() => { loadWaAccounts(); loadEmailStats() }, [loadWaAccounts, loadEmailStats])
   useEffect(() => {
-    const iv = setInterval(loadWaAccounts, 30000)
+    const iv = setInterval(() => { loadWaAccounts(); loadEmailStats() }, 30000)
     return () => clearInterval(iv)
-  }, [loadWaAccounts])
+  }, [loadWaAccounts, loadEmailStats])
 
   // Load leads that replied
   const loadReplied = useCallback(async () => {
@@ -1264,32 +1272,47 @@ export default function PipelinePage() {
         </div>
       </div>
 
-      {/* WhatsApp Accounts Limits */}
-      {waAccounts.length > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-green-50 border border-green-200 rounded-xl">
-          <MessageCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-          <span className="text-xs font-semibold text-green-800">WhatsApp</span>
-          <div className="flex items-center gap-3 flex-wrap">
-            {waAccounts.filter(a => a.is_active).map(acc => {
-              const used = acc.messages_today || 0
-              const limit = acc.daily_limit || 100
-              const pct = Math.min(100, Math.round((used / limit) * 100))
-              const full = pct >= 100
-              return (
-                <div key={acc.id} className="flex items-center gap-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${acc.status === 'connected' ? 'bg-green-500' : 'bg-gray-400'}`} />
-                  <span className="text-[11px] text-gray-600 font-medium">{acc.name || acc.phone || 'Cuenta'}</span>
-                  <div className="w-16 h-1.5 bg-green-200 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${full ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+      {/* Outreach Channels Status */}
+      {(waAccounts.length > 0 || emailStats) && (
+        <div className="flex items-center gap-4 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl flex-wrap">
+          {/* WhatsApp Section */}
+          {waAccounts.length > 0 && (
+            <div className="flex items-center gap-2.5">
+              <MessageCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <span className="text-xs font-semibold text-green-800">WhatsApp</span>
+              {waAccounts.filter(a => a.is_active).map(acc => {
+                const used = acc.messages_today || 0
+                const limit = acc.daily_limit || 100
+                const pct = Math.min(100, Math.round((used / limit) * 100))
+                const full = pct >= 100
+                return (
+                  <div key={acc.id} className="flex items-center gap-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${acc.status === 'connected' ? 'bg-green-500' : 'bg-gray-400'}`} />
+                    <span className="text-[11px] text-gray-600 font-medium">{acc.name || acc.phone || 'Cuenta'}</span>
+                    <div className="w-14 h-1.5 bg-green-200 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${full ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className={`text-[10px] font-bold ${full ? 'text-red-600' : 'text-gray-500'}`}>{used}/{limit}</span>
                   </div>
-                  <span className={`text-[10px] font-bold ${full ? 'text-red-600' : 'text-gray-500'}`}>{used}/{limit}</span>
-                </div>
-              )
-            })}
-          </div>
-          <span className="text-[10px] text-gray-400 ml-auto">
-            Total: {waAccounts.filter(a => a.is_active).reduce((s, a) => s + (a.messages_today || 0), 0)}/{waAccounts.filter(a => a.is_active).reduce((s, a) => s + (a.daily_limit || 0), 0)}
-          </span>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Divider */}
+          {waAccounts.length > 0 && emailStats && <div className="w-px h-5 bg-gray-300" />}
+
+          {/* Email Section */}
+          {emailStats && (
+            <div className="flex items-center gap-2.5">
+              <Mail className="w-4 h-4 text-blue-600 flex-shrink-0" />
+              <span className="text-xs font-semibold text-blue-800">Email</span>
+              <span className={`w-1.5 h-1.5 rounded-full ${emailStats.configured ? 'bg-blue-500' : 'bg-gray-400'}`} />
+              <span className="text-[11px] text-gray-600 font-medium">{emailStats.provider}</span>
+              <span className="text-[10px] font-bold text-gray-500">{emailStats.sent_today} hoy</span>
+              <span className="text-[10px] text-gray-400">({emailStats.sent_total} total)</span>
+            </div>
+          )}
         </div>
       )}
 
