@@ -2678,37 +2678,55 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       })
       liLog(pid, `Debug links: ${JSON.stringify(debugLinks).slice(0, 400)}`, 'info', 'connection')
 
-      // Extract ALL profile links - no strict regex, just /in/ presence
+      // Extract ALL profile links - group by slug, merge name/headline
       const connections = await page.evaluate(() => {
         const links = [...document.querySelectorAll('a[href*="/in/"]')]
-        const seen = new Set()
-        return links.map(a => {
+        const profileMap = new Map() // slug -> { url, name, headline }
+
+        for (const a of links) {
           const fullHref = a.href || ''
-          if (!fullHref.includes('/in/')) return null
-          // Extract clean URL up to the slug
           const match = fullHref.match(/linkedin\.com\/in\/([^/?#]+)/)
-          if (!match) return null
+          if (!match) continue
           const slug = match[1]
-          if (seen.has(slug)) return null
-          seen.add(slug)
           const url = `https://www.linkedin.com/in/${slug}`
-          const card = a.closest('li') || a.closest('[class*="card"]') || a.parentElement?.parentElement?.parentElement
-          const name = a.innerText?.trim()?.split('\n')[0]?.replace(/\s+/g, ' ') || ''
-          let headline = ''
-          if (card) {
-            const texts = [...card.querySelectorAll('span, p, div')]
-            for (const s of texts) {
-              const t = s.innerText?.trim() || ''
-              if (t.length > 10 && t.length < 150 && t !== name && !t.includes('Conectar') && !t.includes('Seguir') && !t.includes('Connect') && !t.includes('Follow')) {
-                headline = t; break
-              }
+
+          // Get text from this link (may be empty for photo links)
+          const linkText = (a.innerText?.trim() || '').replace(/\s+/g, ' ')
+
+          if (!profileMap.has(slug)) {
+            profileMap.set(slug, { url, slug, name: '', headline: '' })
+          }
+
+          const entry = profileMap.get(slug)
+
+          // Extract name: first non-empty link text for this slug
+          if (!entry.name && linkText.length > 1) {
+            entry.name = linkText.split('\n')[0]?.trim()?.replace(/\s+/g, ' ') || ''
+            // Rest might be headline
+            const parts = linkText.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+            if (parts.length > 1) entry.headline = parts[1]
+          }
+
+          // Also try to get info from parent card
+          if (!entry.headline) {
+            const card = a.closest('li') || a.closest('[class*="card"]') || a.parentElement?.parentElement?.parentElement
+            if (card) {
+              const allText = card.innerText || ''
+              const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 5 && l.length < 150)
+              // Name is usually first meaningful line, headline is second
+              if (!entry.name && lines[0]) entry.name = lines[0]
+              if (lines[1] && lines[1] !== entry.name) entry.headline = lines[1]
             }
           }
-          return { url, slug, name: name.slice(0, 80), headline: headline.slice(0, 150) }
-        }).filter(Boolean).filter(c => c.name.length > 1)
+        }
+
+        return [...profileMap.values()].filter(c => c.name.length > 0)
       })
 
       liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
+      if (connections.length > 0) {
+        liLog(pid, `Ejemplo: ${connections[0].name} - ${connections[0].headline?.slice(0, 50)} (${connections[0].slug})`, 'info', 'connection')
+      }
 
       liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
       if (connections.length === 0) { liLog(pid, 'No se encontraron conexiones', 'error', 'connection'); return }
