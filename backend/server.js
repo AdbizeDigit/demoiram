@@ -2665,46 +2665,29 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       // Scroll to load more connections
       for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
 
-      // Debug: log what buttons exist on the page
-      const debugBtns = await page.evaluate(() => {
-        const btns = [...document.querySelectorAll('button')].filter(b => b.offsetWidth > 0)
-        const unique = new Map()
-        for (const b of btns) {
-          const t = (b.innerText?.trim() || '').slice(0, 30)
-          const label = (b.getAttribute('aria-label') || '').slice(0, 40)
-          const key = t || label
-          if (key && !unique.has(key)) unique.set(key, { text: t, label, count: 1 })
-          else if (key) unique.get(key).count++
-        }
-        return [...unique.values()].filter(b => b.count >= 2 || b.text.toLowerCase().includes('mensaje') || b.text.toLowerCase().includes('message') || b.label.toLowerCase().includes('mensaje')).slice(0, 15)
-      })
-      liLog(pid, `Botones en pagina: ${JSON.stringify(debugBtns).slice(0, 400)}`, 'info', 'connection')
-
-      // Find all message buttons - check both innerText AND aria-label
+      // LinkedIn uses "Mostrar más acciones" buttons (one per contact card)
+      // Click each one to open dropdown, then click "Enviar mensaje" inside
       const connections = await page.evaluate(() => {
-        const msgButtons = [...document.querySelectorAll('button, a[role="button"], a')]
+        // Find all action buttons that repeat (one per card)
+        const actionBtns = [...document.querySelectorAll('button')]
           .filter(b => {
-            const t = (b.innerText?.trim() || '').toLowerCase()
             const label = (b.getAttribute('aria-label') || '').toLowerCase()
-            return (t === 'enviar mensaje' || t === 'message' || t === 'send message' ||
-                    label.includes('enviar mensaje') || label.includes('send message') ||
-                    label.includes('message')) && b.offsetWidth > 0 &&
-                   !label.includes('new message') && !label.includes('nuevo mensaje')
+            return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
           })
-        return msgButtons.map((btn, idx) => {
+        return actionBtns.map((btn, idx) => {
           const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
           const link = card ? card.querySelector('a[href*="/in/"]') : null
           const url = link ? (link.href || '').split('?')[0].replace(/\/$/, '') : ''
           const slug = url.match(/\/in\/([^/]+)/)?.[1] || ''
           const allText = card ? card.innerText || '' : ''
-          const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde)/i))
+          const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde|mostrar más)/i))
           return { idx, name: (lines[0] || '').slice(0, 80), headline: (lines[1] || '').slice(0, 150), url, slug }
         }).filter(c => c.name)
       })
 
-      liLog(pid, `Encontradas ${connections.length} conexiones con boton "Enviar mensaje"`, 'info', 'connection')
+      liLog(pid, `Encontradas ${connections.length} conexiones en la pagina`, 'info', 'connection')
       if (connections.length > 0) liLog(pid, `Ejemplo: ${connections[0].name} - ${connections[0].headline?.slice(0, 50)}`, 'info', 'connection')
-      if (connections.length === 0) { liLog(pid, 'No se encontraron botones "Enviar mensaje"', 'error', 'connection'); return }
+      if (connections.length === 0) { liLog(pid, 'No se encontraron conexiones', 'error', 'connection'); return }
 
       // Check DB for already messaged connections
       const alreadyMessaged = await pool.query(
@@ -2723,18 +2706,44 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         try {
           liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] ${conn.name}...`, 'info', 'connection')
 
-          // Click the "Enviar mensaje" button directly on the connections page (by index)
-          const clicked = await page.evaluate((targetIdx) => {
-            const msgButtons = [...document.querySelectorAll('button')]
+          // Click "Mostrar más acciones" button to open dropdown
+          const menuOpened = await page.evaluate((targetIdx) => {
+            const actionBtns = [...document.querySelectorAll('button')]
               .filter(b => {
-                const t = (b.innerText?.trim() || '').toLowerCase()
-                return (t === 'enviar mensaje' || t === 'message' || t === 'send message') && b.offsetWidth > 0
+                const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
               })
-            if (msgButtons[targetIdx]) { msgButtons[targetIdx].click(); return true }
+            if (actionBtns[targetIdx]) { actionBtns[targetIdx].click(); return true }
             return false
           }, conn.idx)
 
-          if (!clicked) { liLog(pid, `No se pudo clickear boton #${conn.idx}`, 'error', 'connection'); continue }
+          if (!menuOpened) { liLog(pid, `No se pudo abrir menu #${conn.idx}`, 'error', 'connection'); continue }
+          await sleep(1500 + Math.random() * 1000)
+
+          // Click "Enviar mensaje" / "Message" in the dropdown
+          const msgClicked = await page.evaluate(() => {
+            const items = [...document.querySelectorAll('[role="menuitem"], [class*="dropdown"] li, [class*="dropdown"] a, [class*="dropdown"] button, [class*="artdeco-dropdown"] span')]
+            const msgItem = items.find(el => {
+              const t = (el.innerText?.trim() || '').toLowerCase()
+              return t.includes('enviar mensaje') || t.includes('message') || t === 'mensaje'
+            })
+            if (msgItem) { msgItem.click(); return true }
+            // Fallback: click any visible link/button with "mensaje"
+            const allEls = [...document.querySelectorAll('a, button, span, div[role="menuitem"]')]
+            const fb = allEls.find(el => {
+              const t = (el.innerText?.trim() || '').toLowerCase()
+              return (t === 'enviar mensaje' || t === 'message') && el.offsetWidth > 0
+            })
+            if (fb) { fb.click(); return true }
+            return false
+          })
+
+          if (!msgClicked) {
+            liLog(pid, `"Enviar mensaje" no encontrado en dropdown para ${conn.name}`, 'error', 'connection')
+            await page.keyboard.press('Escape').catch(() => {})
+            await sleep(1000)
+            continue
+          }
           await sleep(2500 + Math.random() * 1500)
 
           // Check if messaging overlay opened and has existing messages
