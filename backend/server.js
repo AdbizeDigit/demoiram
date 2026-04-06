@@ -2665,31 +2665,41 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       // Scroll to load more connections
       for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
 
-      // Extract ALL profile links from the page (universal approach)
+      // Debug: dump all /in/ links to understand the page structure
+      const debugLinks = await page.evaluate(() => {
+        const all = [...document.querySelectorAll('a[href*="/in/"]')]
+        return all.slice(0, 5).map(a => ({
+          href: a.href?.slice(0, 100),
+          text: (a.innerText?.trim() || '').slice(0, 40),
+          visible: a.getBoundingClientRect().width > 0,
+          parentTag: a.parentElement?.tagName,
+          parentClass: (a.parentElement?.className || '').slice(0, 60),
+        }))
+      })
+      liLog(pid, `Debug links: ${JSON.stringify(debugLinks).slice(0, 400)}`, 'info', 'connection')
+
+      // Extract ALL profile links - no strict regex, just /in/ presence
       const connections = await page.evaluate(() => {
         const links = [...document.querySelectorAll('a[href*="/in/"]')]
-          .filter(a => {
-            const href = a.href || ''
-            const rect = a.getBoundingClientRect()
-            return href.match(/\/in\/[^/]+\/?$/) && rect.width > 0 && rect.height > 0 &&
-                   !href.includes('/overlay/') && !href.includes('/recent-activity/')
-          })
         const seen = new Set()
         return links.map(a => {
-          const url = (a.href || '').split('?')[0].replace(/\/$/, '')
-          const slug = url.match(/\/in\/([^/]+)/)?.[1]
-          if (!slug || seen.has(slug)) return null
+          const fullHref = a.href || ''
+          if (!fullHref.includes('/in/')) return null
+          // Extract clean URL up to the slug
+          const match = fullHref.match(/linkedin\.com\/in\/([^/?#]+)/)
+          if (!match) return null
+          const slug = match[1]
+          if (seen.has(slug)) return null
           seen.add(slug)
-          // Walk up to find containing card/li for extra info
-          const card = a.closest('li') || a.closest('[class*="card"]') || a.parentElement?.parentElement
+          const url = `https://www.linkedin.com/in/${slug}`
+          const card = a.closest('li') || a.closest('[class*="card"]') || a.parentElement?.parentElement?.parentElement
           const name = a.innerText?.trim()?.split('\n')[0]?.replace(/\s+/g, ' ') || ''
-          // Try to find headline text nearby
           let headline = ''
           if (card) {
-            const spans = [...card.querySelectorAll('span, p, div')]
-            for (const s of spans) {
+            const texts = [...card.querySelectorAll('span, p, div')]
+            for (const s of texts) {
               const t = s.innerText?.trim() || ''
-              if (t.length > 10 && t.length < 150 && t !== name && !t.includes('Conectar') && !t.includes('Seguir')) {
+              if (t.length > 10 && t.length < 150 && t !== name && !t.includes('Conectar') && !t.includes('Seguir') && !t.includes('Connect') && !t.includes('Follow')) {
                 headline = t; break
               }
             }
