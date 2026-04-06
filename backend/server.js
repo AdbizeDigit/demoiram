@@ -2366,171 +2366,124 @@ Responde UNICAMENTE con el mensaje.`
                     continue
                   }
 
-                  // Use LLM to analyze page state and handle the connect flow
-                  await sleep(3000 + Math.random() * 2000)
+                  // Handle connect modal: deterministic approach first, LLM as fallback
+                  await sleep(2500 + Math.random() * 1500)
+                  let noteSent = false
 
-                  // Extract comprehensive page state for LLM analysis
-                  const pageSnapshot = await page.evaluate(() => {
-                    // Get all interactive elements with their properties
-                    const elements = []
-                    const selectors = ['button', 'a', 'textarea', 'input', '[role="button"]', '[role="dialog"]', '[role="menuitem"]']
-                    const allEls = [...document.querySelectorAll(selectors.join(', '))]
-                    for (let i = 0; i < Math.min(allEls.length, 50); i++) {
-                      const el = allEls[i]
-                      const rect = el.getBoundingClientRect()
-                      if (rect.width === 0 && rect.height === 0) continue // skip hidden
-                      elements.push({
-                        idx: i,
-                        tag: el.tagName.toLowerCase(),
-                        type: el.type || '',
-                        role: el.getAttribute('role') || '',
-                        text: (el.innerText?.trim() || '').slice(0, 80),
-                        ariaLabel: (el.getAttribute('aria-label') || '').slice(0, 80),
-                        placeholder: (el.placeholder || '').slice(0, 50),
-                        visible: rect.top < 2000 && rect.left < 2000,
-                      })
-                    }
-                    // Check for dialogs/modals/overlays
-                    const dialogs = [...document.querySelectorAll('[role="dialog"], .artdeco-modal, [class*="modal"], [class*="overlay"]')]
-                    const dialogTexts = dialogs.map(d => ({
-                      role: d.getAttribute('role') || '',
-                      text: (d.innerText?.trim() || '').slice(0, 500),
-                      hasTextarea: !!d.querySelector('textarea'),
-                      hasInput: !!d.querySelector('input'),
-                      btnCount: d.querySelectorAll('button').length,
+                  // Step 1: Check if a dialog/modal appeared
+                  const modalState = await page.evaluate(() => {
+                    const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
+                    if (!dialog) return { hasModal: false }
+                    const text = (dialog.innerText || '').toLowerCase()
+                    const hasTextarea = !!dialog.querySelector('textarea')
+                    const buttons = [...dialog.querySelectorAll('button')].map(b => ({
+                      text: (b.innerText?.trim() || '').toLowerCase(),
+                      ariaLabel: (b.getAttribute('aria-label') || '').toLowerCase(),
                     }))
-                    return { elements, dialogTexts, url: location.href.split('?')[0] }
+                    const isVerification = text.includes('email') && (text.includes('verify') || text.includes('verificar'))
+                    const isHowKnow = text.includes('how do you know') || text.includes('como conoces')
+                    return { hasModal: true, hasTextarea, buttons, isVerification, isHowKnow, textPreview: text.slice(0, 300) }
                   })
 
-                  liLog(pid, `Pagina: ${pageSnapshot.dialogTexts.length} dialogs, ${pageSnapshot.elements.length} elementos`, 'info', 'connection')
+                  liLog(pid, `Modal: ${modalState.hasModal ? 'SI' : 'NO'}, textarea: ${modalState.hasTextarea}, btns: ${modalState.buttons?.map(b => b.text).join('|') || 'none'}`, 'info', 'connection')
 
-                  // Send page state to LLM for analysis
-                  let noteSent = false
-                  try {
-                    const llmResponse = await analyzeWithDeepSeek(
-                      `Sos un bot de LinkedIn que acaba de hacer click en el boton "Connect" en el perfil de ${actualName}.
-Necesitas analizar el estado de la pagina y decirme que hacer.
-
-ESTADO ACTUAL DE LA PAGINA:
-URL: ${pageSnapshot.url}
-Dialogs/Modals encontrados: ${JSON.stringify(pageSnapshot.dialogTexts, null, 2)}
-Elementos interactivos visibles: ${JSON.stringify(pageSnapshot.elements.filter(e => e.visible).slice(0, 30), null, 2)}
-
-POSIBLES ESCENARIOS:
-1. MODAL DE CONEXION: Tiene botones como "Add a note"/"Agregar nota", "Send"/"Enviar", "Send without a note"/"Enviar sin nota", y/o un textarea para mensaje
-2. MODAL DE VERIFICACION/EMAIL: Pide email o tiene botones "reset"/"done". LinkedIn pide verificacion para conexiones de 3er grado
-3. SIN MODAL: No aparecio ningún dialog despues del click. Puede que el boton clickeado no era el correcto, o la invitacion se envio directamente
-4. MODAL DE "COMO CONOCES A ESTA PERSONA": Pide seleccionar como conoces al contacto
-
-Responde SOLO con un JSON (sin explicaciones):
-{
-  "scenario": "connect_modal" | "verification" | "no_modal" | "how_know" | "sent_directly" | "unknown",
-  "action": "add_note" | "send_without_note" | "send" | "skip" | "close",
-  "addNoteElement": null | { "searchText": "texto del boton para agregar nota" },
-  "sendElement": null | { "searchText": "texto del boton enviar" },
-  "textareaFound": true | false,
-  "reasoning": "breve explicacion"
-}`
-                    )
-
-                    let llmAction = {}
-                    try { llmAction = JSON.parse(llmResponse.match(/\{[\s\S]*\}/)?.[0] || '{}') } catch {}
-                    liLog(pid, `LLM: ${llmAction.scenario || 'unknown'} -> ${llmAction.action || 'none'} (${(llmAction.reasoning || '').slice(0, 80)})`, 'info', 'connection')
-
-                    if (llmAction.scenario === 'verification' || llmAction.scenario === 'how_know' || llmAction.action === 'skip' || llmAction.action === 'close') {
-                      liLog(pid, `Modal no es de conexion para ${actualName}, saltando...`, 'info', 'connection')
-                      await page.keyboard.press('Escape').catch(() => {})
-                      await sleep(1000)
-                      await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
-                      try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
-                      await sleep(2000 + Math.random() * 2000)
+                  if (!modalState.hasModal) {
+                    // Maybe it was sent directly or no modal appeared
+                    liLog(pid, `No aparecio modal para ${actualName}, verificando...`, 'info', 'connection')
+                    await sleep(1500)
+                    // Check again after a short wait
+                    const retryModal = await page.$('[role="dialog"], .artdeco-modal')
+                    if (!retryModal) {
+                      liLog(pid, `Sin modal - posible envio directo o error`, 'info', 'connection')
                       continue
                     }
+                  }
 
-                    if (llmAction.scenario === 'sent_directly') {
-                      connected++
-                      liLog(pid, `Conexion enviada directamente a ${actualName}!`, 'success', 'connection')
-                      noteSent = true
-                    }
+                  if (modalState.isVerification || modalState.isHowKnow) {
+                    liLog(pid, `Modal de verificacion/how_know para ${actualName}, saltando`, 'info', 'connection')
+                    await page.keyboard.press('Escape').catch(() => {})
+                    await sleep(1000)
+                    await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
+                    try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
+                    await sleep(2000 + Math.random() * 2000)
+                    continue
+                  }
 
-                    if (!noteSent && llmAction.scenario === 'no_modal') {
-                      liLog(pid, `No aparecio modal para ${actualName}`, 'error', 'connection')
-                      continue
-                    }
-
-                    // Handle connect modal: try to add note and send
-                    if (!noteSent && (llmAction.action === 'add_note' || llmAction.textareaFound)) {
-                      // Click "Add a note" if needed
-                      if (llmAction.addNoteElement?.searchText) {
-                        const addNoteBtns = await page.$$('button, [role="button"], a')
-                        for (const btn of addNoteBtns) {
-                          const text = await btn.evaluate(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase())
-                          if (text.includes(llmAction.addNoteElement.searchText.toLowerCase())) {
-                            await btn.click()
-                            await sleep(1500 + Math.random() * 1000)
-                            break
-                          }
+                  // Step 2: Try to click "Add a note" button (deterministic - check multiple text variations)
+                  const addNoteTexts = ['add a note', 'agregar nota', 'add note', 'añadir nota', 'personalizar invitacion']
+                  if (!modalState.hasTextarea) {
+                    const addNoteClicked = await page.evaluate((texts) => {
+                      const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
+                      if (!dialog) return false
+                      const btns = [...dialog.querySelectorAll('button, [role="button"], a')]
+                      for (const btn of btns) {
+                        const btnText = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
+                        if (texts.some(t => btnText.includes(t))) {
+                          btn.click()
+                          return true
                         }
                       }
-                      // Find and fill textarea
-                      let textarea = await page.$('[role="dialog"] textarea, .artdeco-modal textarea')
-                      if (!textarea) textarea = await page.$('textarea')
-                      if (textarea) {
-                        await textarea.click()
-                        await sleep(300)
-                        await textarea.type(aiNote, { delay: 20 + Math.random() * 35 })
-                        await sleep(800 + Math.random() * 1000)
-                      }
-                      // Click Send
-                      if (llmAction.sendElement?.searchText) {
-                        const sendBtns = await page.$$('button, [role="button"]')
-                        for (const btn of sendBtns) {
-                          const text = await btn.evaluate(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase())
-                          if (text.includes(llmAction.sendElement.searchText.toLowerCase())) {
-                            await btn.click()
-                            await sleep(2000 + Math.random() * 1000)
-                            connected++
-                            liLog(pid, `Conexion enviada a ${actualName} con nota personalizada!`, 'success', 'connection')
-                            noteSent = true
-                            break
-                          }
-                        }
-                      }
-                      // Fallback: try any send/enviar button
-                      if (!noteSent) {
-                        const allBtns = await page.$$('[role="dialog"] button, .artdeco-modal button, button')
-                        for (const btn of allBtns) {
-                          const text = await btn.evaluate(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase())
-                          if ((text.includes('send') || text.includes('enviar')) && !text.includes('without') && !text.includes('sin')) {
-                            await btn.click()
-                            await sleep(2000 + Math.random() * 1000)
-                            connected++
-                            liLog(pid, `Conexion enviada a ${actualName}!`, 'success', 'connection')
-                            noteSent = true
-                            break
-                          }
-                        }
-                      }
-                    }
+                      return false
+                    }, addNoteTexts)
 
-                    // Fallback: try send without note
-                    if (!noteSent && (llmAction.action === 'send_without_note' || llmAction.action === 'send')) {
-                      const sendSearch = llmAction.sendElement?.searchText?.toLowerCase() || 'send'
-                      const allBtns = await page.$$('[role="dialog"] button, .artdeco-modal button, button')
-                      for (const btn of allBtns) {
-                        const text = await btn.evaluate(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '').toLowerCase())
-                        if (text.includes(sendSearch) || text.includes('send') || text.includes('enviar')) {
-                          await btn.click()
-                          await sleep(2000 + Math.random() * 1000)
-                          connected++
-                          liLog(pid, `Conexion enviada a ${actualName} (sin nota)`, 'success', 'connection')
-                          noteSent = true
-                          break
-                        }
+                    if (addNoteClicked) {
+                      liLog(pid, `Click en "Add a note"`, 'info', 'connection')
+                      await sleep(1500 + Math.random() * 1000)
+                    } else {
+                      liLog(pid, `No se encontro boton "Add a note", buscando textarea...`, 'info', 'connection')
+                    }
+                  }
+
+                  // Step 3: Find and fill textarea with the AI note
+                  let textarea = await page.$('[role="dialog"] textarea, .artdeco-modal textarea, [class*="send-invite"] textarea')
+                  if (!textarea) {
+                    await sleep(1000)
+                    textarea = await page.$('textarea')
+                  }
+                  if (textarea && aiNote) {
+                    await textarea.click({ clickCount: 3 }) // select all existing text
+                    await sleep(300)
+                    await textarea.type(aiNote, { delay: 20 + Math.random() * 35 })
+                    await sleep(800 + Math.random() * 500)
+                    liLog(pid, `Nota escrita: "${aiNote.slice(0, 80)}..."`, 'info', 'connection')
+                  } else {
+                    liLog(pid, `No se encontro textarea para nota`, 'info', 'connection')
+                  }
+
+                  // Step 4: Click Send button (prefer "Send" over "Send without a note")
+                  const sendTexts = ['send', 'enviar']
+                  const skipTexts = ['without', 'sin nota', 'sin un']
+                  const sendClicked = await page.evaluate((sendT, skipT) => {
+                    const dialog = document.querySelector('[role="dialog"], .artdeco-modal, [class*="send-invite"]')
+                    const container = dialog || document
+                    const btns = [...container.querySelectorAll('button, [role="button"]')]
+                    // First try: find "Send" that is NOT "Send without a note"
+                    for (const btn of btns) {
+                      const t = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
+                      if (sendT.some(s => t.includes(s)) && !skipT.some(s => t.includes(s)) && btn.offsetWidth > 0) {
+                        btn.click()
+                        return 'send'
                       }
                     }
-                  } catch (llmErr) {
-                    liLog(pid, `Error LLM modal: ${llmErr.message?.slice(0, 80)}`, 'error', 'connection')
+                    // Fallback: any send button
+                    for (const btn of btns) {
+                      const t = (btn.innerText?.trim() || btn.getAttribute('aria-label') || '').toLowerCase()
+                      if (sendT.some(s => t.includes(s)) && btn.offsetWidth > 0) {
+                        btn.click()
+                        return 'send_fallback'
+                      }
+                    }
+                    return null
+                  }, sendTexts, skipTexts)
+
+                  if (sendClicked) {
+                    await sleep(2000 + Math.random() * 1000)
+                    connected++
+                    const withNote = textarea ? 'con nota personalizada' : 'sin nota'
+                    liLog(pid, `Conexion enviada a ${actualName} ${withNote}!`, 'success', 'connection')
+                    noteSent = true
+                  } else {
+                    liLog(pid, `No se encontro boton Send para ${actualName}`, 'error', 'connection')
                   }
 
                   if (!noteSent) {
