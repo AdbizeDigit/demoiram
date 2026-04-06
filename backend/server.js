@@ -2076,46 +2076,49 @@ Responde UNICAMENTE con el comentario.`
 
               // Detect cards and buttons - LinkedIn uses obfuscated classes, so we use profile links
               const { connectButtons: foundButtons, debug: cardDebug } = await page.evaluate(() => {
+                // Only match clean profile URLs - exclude overlays, activity, contact-info, etc.
                 const profileLinks = [...document.querySelectorAll('a[href*="/in/"]')]
-                const seenCards = new Set()
+                  .filter(link => {
+                    const href = link.href || ''
+                    // Must be a clean /in/username or /in/username/ URL
+                    const match = href.match(/\/in\/([^/?]+)\/?(\?.*)?$/)
+                    if (!match) return false
+                    // Exclude sub-pages
+                    if (href.includes('/overlay/') || href.includes('/recent-activity/') ||
+                        href.includes('/detail/') || href.includes('/edit/') ||
+                        href.includes('/contact-info') || href.includes('/background-photo')) return false
+                    // Must be visible (in search results, not in sidebar or hidden)
+                    const rect = link.getBoundingClientRect()
+                    return rect.width > 0 && rect.height > 0 && rect.top > 0 && rect.top < 5000
+                  })
+
+                const seenSlugs = new Set()
                 const results = []
-                const allBtns = [...document.querySelectorAll('button')]
                 const debugInfo = { profileLinks: profileLinks.length, cards: 0, cardButtonSamples: [] }
 
                 for (const link of profileLinks) {
-                  const profileUrl = link.href || ''
-                  if (!profileUrl || seenCards.has(profileUrl)) continue
-                  seenCards.add(profileUrl)
+                  const profileUrl = link.href.split('?')[0].replace(/\/$/, '') // clean URL
+                  const slug = profileUrl.match(/\/in\/([^/]+)/)?.[1] || ''
+                  if (!slug || seenSlugs.has(slug)) continue
+                  seenSlugs.add(slug)
 
-                  // Walk up to find card container for extra info
-                  let card = link.closest('li') || link.parentElement?.closest('li')
+                  // Walk up to find search result card container (li or div with buttons)
+                  let card = link.closest('li.reusable-search__result-container, li[class*="search"], li[class*="result"]')
+                  if (!card) card = link.closest('li')
                   if (!card) {
                     let el = link.parentElement
-                    for (let i = 0; i < 15 && el; i++) {
+                    for (let i = 0; i < 10 && el; i++) {
                       const btns = el.querySelectorAll('button')
-                      if (btns.length > 0 && btns.length <= 8) {
+                      if (btns.length >= 1 && btns.length <= 8 && el.innerText?.length > 30) {
                         card = el
                         break
                       }
-                      el = el.parentElement
-                    }
-                  }
-                  // If still no card, use a nearby ancestor that contains only this profile link
-                  if (!card) {
-                    let el = link.parentElement
-                    for (let i = 0; i < 6 && el; i++) {
-                      const linksInside = el.querySelectorAll('a[href*="/in/"]')
-                      if (linksInside.length === 1 && el.innerText && el.innerText.length > 30) {
-                        card = el
-                        break
-                      }
-                      if (linksInside.length > 1) break // went too far up
                       el = el.parentElement
                     }
                   }
                   debugInfo.cards++
 
-                  // Extract person info from card or link
+                  // Extract person info
                   let name = 'Persona'
                   let headline = ''
                   let location = ''
@@ -2134,7 +2137,7 @@ Responde UNICAMENTE con el comentario.`
 
                     const cardText = card.innerText || ''
                     const lines = cardText.split('\n').map(l => l.trim()).filter(l => l.length > 0 && l.length < 200)
-                    const nameEl = card.querySelector('a[href*="/in/"] span, a[href*="/in/"]')
+                    const nameEl = card.querySelector('a[href*="/in/"] span[dir="ltr"], a[href*="/in/"] span, a[href*="/in/"]')
                     name = nameEl?.textContent?.trim()?.replace(/\s+/g, ' ') || lines[0] || 'Persona'
                     const nameIdx = lines.findIndex(l => l.includes(name?.split(' ')[0]))
                     headline = lines[nameIdx + 1] || lines[1] || ''
@@ -2143,9 +2146,7 @@ Responde UNICAMENTE con el comentario.`
                     company = companyMatch?.[1]?.trim() || ''
                     summary = (lines.slice(nameIdx + 3, nameIdx + 5).join(' ')).slice(0, 200)
                   } else {
-                    // Fallback: extract name from link text
                     name = link.textContent?.trim()?.replace(/\s+/g, ' ') || 'Persona'
-                    // Try aria-label for more info
                     const label = link.getAttribute('aria-label') || ''
                     if (label) name = label.replace(/['']/g, "'").split(',')[0].trim() || name
                   }
@@ -2202,25 +2203,30 @@ Responde UNICAMENTE con el comentario.`
 
                   // Role detection and AI note generation happen after visiting the profile page
 
-                  // Visit profile — use networkidle0 to wait for full JS rendering
-                  liLog(pid, `Visitando perfil: ${profileUrl.split('?')[0]}`, 'info', 'connection')
-                  const expectedSlug = profileUrl.match(/\/in\/([^/?]+)/)?.[1] || ''
-                  // Navigate with networkidle0 (waits until no network requests for 500ms)
-                  await page.goto(profileUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(async () => {
-                    // Retry with domcontentloaded on timeout
-                    await page.goto(profileUrl, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-                  })
-                  // Wait for h1 with actual text content (LinkedIn renders it via JS)
+                  // Visit profile
+                  const cleanProfileUrl = profileUrl.split('?')[0].replace(/\/$/, '')
+                  liLog(pid, `Visitando perfil: ${cleanProfileUrl}`, 'info', 'connection')
+                  const expectedSlug = cleanProfileUrl.match(/\/in\/([^/?]+)/)?.[1] || ''
+
+                  // Navigate with domcontentloaded first (faster), then wait for rendering
+                  await page.goto(cleanProfileUrl, { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+                  // Wait for the page to settle and h1 to appear
                   try {
                     await page.waitForFunction(
-                      () => { const h1 = document.querySelector('h1'); return h1 && h1.innerText.trim().length > 0 },
-                      { timeout: 15000 }
+                      () => {
+                        const h1 = document.querySelector('h1')
+                        const hasName = h1 && h1.innerText.trim().length > 0
+                        // Also check for profile-specific elements
+                        const hasProfile = !!document.querySelector('.pv-top-card, [class*="profile-card"], main section')
+                        return hasName || hasProfile
+                      },
+                      { timeout: 12000 }
                     )
                   } catch {
-                    // Fallback: wait a bit more
-                    await sleep(5000)
+                    // Wait a bit more as fallback
+                    await sleep(4000)
                   }
-                  await sleep(1000 + Math.random() * 1000)
+                  await sleep(1500 + Math.random() * 1000)
 
                   // Verify URL and log
                   const currentUrl = await page.url()
@@ -2329,26 +2335,31 @@ Responde UNICAMENTE con el mensaje.`
                     connectClicked = true
                     liLog(pid, `Click en boton Connect`, 'info', 'connection')
                   } else {
-                    // Try "More" dropdown → Connect
+                    // Try "More/Más" dropdown → Connect/Conectar
                     const moreHandle = await page.evaluateHandle(() => {
                       const allBtns = [...document.querySelectorAll('main button, .pv-top-card button, button')]
                       return allBtns.find(b => {
                         const t = (b.innerText?.trim() || '').toLowerCase()
                         const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                        return t === 'more' || t === 'más' || t === 'mas' ||
+                        return t === 'more' || t === 'más' || t === 'mas' || t === '… más' ||
                                label.includes('more action') || label.includes('más acciones')
                       }) || null
                     })
                     if (moreHandle && moreHandle.asElement()) {
                       await moreHandle.asElement().click()
                       await sleep(1500 + Math.random() * 1000)
-                      const dropdownItems = await page.$$('[role="menuitem"], [role="option"], li button, li a, .artdeco-dropdown__item')
+                      const dropdownItems = await page.$$('[role="menuitem"], [role="option"], li button, li a, .artdeco-dropdown__item, [class*="dropdown"] li, [class*="dropdown"] button')
                       for (const item of dropdownItems) {
-                        const text = await item.evaluate(el => (el.innerText?.trim() || '').toLowerCase() + ' ' + (el.getAttribute('aria-label') || '').toLowerCase())
-                        if ((text.includes('connect') || text.includes('conectar')) && !text.includes('disconnect')) {
+                        const text = await item.evaluate(el => {
+                          const t = (el.innerText?.trim() || '').toLowerCase()
+                          const label = (el.getAttribute('aria-label') || '').toLowerCase()
+                          return t + ' ' + label
+                        })
+                        if ((text.includes('connect') || text.includes('conectar') || text.includes('invite') || text.includes('invitar')) &&
+                            !text.includes('disconnect') && !text.includes('desconectar')) {
                           await item.click()
                           connectClicked = true
-                          liLog(pid, `Click en Connect desde dropdown More`, 'info', 'connection')
+                          liLog(pid, `Click en Connect desde dropdown Mas`, 'info', 'connection')
                           break
                         }
                       }
