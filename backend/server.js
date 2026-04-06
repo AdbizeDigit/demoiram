@@ -2665,12 +2665,31 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       // Scroll to load more connections
       for (let i = 0; i < 6; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1500) }
 
-      // Find all "Enviar mensaje" buttons on the connections page and extract info
+      // Debug: log what buttons exist on the page
+      const debugBtns = await page.evaluate(() => {
+        const btns = [...document.querySelectorAll('button')].filter(b => b.offsetWidth > 0)
+        const unique = new Map()
+        for (const b of btns) {
+          const t = (b.innerText?.trim() || '').slice(0, 30)
+          const label = (b.getAttribute('aria-label') || '').slice(0, 40)
+          const key = t || label
+          if (key && !unique.has(key)) unique.set(key, { text: t, label, count: 1 })
+          else if (key) unique.get(key).count++
+        }
+        return [...unique.values()].filter(b => b.count >= 2 || b.text.toLowerCase().includes('mensaje') || b.text.toLowerCase().includes('message') || b.label.toLowerCase().includes('mensaje')).slice(0, 15)
+      })
+      liLog(pid, `Botones en pagina: ${JSON.stringify(debugBtns).slice(0, 400)}`, 'info', 'connection')
+
+      // Find all message buttons - check both innerText AND aria-label
       const connections = await page.evaluate(() => {
-        const msgButtons = [...document.querySelectorAll('button')]
+        const msgButtons = [...document.querySelectorAll('button, a[role="button"], a')]
           .filter(b => {
             const t = (b.innerText?.trim() || '').toLowerCase()
-            return (t === 'enviar mensaje' || t === 'message' || t === 'send message') && b.offsetWidth > 0
+            const label = (b.getAttribute('aria-label') || '').toLowerCase()
+            return (t === 'enviar mensaje' || t === 'message' || t === 'send message' ||
+                    label.includes('enviar mensaje') || label.includes('send message') ||
+                    label.includes('message')) && b.offsetWidth > 0 &&
+                   !label.includes('new message') && !label.includes('nuevo mensaje')
           })
         return msgButtons.map((btn, idx) => {
           const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
