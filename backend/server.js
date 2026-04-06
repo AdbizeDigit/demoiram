@@ -318,7 +318,7 @@ function isBusinessHours() {
   const now = new Date()
   const hour = now.getUTCHours() - 3 // Argentina UTC-3
   const day = now.getUTCDay()
-  return day >= 1 && day <= 5 && hour >= 9 && hour <= 19
+  return day >= 1 && day <= 5 && hour >= 8 && hour <= 19
 }
 
 app.post('/api/autoplay/start', async (req, res) => {
@@ -348,7 +348,7 @@ app.post('/api/autoplay/start', async (req, res) => {
 
     // Wait for business hours if needed
     if (!isBusinessHours()) {
-      autoPlayState.current = 'Esperando horario laboral (9-19hs)...'
+      autoPlayState.current = 'Esperando horario laboral (8-19hs)...'
       while (!isBusinessHours() && autoPlayState.running) {
         await new Promise(r => setTimeout(r, 60000))
       }
