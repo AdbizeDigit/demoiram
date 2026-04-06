@@ -2706,77 +2706,39 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         try {
           liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] ${conn.name}...`, 'info', 'connection')
 
-          // Click "Mostrar más acciones" button to open dropdown
-          const menuOpened = await page.evaluate((targetIdx) => {
-            const actionBtns = [...document.querySelectorAll('button')]
-              .filter(b => {
-                const label = (b.getAttribute('aria-label') || '').toLowerCase()
-                return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
-              })
-            if (actionBtns[targetIdx]) { actionBtns[targetIdx].click(); return true }
-            return false
-          }, conn.idx)
+          // Navigate directly to messaging page for this connection
+          if (!conn.slug) { liLog(pid, `Sin slug para ${conn.name}, saltando`, 'error', 'connection'); continue }
 
-          if (!menuOpened) { liLog(pid, `No se pudo abrir menu #${conn.idx}`, 'error', 'connection'); continue }
-          await sleep(1500 + Math.random() * 1000)
-
-          // Click "Enviar mensaje" / "Message" in the dropdown
-          const msgClicked = await page.evaluate(() => {
-            const items = [...document.querySelectorAll('[role="menuitem"], [class*="dropdown"] li, [class*="dropdown"] a, [class*="dropdown"] button, [class*="artdeco-dropdown"] span')]
-            const msgItem = items.find(el => {
-              const t = (el.innerText?.trim() || '').toLowerCase()
-              return t.includes('enviar mensaje') || t.includes('message') || t === 'mensaje'
-            })
-            if (msgItem) { msgItem.click(); return true }
-            // Fallback: click any visible link/button with "mensaje"
-            const allEls = [...document.querySelectorAll('a, button, span, div[role="menuitem"]')]
-            const fb = allEls.find(el => {
-              const t = (el.innerText?.trim() || '').toLowerCase()
-              return (t === 'enviar mensaje' || t === 'message') && el.offsetWidth > 0
-            })
-            if (fb) { fb.click(); return true }
-            return false
+          // Navigate to LinkedIn messaging thread for this person
+          await page.goto(`https://www.linkedin.com/messaging/thread/new/?recipient=${conn.slug}`, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(async () => {
+            // Fallback: try compose URL
+            await page.goto(`https://www.linkedin.com/messaging/compose/?connId=${conn.slug}`, { waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {})
           })
+          await sleep(3000 + Math.random() * 2000)
 
-          if (!msgClicked) {
-            liLog(pid, `"Enviar mensaje" no encontrado en dropdown para ${conn.name}`, 'error', 'connection')
-            await page.keyboard.press('Escape').catch(() => {})
-            await sleep(1000)
-            continue
-          }
-          await sleep(2500 + Math.random() * 1500)
-
-          // Wait for messaging overlay/panel to appear (bottom-right chat bubble)
-          let msgState = { hasOverlay: false }
+          // Wait for message input to appear
+          let msgInput = null
           for (let attempt = 0; attempt < 4; attempt++) {
-            msgState = await page.evaluate(() => {
-              // LinkedIn messaging appears as overlay bubbles at bottom, or as a compose form
-              const overlays = document.querySelectorAll('.msg-overlay-conversation-bubble, [class*="msg-overlay-conversation"], [class*="msg-convo-wrapper"]')
-              // Also check for any contenteditable that appeared (message input)
-              const anyInput = document.querySelector('.msg-form__contenteditable div[contenteditable="true"]')
-              const hasOverlay = overlays.length > 0 || !!anyInput
-              if (!hasOverlay) return { hasOverlay: false }
-
-              // Find the active/visible overlay
-              const activeOverlay = [...overlays].find(o => o.offsetWidth > 0) || (anyInput ? anyInput.closest('.msg-overlay-conversation-bubble, [class*="msg-convo"]') : null)
-              const thread = activeOverlay?.querySelector('.msg-s-message-list, [class*="msg-thread"]')
-              const groups = thread ? [...thread.querySelectorAll('.msg-s-message-group, [class*="message-group"]')] : []
-
-              return { hasOverlay: true, hasExisting: groups.length > 0, hasInput: !!anyInput }
-            })
-            if (msgState.hasOverlay) break
+            msgInput = await page.$('.msg-form__contenteditable div[contenteditable="true"], div[contenteditable="true"][role="textbox"]')
+            if (msgInput) break
             await sleep(1500)
           }
 
-          if (!msgState.hasOverlay) { liLog(pid, `Overlay no se abrio para ${conn.name}`, 'error', 'connection'); continue }
+          if (!msgInput) {
+            // Maybe we're on the messaging page but with different selectors
+            msgInput = await page.$('div[contenteditable="true"]')
+          }
 
-          if (msgState.hasExisting) {
+          if (!msgInput) { liLog(pid, `Input de mensaje no encontrado para ${conn.name}`, 'error', 'connection'); continue }
+
+          // Check if there are existing messages in the conversation
+          const hasExisting = await page.evaluate(() => {
+            const msgs = document.querySelectorAll('.msg-s-message-group, [class*="msg-s-event-listitem"], .msg-s-event-listitem')
+            return msgs.length > 0
+          })
+
+          if (hasExisting) {
             liLog(pid, `${conn.name} ya tiene conversacion, saltando`, 'info', 'connection')
-            await page.evaluate(() => {
-              const btn = [...document.querySelectorAll('.msg-overlay-conversation-bubble button')].find(b => (b.getAttribute('aria-label') || '').toLowerCase().includes('cierra'))
-              if (btn) btn.click()
-            })
-            await sleep(1000)
             if (conn.url) await pool.query(`INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, followup_sent, status) VALUES ($1,$2,$3,$4,true,'accepted') ON CONFLICT DO NOTHING`, [pid, conn.url, conn.name, conn.headline])
             continue
           }
@@ -2798,8 +2760,7 @@ Responde UNICAMENTE con el mensaje.`
           )
           const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 300)
 
-          // Type in the message input
-          const msgInput = await page.$('.msg-form__contenteditable div[contenteditable="true"]') || await page.$('div[contenteditable="true"]')
+          // Type in the message input (msgInput already found above)
           if (msgInput) {
             await msgInput.click()
             await sleep(500)
@@ -2831,18 +2792,12 @@ Responde UNICAMENTE con el mensaje.`
             liLog(pid, `Input mensaje no encontrado para ${conn.name}`, 'error', 'connection')
           }
 
-          // Close overlay
-          await page.evaluate(() => {
-            const btn = [...document.querySelectorAll('.msg-overlay-conversation-bubble button')].find(b => (b.getAttribute('aria-label') || '').toLowerCase().includes('cierra'))
-            if (btn) btn.click()
-          }).catch(() => {})
-          await sleep(1500)
-          await sleep(4000 + Math.random() * 5000) // anti-ban
+          // Anti-ban delay between messages
+          await sleep(4000 + Math.random() * 5000)
 
         } catch (connErr) {
           liLog(pid, `Error con ${conn.name}: ${connErr.message?.slice(0, 60)}`, 'error', 'connection')
-          await page.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => (b.getAttribute('aria-label') || '').includes('Cierra')); if (b) b.click() }).catch(() => {})
-          await sleep(1000)
+          await sleep(2000)
         }
       }
 
