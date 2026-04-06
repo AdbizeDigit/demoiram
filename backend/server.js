@@ -2746,16 +2746,27 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
           }
           await sleep(2500 + Math.random() * 1500)
 
-          // Check if messaging overlay opened and has existing messages
-          const msgState = await page.evaluate(() => {
-            const overlay = document.querySelector('.msg-overlay-conversation-bubble, [class*="msg-overlay"]')
-            if (!overlay) return { hasOverlay: false }
-            const thread = overlay.querySelector('.msg-s-message-list, [class*="msg-thread"]')
-            const groups = thread ? [...thread.querySelectorAll('.msg-s-message-group, [class*="message-group"]')] : []
-            const hasExisting = groups.length > 0
-            const input = overlay.querySelector('.msg-form__contenteditable div[contenteditable="true"], div[contenteditable="true"]')
-            return { hasOverlay: true, hasExisting, hasInput: !!input }
-          })
+          // Wait for messaging overlay/panel to appear (bottom-right chat bubble)
+          let msgState = { hasOverlay: false }
+          for (let attempt = 0; attempt < 4; attempt++) {
+            msgState = await page.evaluate(() => {
+              // LinkedIn messaging appears as overlay bubbles at bottom, or as a compose form
+              const overlays = document.querySelectorAll('.msg-overlay-conversation-bubble, [class*="msg-overlay-conversation"], [class*="msg-convo-wrapper"]')
+              // Also check for any contenteditable that appeared (message input)
+              const anyInput = document.querySelector('.msg-form__contenteditable div[contenteditable="true"]')
+              const hasOverlay = overlays.length > 0 || !!anyInput
+              if (!hasOverlay) return { hasOverlay: false }
+
+              // Find the active/visible overlay
+              const activeOverlay = [...overlays].find(o => o.offsetWidth > 0) || (anyInput ? anyInput.closest('.msg-overlay-conversation-bubble, [class*="msg-convo"]') : null)
+              const thread = activeOverlay?.querySelector('.msg-s-message-list, [class*="msg-thread"]')
+              const groups = thread ? [...thread.querySelectorAll('.msg-s-message-group, [class*="message-group"]')] : []
+
+              return { hasOverlay: true, hasExisting: groups.length > 0, hasInput: !!anyInput }
+            })
+            if (msgState.hasOverlay) break
+            await sleep(1500)
+          }
 
           if (!msgState.hasOverlay) { liLog(pid, `Overlay no se abrio para ${conn.name}`, 'error', 'connection'); continue }
 
