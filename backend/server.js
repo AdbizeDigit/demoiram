@@ -731,6 +731,25 @@ import('./config/database.js').then(({ pool }) => {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).catch(() => {})
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS linkedin_connections (
+      id SERIAL PRIMARY KEY,
+      profile_id UUID REFERENCES linkedin_profiles(id) ON DELETE CASCADE,
+      linkedin_url TEXT NOT NULL,
+      name VARCHAR(255),
+      headline TEXT,
+      company VARCHAR(255),
+      location VARCHAR(255),
+      note_sent TEXT,
+      status VARCHAR(30) DEFAULT 'pending',
+      followup_sent BOOLEAN DEFAULT false,
+      followup_message TEXT,
+      followup_at TIMESTAMPTZ,
+      connected_at TIMESTAMPTZ DEFAULT NOW(),
+      accepted_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {})
 })
 
 // Scheduler: check every minute for posts to publish
@@ -1750,6 +1769,152 @@ app.post('/api/linkedin-profiles/:id/automation/start', async (req, res) => {
         }
         liLog(pid, 'Conectado a LinkedIn', 'success')
 
+        // ── Check accepted connections & send follow-up messages ──
+        try {
+          liLog(pid, 'Revisando conexiones aceptadas...', 'info', 'connection')
+          const pendingConns = await pool.query(
+            "SELECT * FROM linkedin_connections WHERE profile_id = $1 AND status = 'pending' ORDER BY created_at DESC LIMIT 50",
+            [pid]
+          )
+
+          if (pendingConns.rows.length > 0) {
+            const session = linkedinBrowser.sessions.get(pid)
+            const page = session?.page
+            if (page) {
+              // Visit My Network connections page to find accepted connections
+              await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+              await sleep(3000 + Math.random() * 2000)
+
+              // Extract recently connected profile URLs
+              const recentConnections = await page.evaluate(() => {
+                const links = [...document.querySelectorAll('a[href*="/in/"]')]
+                return links
+                  .map(a => {
+                    const href = (a.href || '').split('?')[0].replace(/\/$/, '')
+                    const slug = href.match(/\/in\/([^/]+)/)?.[1]
+                    return slug ? { url: href, slug } : null
+                  })
+                  .filter(Boolean)
+                  .filter((v, i, arr) => arr.findIndex(a => a.slug === v.slug) === i)
+              })
+
+              liLog(pid, `Encontradas ${recentConnections.length} conexiones recientes en la pagina`, 'info', 'connection')
+
+              // Match pending connections with accepted ones
+              let acceptedCount = 0
+              for (const pending of pendingConns.rows) {
+                const pendingSlug = pending.linkedin_url.match(/\/in\/([^/]+)/)?.[1]?.toLowerCase()
+                if (!pendingSlug) continue
+
+                const found = recentConnections.find(c => c.slug.toLowerCase() === pendingSlug)
+                if (found) {
+                  await pool.query(
+                    "UPDATE linkedin_connections SET status = 'accepted', accepted_at = NOW() WHERE id = $1",
+                    [pending.id]
+                  )
+                  acceptedCount++
+                  liLog(pid, `${pending.name} acepto la conexion!`, 'success', 'connection')
+
+                  // Send follow-up message if not sent yet
+                  if (!pending.followup_sent) {
+                    try {
+                      const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
+                      const senderName = p?.avatar_name || p?.name || 'profesional'
+                      const senderCompany = p?.avatar_company || 'Adbize'
+
+                      const followupMsg = await aiGen(
+                        `CONTEXTO: Sos ${senderName} de ${senderCompany}. ${pending.name} acepto tu invitacion de LinkedIn.
+Tu nota de conexion fue: "${(pending.note_sent || '').slice(0, 200)}"
+Cargo: ${pending.headline || 'no disponible'}
+Empresa: ${pending.company || 'no disponible'}
+
+Genera un mensaje de seguimiento corto para LinkedIn. Debe:
+1. Agradecer por conectar (breve)
+2. Continuar el tema de la nota de conexion
+3. Ofrecer algo de valor concreto (demo, contenido, caso de exito)
+4. Cerrar con pregunta abierta para generar respuesta
+
+Max 300 chars. Español argentino. Tono cercano y profesional. Sin emojis. Sin comillas.
+Responde UNICAMENTE con el mensaje.`
+                      )
+
+                      const cleanMsg = followupMsg.trim().replace(/^["']|["']$/g, '').slice(0, 300)
+
+                      // Navigate to profile and send message
+                      await page.goto(pending.linkedin_url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
+                      await sleep(2000 + Math.random() * 1500)
+
+                      // Click "Message/Mensaje" button
+                      const msgClicked = await page.evaluate(() => {
+                        const btns = [...document.querySelectorAll('main button, .pv-top-card button, button')]
+                        const msgBtn = btns.find(b => {
+                          const t = (b.innerText?.trim() || '').toLowerCase()
+                          const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                          return t.includes('message') || t.includes('mensaje') || t === 'enviar mensaje' ||
+                                 label.includes('message') || label.includes('mensaje')
+                        })
+                        if (msgBtn) { msgBtn.click(); return true }
+                        return false
+                      })
+
+                      if (msgClicked) {
+                        await sleep(2500 + Math.random() * 1500)
+                        // Find message input and type
+                        const msgInput = await page.$('[role="dialog"] div[contenteditable="true"], .msg-form__contenteditable div[contenteditable="true"], div[contenteditable="true"][data-artdeco-is-focused]')
+                          || await page.$('div[contenteditable="true"]')
+                        if (msgInput) {
+                          await msgInput.click()
+                          await sleep(500)
+                          await msgInput.type(cleanMsg, { delay: 25 + Math.random() * 30 })
+                          await sleep(1000 + Math.random() * 500)
+
+                          // Click Send
+                          const sent = await page.evaluate(() => {
+                            const btns = [...document.querySelectorAll('button, [role="button"]')]
+                            const sendBtn = btns.find(b => {
+                              const t = (b.innerText?.trim() || '').toLowerCase()
+                              const label = (b.getAttribute('aria-label') || '').toLowerCase()
+                              return (t === 'send' || t === 'enviar' || label.includes('send') || label.includes('enviar')) &&
+                                     b.offsetWidth > 0
+                            })
+                            if (sendBtn) { sendBtn.click(); return true }
+                            return false
+                          })
+
+                          if (sent) {
+                            await pool.query(
+                              "UPDATE linkedin_connections SET followup_sent = true, followup_message = $1, followup_at = NOW() WHERE id = $2",
+                              [cleanMsg, pending.id]
+                            )
+                            liLog(pid, `Follow-up enviado a ${pending.name}: "${cleanMsg.slice(0, 60)}..."`, 'success', 'connection')
+                            await sleep(3000 + Math.random() * 3000) // Delay between messages
+                          } else {
+                            liLog(pid, `No se pudo enviar follow-up a ${pending.name} (boton Send no encontrado)`, 'error', 'connection')
+                          }
+                        } else {
+                          liLog(pid, `No se encontro input de mensaje para ${pending.name}`, 'error', 'connection')
+                        }
+                        // Close message dialog
+                        await page.keyboard.press('Escape').catch(() => {})
+                        await sleep(1000)
+                      } else {
+                        liLog(pid, `No se encontro boton Mensaje para ${pending.name}`, 'error', 'connection')
+                      }
+                    } catch (fuErr) {
+                      liLog(pid, `Error follow-up a ${pending.name}: ${fuErr.message?.slice(0, 60)}`, 'error', 'connection')
+                    }
+                  }
+                }
+              }
+              liLog(pid, `Conexiones aceptadas: ${acceptedCount} de ${pendingConns.rows.length} pendientes`, 'info', 'connection')
+            }
+          } else {
+            liLog(pid, 'No hay conexiones pendientes para revisar', 'info', 'connection')
+          }
+        } catch (checkErr) {
+          liLog(pid, `Error revisando conexiones: ${checkErr.message?.slice(0, 80)}`, 'error', 'connection')
+        }
+
         const cfg = config || {}
         const defaultTopics = [
           'como la IA esta transformando la atencion al cliente',
@@ -2528,6 +2693,19 @@ Responde UNICAMENTE con el mensaje.`
                     const withNote = textarea ? 'con nota personalizada' : 'sin nota'
                     liLog(pid, `Conexion enviada a ${actualName} ${withNote}!`, 'success', 'connection')
                     noteSent = true
+
+                    // Save connection to DB
+                    try {
+                      const { pool: dbPool } = await import('./config/database.js')
+                      await dbPool.query(
+                        `INSERT INTO linkedin_connections (profile_id, linkedin_url, name, headline, company, location, note_sent, status)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+                         ON CONFLICT DO NOTHING`,
+                        [pid, cleanProfileUrl, actualName, actualHeadline, company || '', location || '', aiNote || '']
+                      )
+                    } catch (dbErr) {
+                      liLog(pid, `Error guardando conexion en DB: ${dbErr.message?.slice(0, 60)}`, 'error', 'connection')
+                    }
                   } else {
                     liLog(pid, `No se encontro boton Send para ${actualName}`, 'error', 'connection')
                   }
