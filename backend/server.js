@@ -2748,40 +2748,58 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         if (sent >= maxMessages) break
 
         try {
-          liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] Visitando ${conn.name}...`, 'info', 'connection')
+          liLog(pid, `[${sent + 1}/${Math.min(toMessage.length, maxMessages)}] Visitando ${conn.name} (${conn.slug})...`, 'info', 'connection')
 
           // Visit the profile
           await page.goto(conn.url, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-          await sleep(2500 + Math.random() * 1500)
+          // Wait for profile to render
+          try {
+            await page.waitForFunction(
+              () => { const h1 = document.querySelector('h1'); return h1 && h1.innerText.trim().length > 0 },
+              { timeout: 10000 }
+            )
+          } catch { await sleep(4000) }
+          await sleep(1500 + Math.random() * 1000)
 
-          // Get actual profile info from the page
+          // Verify we're on the right page
+          const navUrl = await page.url()
           const profileInfo = await page.evaluate(() => {
             const h1 = document.querySelector('h1')?.innerText?.trim() || ''
             const headline = document.querySelector('.text-body-medium, [data-generated-suggestion-target]')?.innerText?.trim() || ''
             const company = headline.match(/(?:en|at|@)\s+(.+?)(?:\s*\||$)/i)?.[1]?.trim() || ''
-            return { name: h1, headline, company }
+            // Debug: list visible buttons in main area
+            const mainBtns = [...document.querySelectorAll('main button, .pv-top-card button, section button')]
+              .filter(b => b.offsetWidth > 0)
+              .slice(0, 8)
+              .map(b => (b.innerText?.trim() || b.getAttribute('aria-label') || '?').slice(0, 25))
+            return { name: h1, headline, company, mainBtns }
           })
 
           const actualName = profileInfo.name || conn.name
           const actualHeadline = profileInfo.headline || conn.headline
+          liLog(pid, `Perfil: ${actualName}, btns: ${profileInfo.mainBtns.join(' | ')}`, 'info', 'connection')
 
-          // Click Message/Mensaje button
+          // Click Message/Mensaje button - search broadly
           const msgClicked = await page.evaluate(() => {
-            const btns = [...document.querySelectorAll('main button, .pv-top-card button, section button, button')]
+            const btns = [...document.querySelectorAll('button, [role="button"]')]
+              .filter(b => b.offsetWidth > 0 && b.offsetHeight > 0)
             const msgBtn = btns.find(b => {
               const t = (b.innerText?.trim() || '').toLowerCase()
               const label = (b.getAttribute('aria-label') || '').toLowerCase()
-              return (t.includes('message') || t.includes('mensaje') || t === 'enviar mensaje' ||
-                      label.includes('message') || label.includes('mensaje')) && b.offsetWidth > 0
+              const combined = t + ' ' + label
+              return (combined.includes('message') || combined.includes('mensaje') ||
+                      combined.includes('enviar mensaje') || combined.includes('send a message')) &&
+                     !combined.includes('inmessage')
             })
-            if (msgBtn) { msgBtn.click(); return true }
-            return false
+            if (msgBtn) { msgBtn.click(); return { clicked: true, text: msgBtn.innerText?.trim()?.slice(0, 30) } }
+            return { clicked: false }
           })
 
-          if (!msgClicked) {
-            liLog(pid, `No se encontro boton Mensaje para ${actualName}, saltando`, 'info', 'connection')
+          if (!msgClicked.clicked) {
+            liLog(pid, `No boton Mensaje para ${actualName} (${navUrl.split('/in/')[1]?.split('/')[0] || '?'})`, 'info', 'connection')
             continue
           }
+          liLog(pid, `Click en "${msgClicked.text}" para ${actualName}`, 'info', 'connection')
 
           await sleep(2500 + Math.random() * 1500)
 
