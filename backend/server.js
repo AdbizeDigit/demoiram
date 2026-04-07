@@ -2474,8 +2474,7 @@ Responde UNICAMENTE con el comentario.`
                     const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
                     const senderCompany = p?.avatar_company || 'Adbize'
                     const aiResp = await analyzeWithDeepSeek(
-                      `CONTEXTO: Sos ${senderName}, ${senderRole} en ${senderCompany}.
-Adbize es una agencia argentina de publicidad digital que usa IA para automatizar marketing, generar leads y escalar ventas.
+                      `Sos ${senderName}, ${senderRole} en ${senderCompany}, agencia argentina que aplica IA real (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas de negocio especificos.
 
 PERSONA OBJETIVO:
 - Nombre: ${actualName}
@@ -2483,16 +2482,33 @@ PERSONA OBJETIVO:
 ${company ? `- Empresa: ${company}` : ''}
 ${location ? `- Ubicacion: ${location}` : ''}
 ${summary ? `- Info adicional: ${summary}` : ''}
-- Perfil: ${actualRoleContext}
 
-ESTRATEGIA: ${strategy.name} - ${strategy.instruction}
+INSTRUCCIONES:
+1. Analizá el rol y rubro del headline
+2. Pensá UN problema concreto que tiene ese rol diariamente
+3. Mencioná UNA aplicacion de IA ESPECIFICA con la tecnologia adecuada (LLM, ML, vision, etc).
+   Ejemplos por rol:
+   - Contable/Finanzas: agente LLM que lee facturas y concilia, ML para deteccion de anomalias en gastos
+   - Ventas: agente que califica leads con LLM, prediccion de churn con ML
+   - Marketing: generacion de creatividades con IA, segmentacion con ML, optimizacion de campañas
+   - RRHH: screening de CVs con LLM, prediccion de rotacion
+   - Logistica/Ops: vision artificial para inventario, ruteo optimizado con ML
+   - Industria: vision artificial para QA, mantenimiento predictivo
+   - Retail/Ecommerce: recomendador con ML, vision en checkout
+   - Salud: vision artificial para diagnostico, NLP para historiales
+   - Legal: LLM que resume contratos, busqueda semantica
+   - Tech: copilot para codigo, RAG sobre documentacion, agentes autonomos
+   - Educacion: tutor IA personalizado, correccion automatica
+   - Inmobiliaria: vision artificial para tasaciones, chatbot de leads
+   - Gastronomia: prediccion de demanda, optimizacion de menus
 
-PERSUASION: Especificidad (menciona cargo/empresa), reciprocidad (ofrece valor), prueba social, curiosidad.
-${actualIsCLevel ? 'C-Level: habla de revenue, eficiencia, ventaja competitiva.' : ''}
-${actualIsSales ? 'Ventas: habla de generar leads o cerrar mas rapido.' : ''}
-${actualIsMarketing ? 'Marketing: habla de automatizar campañas o mejorar ROI.' : ''}
+ESTRATEGIA elegida: ${strategy.name} - ${strategy.instruction}
 
-FORMATO: Max 280 chars. Empieza con "Hola ${actualName.split(' ')[0]}!". ${actualToneGuide} NO emojis. NO comillas. 100% humano. JAMAS "vi tu perfil y me parecio interesante".
+FORMATO: Max 280 chars. Empieza con "Hola ${actualName.split(' ')[0]}!". ${actualToneGuide}
+- NO emojis, NO comillas, NO "vi tu perfil"
+- SE ESPECIFICO con la tecnologia (LLM, ML, vision artificial, agentes, RAG, etc) - no digas solo "IA"
+- Mencioná un caso concreto de su rubro
+- 100% humano, no vendedor
 
 Responde UNICAMENTE con el mensaje.`
                     )
@@ -2933,22 +2949,42 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
             continue
           }
 
-          // Generate AI message
+          // Generate AI message - personalized by role with specific AI use cases
           const aiMsg = await aiGen(
-            `CONTEXTO: Sos ${senderName} de ${senderCompany}. Estas conectado con ${conn.name} en LinkedIn.
-Cargo: ${conn.headline || 'no disponible'}
+            `Sos ${senderName} de ${senderCompany}, agencia que aplica IA real (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas de negocio especificos.
 
-Genera un primer mensaje corto para LinkedIn DM. Debe:
-1. Saludar con nombre de pila
-2. Referencia especifica a su cargo si lo tiene
-3. Mencionar que en ${senderCompany} trabajan con IA/publicidad digital
-4. Ofrecer valor concreto (demo, contenido, caso de exito)
-5. Pregunta abierta para generar respuesta
+Estas conectado con ${conn.name} en LinkedIn. Su cargo/headline: "${conn.headline || 'no disponible'}"
 
-Max 300 chars. Español argentino. Cercano profesional. Sin emojis. Sin comillas.
+INSTRUCCIONES:
+1. Analiza su rol y rubro REAL del headline
+2. Pensa que problema concreto tiene ese rol diariamente
+3. Proponé UNA aplicacion de IA ESPECIFICA para su problema. Ejemplos por rol:
+   - Contable/Finanzas: agente LLM que lee facturas y concilia automaticamente, ML para deteccion de anomalias en gastos, automatizacion de cierre contable
+   - Ventas/Comercial: agente que califica leads con LLM, prediccion de churn con ML, asistente que prepara propuestas
+   - Marketing: generacion de creatividades con IA, segmentacion con ML, optimizacion automatica de campañas
+   - RRHH: screening de CVs con LLM, prediccion de rotacion, chatbot de onboarding
+   - Logistica/Operaciones: vision artificial para inventario, ruteo optimizado con ML, prediccion de demanda
+   - Industria/Manufactura: vision artificial para QA, mantenimiento predictivo, optimizacion de producción
+   - Retail/Ecommerce: recomendador con ML, vision artificial para checkout, chatbot de soporte
+   - Salud: vision artificial para diagnostico, NLP para historiales, agendamiento inteligente
+   - Legal: LLM que resume contratos, busqueda semantica de jurisprudencia, redaccion asistida
+   - Tech/Software: copilot para codigo, RAG sobre documentacion, agentes autonomos
+   - Educacion: tutor IA personalizado, correccion automatica, generacion de contenido
+   - Inmobiliaria: vision artificial para tasaciones, chatbot de leads, ML para precios
+   - Gastronomia: prediccion de demanda, optimizacion de menus, vision para inventario
+   - Si no podes deducir el rubro, hablá de un caso generico potente
+
+FORMATO DEL MENSAJE:
+- Saludá con su nombre de pila
+- Mencioná su rol especifico (1 frase)
+- Proponé tu caso de IA concreto (1-2 frases) - SE ESPECIFICO con la tecnologia (LLM, ML, vision, etc)
+- Cerrá con pregunta corta
+
+Max 350 chars. Español argentino natural. Cercano y profesional. Sin emojis. Sin comillas. Sin "vi tu perfil". Tono humano, no vendedor.
+
 Responde UNICAMENTE con el mensaje.`
           )
-          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 300)
+          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 350)
 
           // Type in the message input (msgInput already found above)
           if (msgInput) {
