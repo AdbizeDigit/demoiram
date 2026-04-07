@@ -697,6 +697,32 @@ app.get('/api/email-daily-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// Sync lead statuses based on outreach_messages: any lead in NUEVO that has a SENT message → CONTACTADO
+app.post('/api/leads/sync-status', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    // Move NUEVO → CONTACTADO if there's any SENT message for the lead
+    const contacted = await pool.query(`
+      UPDATE leads SET status = 'CONTACTADO'
+      WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')
+        AND id IN (
+          SELECT DISTINCT lead_id FROM outreach_messages
+          WHERE lead_id IS NOT NULL AND UPPER(status) = 'SENT'
+        )
+    `)
+    // Move CONTACTADO → EN_CONVERSACION if there's a REPLIED message
+    const conversation = await pool.query(`
+      UPDATE leads SET status = 'EN_CONVERSACION'
+      WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING', 'CONTACTADO', 'CONTACTED')
+        AND id IN (
+          SELECT DISTINCT lead_id FROM outreach_messages
+          WHERE lead_id IS NOT NULL AND UPPER(status) = 'REPLIED'
+        )
+    `)
+    res.json({ success: true, contactado: contacted.rowCount, en_conversacion: conversation.rowCount })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // ── LinkedIn Profiles ─────────────────────────────────────────────────────────
 import('./config/database.js').then(({ pool }) => {
   pool.query(`

@@ -264,6 +264,14 @@ router.post('/email/send-direct', async (req, res) => {
       [leadId || null, subject, wrappedBody]
     );
 
+    // Move lead to CONTACTADO if it was NUEVO/NEW (don't override later stages)
+    if (leadId) {
+      await pool.query(
+        "UPDATE leads SET status = 'CONTACTADO' WHERE id = $1 AND UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')",
+        [leadId]
+      ).catch(() => {})
+    }
+
     res.json({ success: true, message: `Email enviado a ${email}` });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -436,6 +444,11 @@ router.post('/whatsapp/send-direct', async (req, res) => {
          VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW(), $3)`,
         [resolvedLeadId, message, result.wa_account_id]
       );
+      // Move lead to CONTACTADO if it was NUEVO
+      await pool.query(
+        "UPDATE leads SET status = 'CONTACTADO' WHERE id = $1 AND UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')",
+        [resolvedLeadId]
+      ).catch(() => {})
     }
 
     res.json({ success: true, message: 'Mensaje enviado por WhatsApp', result });
@@ -502,6 +515,11 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
       "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3)",
       [leadId, message, result.wa_account_id]
     );
+    // Move lead to CONTACTADO if it was NUEVO
+    await pool.query(
+      "UPDATE leads SET status = 'CONTACTADO' WHERE id = $1 AND UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')",
+      [leadId]
+    ).catch(() => {})
 
     // Auto-regenerate AI report after outreach
     import('../services/scraping/lead-report-service.js')

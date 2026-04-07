@@ -1018,6 +1018,8 @@ export default function PipelinePage() {
   const loadLeads = useCallback(async () => {
     setLoading(true)
     try {
+      // Sync statuses first: any lead with sent messages should be CONTACTADO, with replies → EN_CONVERSACION
+      try { await api.post('/api/leads/sync-status') } catch {}
       const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
       const data = res.data
       const raw = data.leads || data.data || (Array.isArray(data) ? data : [])
