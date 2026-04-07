@@ -697,6 +697,36 @@ app.get('/api/email-daily-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// Get pipeline stage counts directly from DB (for the 192k+ leads case)
+app.get('/api/leads/stage-counts', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT
+        UPPER(COALESCE(status, 'NUEVO')) as stage,
+        COUNT(*)::int as count
+      FROM leads
+      GROUP BY UPPER(COALESCE(status, 'NUEVO'))
+    `)
+    // Map status variants to canonical stages
+    const stages = { NUEVO: 0, CONTACTADO: 0, EN_CONVERSACION: 0, PROPUESTA: 0, NEGOCIACION: 0, GANADO: 0, PERDIDO: 0 }
+    let total = 0
+    for (const r of rows) {
+      total += r.count
+      const s = r.stage
+      if (['NUEVO', 'NEW', 'PENDING'].includes(s)) stages.NUEVO += r.count
+      else if (['CONTACTADO', 'CONTACTED'].includes(s)) stages.CONTACTADO += r.count
+      else if (['EN_CONVERSACION', 'IN_CONVERSATION', 'REPLIED'].includes(s)) stages.EN_CONVERSACION += r.count
+      else if (['PROPUESTA', 'PROPOSAL', 'PROPOSAL_SENT'].includes(s)) stages.PROPUESTA += r.count
+      else if (['NEGOCIACION', 'NEGOTIATION', 'NEGOTIATING'].includes(s)) stages.NEGOCIACION += r.count
+      else if (['GANADO', 'WON', 'CLOSED_WON'].includes(s)) stages.GANADO += r.count
+      else if (['PERDIDO', 'LOST', 'CLOSED_LOST'].includes(s)) stages.PERDIDO += r.count
+      else stages.NUEVO += r.count
+    }
+    res.json({ success: true, total, stages })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // Sync lead statuses based on outreach_messages and notifications
 app.post('/api/leads/sync-status', async (req, res) => {
   try {

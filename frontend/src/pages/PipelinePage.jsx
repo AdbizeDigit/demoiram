@@ -193,8 +193,9 @@ function LeadCard({ lead, stage, onOpenDetail, onMoveStage, onAutoContact }) {
 }
 
 // ─── Kanban Column ────────────────────────────────────────────────────────────
-function KanbanColumn({ stage, leads, onOpenDetail, onMoveStage, onAutoContact }) {
+function KanbanColumn({ stage, leads, totalCount, onOpenDetail, onMoveStage, onAutoContact }) {
   const totalValue = leads.reduce((sum, l) => sum + (l.value || 0), 0)
+  const displayCount = totalCount ?? leads.length
 
   return (
     <div className="flex-shrink-0 w-72 flex flex-col max-h-full">
@@ -205,12 +206,17 @@ function KanbanColumn({ stage, leads, onOpenDetail, onMoveStage, onAutoContact }
             <span className={`w-2.5 h-2.5 rounded-full ${stage.dot}`} />
             <h3 className="font-semibold text-sm text-gray-800">{stage.label}</h3>
           </div>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stage.badge}`}>{leads.length}</span>
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stage.badge}`}>{displayCount.toLocaleString()}</span>
         </div>
         {totalValue > 0 && (
           <p className="text-[11px] text-gray-400 ml-[18px]">{formatCurrency(totalValue)}</p>
         )}
-        <p className="text-[10px] text-gray-400 ml-[18px] mt-0.5">{stage.desc}</p>
+        <p className="text-[10px] text-gray-400 ml-[18px] mt-0.5">
+          {stage.desc}
+          {totalCount && totalCount > leads.length && (
+            <span className="ml-1 text-gray-500"> · mostrando {leads.length} de {totalCount.toLocaleString()}</span>
+          )}
+        </p>
       </div>
 
       {/* Cards */}
@@ -1000,6 +1006,14 @@ export default function PipelinePage() {
   const [repliedLeads, setRepliedLeads] = useState([])
   const [waAccounts, setWaAccounts] = useState([])
   const [emailStats, setEmailStats] = useState(null)
+  const [stageCounts, setStageCounts] = useState(null)
+
+  const loadStageCounts = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/leads/stage-counts')
+      setStageCounts(data)
+    } catch {}
+  }, [])
 
   const loadWaAccounts = useCallback(async () => {
     try {
@@ -1020,7 +1034,10 @@ export default function PipelinePage() {
     try {
       // Sync statuses first: any lead with sent messages should be CONTACTADO, with replies → EN_CONVERSACION
       try { await api.post('/api/leads/sync-status') } catch {}
-      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
+      // Load real stage counts (for the totals shown in the header)
+      loadStageCounts()
+      // Bring 1000 leads max for the kanban view (we'll show the stage count badges from sql)
+      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 1000 } })
       const data = res.data
       const raw = data.leads || data.data || (Array.isArray(data) ? data : [])
       setLeads(raw.map(l => ({
@@ -1199,17 +1216,18 @@ export default function PipelinePage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Stats pills */}
+          {/* Stats pills - usa stageCounts (real desde DB) o cae al local */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-600">
-              <Users className="w-3 h-3" /> {stats.total} leads
+              <Users className="w-3 h-3" /> {(stageCounts?.total ?? stats.total).toLocaleString()} leads
             </span>
             {STAGES.slice(0, 6).map(s => {
-              const count = stageGroups[s.key]?.length || 0
+              const realCount = stageCounts?.stages?.[s.key]
+              const count = realCount ?? (stageGroups[s.key]?.length || 0)
               if (count === 0) return null
               return (
-                <span key={s.key} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${s.badge}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {count}
+                <span key={s.key} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${s.badge}`} title={s.label}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {count.toLocaleString()}
                 </span>
               )
             })}
@@ -1400,6 +1418,7 @@ export default function PipelinePage() {
                 key={stage.key}
                 stage={stage}
                 leads={stageGroups[stage.key] || []}
+                totalCount={stageCounts?.stages?.[stage.key]}
                 onOpenDetail={setDetailLead}
                 onMoveStage={handleMoveStage}
                 onAutoContact={setAutoContactLead}
