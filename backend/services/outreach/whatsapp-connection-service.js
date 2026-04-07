@@ -617,6 +617,65 @@ class WhatsAppMultiAccountManager {
     }
     return null;
   }
+
+  // Smart send: picks best account (connected + has capacity), sends, increments counter
+  async sendMessageRotating(phone, text, leadId = null) {
+    const { pool } = await import('../../config/database.js');
+
+    // Get all active accounts with remaining capacity, ordered by least used
+    const { rows: availableAccounts } = await pool.query(
+      "SELECT * FROM whatsapp_accounts WHERE is_active = true AND messages_today < daily_limit ORDER BY messages_today ASC"
+    );
+
+    // If lead was already contacted by an account, try to use that same one first
+    let chosenAccount = null;
+    if (leadId) {
+      const existing = await pool.query(
+        "SELECT DISTINCT wa_account_id FROM outreach_messages WHERE lead_id = $1 AND wa_account_id IS NOT NULL LIMIT 1",
+        [leadId]
+      );
+      if (existing.rows[0]?.wa_account_id) {
+        chosenAccount = availableAccounts.find(a => a.id === existing.rows[0].wa_account_id);
+      }
+    }
+
+    // Check main account capacity (it's virtual but hardcoded limit 30)
+    const mainHasCapacity = true; // main is always tried if others fail
+
+    // Try each available account in order
+    const candidates = [];
+    if (chosenAccount) candidates.push({ id: chosenAccount.id, name: chosenAccount.name });
+    for (const acc of availableAccounts) {
+      if (!chosenAccount || acc.id !== chosenAccount.id) candidates.push({ id: acc.id, name: acc.name });
+    }
+    // Always try main as final fallback
+    candidates.push({ id: 'main', name: 'Principal' });
+
+    for (const cand of candidates) {
+      const conn = this.getConnection(cand.id);
+      if (!conn || conn.connectionStatus !== 'connected') {
+        console.log(`[waManager] Skipping ${cand.name} (${cand.id}): not connected`);
+        continue;
+      }
+      try {
+        const result = await conn.sendMessage(phone, text, leadId);
+        console.log(`[waManager] Sent via ${cand.name} (${cand.id}) to ${phone}`);
+        // Increment counter for non-main accounts
+        if (cand.id !== 'main') {
+          await pool.query(
+            'UPDATE whatsapp_accounts SET messages_today = messages_today + 1, messages_total = messages_total + 1 WHERE id = $1',
+            [cand.id]
+          ).catch(() => {});
+        }
+        return { ...result, wa_account_id: cand.id === 'main' ? null : cand.id, account_name: cand.name };
+      } catch (err) {
+        console.error(`[waManager] Failed to send via ${cand.name}: ${err.message}`);
+        continue;
+      }
+    }
+
+    throw new Error('No hay cuentas WhatsApp disponibles con cupo (todas desconectadas o al limite)');
+  }
 }
 
 export const waManager = new WhatsAppMultiAccountManager();

@@ -388,15 +388,14 @@ app.post('/api/autoplay/start', async (req, res) => {
         if (phone) {
           try {
             const { default: waOutreach } = await import('./services/outreach/whatsapp-outreach-service.js')
-            const { default: waConn } = await import('./services/outreach/whatsapp-connection-service.js')
-            if (waConn.connectionStatus === 'connected') {
-              const msg = await waOutreach.generateMessage({ name: lead.name, sector: lead.sector, city: '' })
-              await waConn.sendMessage(phone, msg, lead.id)
-              await pool.query(
-                "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
-                [lead.id, msg]
-              )
-            }
+            const { waManager } = await import('./services/outreach/whatsapp-connection-service.js')
+            const msg = await waOutreach.generateMessage({ name: lead.name, sector: lead.sector, city: '' })
+            const result = await waManager.sendMessageRotating(phone, msg, lead.id)
+            await pool.query(
+              "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3)",
+              [lead.id, msg, result.wa_account_id]
+            )
+            console.log(`[AutoPlay] WA sent via ${result.account_name} to ${lead.name}`)
           } catch (e) { console.error('[AutoPlay] WA error:', e.message) }
         }
 
@@ -678,11 +677,12 @@ app.post('/api/whatsapp-accounts/:id/increment', async (req, res) => {
 app.get('/api/email-daily-stats', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    // Use Argentina timezone (UTC-3) for daily count
     const today = await pool.query(
-      "SELECT COUNT(*) as sent_today FROM outreach_messages WHERE channel = 'EMAIL' AND status = 'SENT' AND sent_at >= CURRENT_DATE"
+      "SELECT COUNT(*) as sent_today FROM outreach_messages WHERE UPPER(channel) = 'EMAIL' AND UPPER(status) = 'SENT' AND (sent_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = (NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date"
     )
     const total = await pool.query(
-      "SELECT COUNT(*) as sent_total FROM outreach_messages WHERE channel = 'EMAIL' AND status = 'SENT'"
+      "SELECT COUNT(*) as sent_total FROM outreach_messages WHERE UPPER(channel) = 'EMAIL' AND UPPER(status) = 'SENT'"
     )
     // Check if Brevo/SMTP is configured
     const hasBrevo = !!process.env.BREVO_API_KEY

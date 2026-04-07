@@ -417,10 +417,7 @@ router.post('/whatsapp/send-direct', async (req, res) => {
       return res.status(400).json({ success: false, error: 'phone y message son requeridos' });
     }
 
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    if (whatsappConnection.connectionStatus !== 'connected') {
-      return res.status(400).json({ success: false, error: 'WhatsApp no esta conectado. Conecta primero escaneando el QR.' });
-    }
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
     // Resolve leadId before sending so we can pass it
     let resolvedLeadId = leadId;
     if (!resolvedLeadId) {
@@ -431,13 +428,13 @@ router.post('/whatsapp/send-direct', async (req, res) => {
       );
       resolvedLeadId = leadRes.rows[0]?.id || null;
     }
-    const result = await whatsappConnection.sendMessage(phone, message, resolvedLeadId);
+    const result = await waManager.sendMessageRotating(phone, message, resolvedLeadId);
 
     if (resolvedLeadId) {
       await pool.query(
-        `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at)
-         VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW())`,
-        [resolvedLeadId, message]
+        `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id)
+         VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW(), $3)`,
+        [resolvedLeadId, message, result.wa_account_id]
       );
     }
 
@@ -496,14 +493,14 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
       message = await whatsappOutreachService.generateMessage(lead);
     }
 
-    // Send via connected WhatsApp
-    const { default: whatsappConnection } = await import('../services/outreach/whatsapp-connection-service.js');
-    const result = await whatsappConnection.sendMessage(phone, message, leadId);
+    // Send via waManager with account rotation
+    const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
+    const result = await waManager.sendMessageRotating(phone, message, leadId);
 
     // Save to outreach messages as SENT
     await pool.query(
-      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW())",
-      [leadId, message]
+      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3)",
+      [leadId, message, result.wa_account_id]
     );
 
     // Auto-regenerate AI report after outreach
