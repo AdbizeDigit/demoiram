@@ -688,11 +688,37 @@ class WhatsAppMultiAccountManager {
 
     console.log(`[waManager] Candidates (in order): ${candidates.map(c => `${c.name}(${c.today}/${c.limit})`).join(', ')}`);
 
-    // Try each candidate that's actually connected
+    // Try each candidate that's actually connected (auto-reconnect from PG auth if needed)
     for (const cand of candidates) {
-      const conn = this.getConnection(cand.id);
+      let conn = this.getConnection(cand.id);
+
+      // If no instance or not connected, try to (re)connect using stored PG auth state
       if (!conn || conn.connectionStatus !== 'connected') {
-        console.log(`[waManager] Skipping ${cand.name}: not connected`);
+        // For non-main accounts, check DB to see if it should be connected
+        if (cand.id !== 'main') {
+          const dbAcc = dbAccounts.find(a => a.id === cand.id);
+          if (dbAcc && dbAcc.status === 'connected') {
+            console.log(`[waManager] ${cand.name} marked connected in DB but no live instance, attempting reconnect...`);
+            try {
+              conn = this.getOrCreateConnection(cand.id);
+              if (conn.connectionStatus !== 'connected') {
+                conn.retryCount = 0;
+                await conn.connect(cand.id);
+                // Wait briefly for connection
+                for (let i = 0; i < 10; i++) {
+                  if (conn.connectionStatus === 'connected') break;
+                  await new Promise(r => setTimeout(r, 1000));
+                }
+              }
+            } catch (reErr) {
+              console.error(`[waManager] Reconnect ${cand.name} failed: ${reErr.message}`);
+            }
+          }
+        }
+      }
+
+      if (!conn || conn.connectionStatus !== 'connected') {
+        console.log(`[waManager] Skipping ${cand.name}: not connected (status=${conn?.connectionStatus || 'no-instance'})`);
         continue;
       }
       try {
