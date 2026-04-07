@@ -697,12 +697,13 @@ app.get('/api/email-daily-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-// Sync lead statuses based on outreach_messages: any lead in NUEVO that has a SENT message → CONTACTADO
+// Sync lead statuses based on outreach_messages and notifications
 app.post('/api/leads/sync-status', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
-    // Move NUEVO → CONTACTADO if there's any SENT message for the lead
-    const contacted = await pool.query(`
+
+    // 1) Move NUEVO → CONTACTADO if there's any SENT message linked by lead_id
+    const contacted1 = await pool.query(`
       UPDATE leads SET status = 'CONTACTADO'
       WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')
         AND id IN (
@@ -710,8 +711,26 @@ app.post('/api/leads/sync-status', async (req, res) => {
           WHERE lead_id IS NOT NULL AND UPPER(status) = 'SENT'
         )
     `)
-    // Move CONTACTADO → EN_CONVERSACION if there's a REPLIED message
-    const conversation = await pool.query(`
+
+    // 2) Match SENT messages without lead_id to leads via email body recipient hint or phone
+    //    (we use the notifications + jid map indirectly via phone matching on the leads table)
+    //    For email: we don't have recipient stored on outreach_messages reliably, skip
+    //    For WhatsApp: every outreach_message body has nothing useful, but the WhatsApp service
+    //    saves the JID in messageHistory in-memory only, so we can't recover those.
+
+    // 3) Move to CONTACTADO leads that have a notification of type 'whatsapp_reply' or 'email_reply'
+    //    (these always have a lead_id when the matcher succeeded)
+    const contactedNotif = await pool.query(`
+      UPDATE leads SET status = 'CONTACTADO'
+      WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING')
+        AND id IN (
+          SELECT DISTINCT lead_id FROM notifications
+          WHERE lead_id IS NOT NULL AND type IN ('whatsapp_reply', 'email_reply', 'new_contact')
+        )
+    `).catch(() => ({ rowCount: 0 }))
+
+    // 4) Move CONTACTADO → EN_CONVERSACION if there's a REPLIED outreach_message
+    const conversation1 = await pool.query(`
       UPDATE leads SET status = 'EN_CONVERSACION'
       WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING', 'CONTACTADO', 'CONTACTED')
         AND id IN (
@@ -719,7 +738,22 @@ app.post('/api/leads/sync-status', async (req, res) => {
           WHERE lead_id IS NOT NULL AND UPPER(status) = 'REPLIED'
         )
     `)
-    res.json({ success: true, contactado: contacted.rowCount, en_conversacion: conversation.rowCount })
+
+    // 5) Move CONTACTADO → EN_CONVERSACION if there's a notification of type 'whatsapp_reply'/'email_reply'
+    const conversation2 = await pool.query(`
+      UPDATE leads SET status = 'EN_CONVERSACION'
+      WHERE UPPER(COALESCE(status, 'NUEVO')) IN ('NUEVO', 'NEW', 'PENDING', 'CONTACTADO', 'CONTACTED')
+        AND id IN (
+          SELECT DISTINCT lead_id FROM notifications
+          WHERE lead_id IS NOT NULL AND type IN ('whatsapp_reply', 'email_reply')
+        )
+    `).catch(() => ({ rowCount: 0 }))
+
+    res.json({
+      success: true,
+      contactado: (contacted1.rowCount || 0) + (contactedNotif.rowCount || 0),
+      en_conversacion: (conversation1.rowCount || 0) + (conversation2.rowCount || 0)
+    })
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
