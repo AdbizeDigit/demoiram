@@ -2170,6 +2170,17 @@ Responde UNICAMENTE con el comentario.`
                     if (label) name = label.replace(/['']/g, "'").split(',')[0].trim() || name
                   }
 
+                  // Skip job seekers detected from card text (saves a profile visit)
+                  const fullCardText = (card?.innerText || '').toLowerCase()
+                  const jobSeekerKeywords = [
+                    'en busca de empleo', 'busco empleo', 'busco trabajo', 'open to work',
+                    'opentowork', 'busqueda laboral', 'búsqueda laboral', 'en busqueda de empleo',
+                    'en búsqueda de empleo', 'looking for work', 'mi primer empleo',
+                    'primer empleo it', 'trainee / junior', '#opentowork'
+                  ]
+                  const isJobSeeker = jobSeekerKeywords.some(k => fullCardText.includes(k))
+                  if (isJobSeeker) continue
+
                   results.push({
                     profileUrl,
                     name: name.slice(0, 80),
@@ -2257,18 +2268,39 @@ Responde UNICAMENTE con el comentario.`
                     continue
                   }
 
-                  // Extract name/headline from the profile page
+                  // Extract name/headline + check if profile is "looking for work" / job seeker
                   const profilePageInfo = await page.evaluate(() => {
                     const h1 = document.querySelector('h1')
                     const profileName = h1?.innerText?.trim() || ''
                     const headlineEl = document.querySelector('.text-body-medium, [data-generated-suggestion-target]')
                     const profileHeadline = headlineEl?.innerText?.trim() || ''
-                    return { profileName, profileHeadline }
+                    // Check full page text for job seeker indicators
+                    const fullText = (document.querySelector('main')?.innerText || document.body?.innerText || '').toLowerCase()
+                    const jobSeekerPatterns = [
+                      'en busca de empleo', 'busco empleo', 'busco trabajo', 'en búsqueda laboral', 'en busqueda laboral',
+                      'en búsqueda de empleo', 'open to work', 'opentowork', 'seeking opportunities', 'looking for work',
+                      'looking for a job', 'buscando trabajo', 'buscando empleo', 'disponible para trabajar',
+                      'mi primer empleo', 'primer empleo it', 'trainee / junior', 'búsqueda laboral activa',
+                      'actualmente busco', 'me encuentro buscando', '#opentowork', '#buscotrabajo'
+                    ]
+                    const isJobSeeker = jobSeekerPatterns.some(p => fullText.includes(p))
+                    // Also check photo frame overlay (green #OpenToWork ring)
+                    const hasOpenToWorkFrame = !!document.querySelector('[alt*="busca empleo" i], [alt*="open to work" i], [aria-label*="busca empleo" i]')
+                    return { profileName, profileHeadline, isJobSeeker: isJobSeeker || hasOpenToWorkFrame }
                   })
                   // Update name/headline if we got better data from the profile page
                   const actualName = profilePageInfo.profileName || searchName
                   const actualHeadline = profilePageInfo.profileHeadline || searchHeadline
                   liLog(pid, `Perfil: ${actualName} - ${actualHeadline.slice(0, 80)}`, 'info', 'connection')
+
+                  // Skip job seekers - we don't want to target people looking for work
+                  if (profilePageInfo.isJobSeeker) {
+                    liLog(pid, `${actualName} esta buscando empleo, saltando`, 'info', 'connection')
+                    await page.goto(currentSearchUrl, { waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {})
+                    try { await page.waitForSelector('a[href*="/in/"]', { timeout: 10000 }) } catch {}
+                    await sleep(2000 + Math.random() * 2000)
+                    continue
+                  }
 
                   // Re-evaluate role context with actual headline
                   const actualHeadlineLower = actualHeadline.toLowerCase()
