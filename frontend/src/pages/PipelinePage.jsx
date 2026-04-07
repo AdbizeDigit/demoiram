@@ -85,88 +85,91 @@ function LeadCard({ lead, stage, onOpenDetail, onMoveStage, onAutoContact }) {
 
   const phone = normalizePhone(lead.phone)
   const whatsapp = normalizePhone(lead.whatsapp || lead.phone)
+  const score = lead.score || 0
+  const scoreColor = score >= 70 ? 'bg-emerald-500' : score >= 40 ? 'bg-amber-500' : 'bg-gray-300'
+  const scoreBorder = score >= 70 ? 'border-l-emerald-500' : score >= 40 ? 'border-l-amber-500' : 'border-l-gray-300'
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow">
-      {/* Company name + sector */}
-      <div className="flex items-start justify-between mb-2">
-        <div className="flex-1 min-w-0">
-          <h4 className="font-semibold text-gray-900 text-sm truncate">{lead.company || lead.name || 'Sin nombre'}</h4>
-          {lead.sector && (
-            <span className="inline-block mt-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 truncate max-w-full">
-              {lead.sector}
-            </span>
-          )}
-        </div>
+    <div className={`group relative bg-white rounded-xl shadow-sm border border-gray-100 border-l-4 ${scoreBorder} p-3 hover:shadow-md hover:border-gray-200 transition-all cursor-pointer`}
+      onClick={() => onOpenDetail(lead)}>
+      {/* Header: Name + Score */}
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <h4 className="font-semibold text-gray-900 text-sm leading-tight line-clamp-2 flex-1">{lead.company || lead.name || 'Sin nombre'}</h4>
+        <div className={`flex-shrink-0 w-7 h-7 rounded-lg ${scoreColor} text-white flex items-center justify-center text-[10px] font-bold`}>{score}</div>
       </div>
 
-      {/* Location */}
-      {(lead.city || lead.state) && (
-        <div className="flex items-center gap-1 text-xs text-gray-400 mb-2">
-          <MapPin className="w-3 h-3 flex-shrink-0" />
-          <span className="truncate">{[lead.city, lead.state].filter(Boolean).join(', ')}</span>
-        </div>
-      )}
-
-      {/* Score */}
-      <div className="mb-2">
-        <ScoreBar score={lead.score} />
-      </div>
-
-      {/* Contact icons */}
-      <div className="flex items-center gap-1.5 mb-2">
-        {phone && (
-          <a href={`tel:${phone}`} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-500 transition-colors" title="Llamar">
-            <Phone className="w-3.5 h-3.5" />
-          </a>
+      {/* Sector + location pills */}
+      <div className="flex items-center gap-1 mb-2 flex-wrap">
+        {lead.sector && (
+          <span className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 truncate max-w-[120px]">
+            {lead.sector}
+          </span>
         )}
-        {lead.email && (
-          <a href={`mailto:${lead.email}`} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-500 transition-colors" title="Email">
-            <Mail className="w-3.5 h-3.5" />
-          </a>
+        {(lead.city || lead.state) && (
+          <span className="inline-flex items-center gap-0.5 text-[10px] text-gray-400 truncate max-w-[120px]">
+            <MapPin className="w-2.5 h-2.5 flex-shrink-0" />
+            <span className="truncate">{[lead.city, lead.state].filter(Boolean).join(', ')}</span>
+          </span>
         )}
-        {whatsapp && (
-          <a href={`https://wa.me/${whatsapp.replace('+', '')}`} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 rounded-lg hover:bg-green-50 text-green-600 transition-colors" title="WhatsApp">
-            <MessageCircle className="w-3.5 h-3.5" />
-          </a>
-        )}
-        {lead.website && (
-          <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer"
-            className="p-1.5 rounded-lg hover:bg-gray-50 text-gray-400 transition-colors" title="Sitio web">
-            <Globe className="w-3.5 h-3.5" />
-          </a>
-        )}
-        <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-1">
-          <Clock className="w-3 h-3" /> {lead.daysInStage}d
-        </span>
       </div>
 
       {/* AI summary */}
       {lead.aiSummary && (
-        <p className="text-[11px] text-gray-500 italic mb-2 line-clamp-1 border-l-2 border-emerald-300 pl-2">
+        <p className="text-[11px] text-gray-500 italic line-clamp-2 mb-2 leading-snug">
           {lead.aiSummary}
         </p>
       )}
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-gray-50">
+      {/* Contact channels available */}
+      <div className="flex items-center gap-1 mb-2">
+        {phone && (
+          <a href={`tel:${phone}`} onClick={e => e.stopPropagation()}
+            className="w-6 h-6 rounded-md bg-blue-50 hover:bg-blue-100 flex items-center justify-center text-blue-600 transition-colors" title={`Llamar ${phone}`}>
+            <Phone className="w-3 h-3" />
+          </a>
+        )}
+        {lead.email && (
+          <a href={`mailto:${lead.email}`} onClick={e => e.stopPropagation()}
+            className="w-6 h-6 rounded-md bg-purple-50 hover:bg-purple-100 flex items-center justify-center text-purple-600 transition-colors" title={lead.email}>
+            <Mail className="w-3 h-3" />
+          </a>
+        )}
+        {whatsapp && (
+          <a href={`https://wa.me/${whatsapp.replace('+', '')}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            className="w-6 h-6 rounded-md bg-green-50 hover:bg-green-100 flex items-center justify-center text-green-600 transition-colors" title={`WhatsApp ${whatsapp}`}>
+            <MessageCircle className="w-3 h-3" />
+          </a>
+        )}
+        {lead.website && (
+          <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
+            className="w-6 h-6 rounded-md bg-gray-50 hover:bg-gray-100 flex items-center justify-center text-gray-500 transition-colors" title="Sitio web">
+            <Globe className="w-3 h-3" />
+          </a>
+        )}
+        <span className="ml-auto text-[10px] text-gray-400 flex items-center gap-0.5">
+          <Clock className="w-2.5 h-2.5" /> {lead.daysInStage}d
+        </span>
+      </div>
+
+      {/* Action buttons - hidden until hover for cleaner look */}
+      <div className="flex items-center gap-1 pt-2 border-t border-gray-50 opacity-60 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => { e.stopPropagation(); onAutoContact(lead) }}
-          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-medium hover:bg-emerald-100 transition-colors"
+          className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[11px] font-semibold hover:from-emerald-600 hover:to-teal-600 transition-all"
         >
-          <Zap className="w-3 h-3" /> Contacto Auto
+          <Zap className="w-3 h-3" /> Auto Contacto
         </button>
 
         <div className="relative" ref={moveRef}>
           <button
             onClick={(e) => { e.stopPropagation(); setMoveOpen(!moveOpen) }}
-            className="px-2 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-xs font-medium hover:bg-gray-100 transition-colors flex items-center gap-1"
+            className="px-1.5 py-1 rounded-md bg-gray-50 text-gray-600 hover:bg-gray-100 transition-colors flex items-center gap-0.5"
+            title="Mover etapa"
           >
-            Mover <ChevronDown className="w-3 h-3" />
+            <ArrowRight className="w-3 h-3" />
           </button>
           {moveOpen && (
-            <div className="absolute right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 py-1 w-44">
+            <div className="absolute right-0 bottom-full mb-1 bg-white border border-gray-200 rounded-xl shadow-xl z-30 py-1 w-44">
               {STAGES.filter(s => s.key !== stage.key).map(s => (
                 <button key={s.key}
                   onClick={(e) => { e.stopPropagation(); onMoveStage(lead.id, s.key); setMoveOpen(false) }}
@@ -179,14 +182,6 @@ function LeadCard({ lead, stage, onOpenDetail, onMoveStage, onAutoContact }) {
             </div>
           )}
         </div>
-
-        <button
-          onClick={(e) => { e.stopPropagation(); onOpenDetail(lead) }}
-          className="p-1.5 rounded-lg bg-gray-50 text-gray-500 hover:bg-gray-100 transition-colors"
-          title="Ver Detalle"
-        >
-          <Eye className="w-3.5 h-3.5" />
-        </button>
       </div>
     </div>
   )
@@ -198,33 +193,32 @@ function KanbanColumn({ stage, leads, totalCount, onOpenDetail, onMoveStage, onA
   const displayCount = totalCount ?? leads.length
 
   return (
-    <div className="flex-shrink-0 w-72 flex flex-col max-h-full">
-      {/* Column header */}
-      <div className={`rounded-t-2xl border-t-4 ${stage.border} bg-white px-4 py-3`}>
-        <div className="flex items-center justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${stage.dot}`} />
-            <h3 className="font-semibold text-sm text-gray-800">{stage.label}</h3>
+    <div className="flex-shrink-0 w-[19rem] flex flex-col">
+      {/* Column header - sticky */}
+      <div className={`sticky top-0 z-10 ${stage.bg} backdrop-blur rounded-t-2xl px-4 py-3 border border-gray-100 border-b-0`}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className={`w-2.5 h-2.5 rounded-full ${stage.dot} flex-shrink-0`} />
+            <h3 className="font-bold text-sm text-gray-800 truncate">{stage.label}</h3>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${stage.badge}`}>
+              {displayCount.toLocaleString()}
+            </span>
           </div>
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stage.badge}`}>{displayCount.toLocaleString()}</span>
-        </div>
-        {totalValue > 0 && (
-          <p className="text-[11px] text-gray-400 ml-[18px]">{formatCurrency(totalValue)}</p>
-        )}
-        <p className="text-[10px] text-gray-400 ml-[18px] mt-0.5">
-          {stage.desc}
-          {totalCount && totalCount > leads.length && (
-            <span className="ml-1 text-gray-500"> · mostrando {leads.length} de {totalCount.toLocaleString()}</span>
+          {totalValue > 0 && (
+            <span className="text-[10px] font-semibold text-gray-500">{formatCurrency(totalValue)}</span>
           )}
-        </p>
+        </div>
+        {totalCount && totalCount > leads.length && (
+          <p className="text-[10px] text-gray-400 mt-1">Mostrando {leads.length} de {totalCount.toLocaleString()}</p>
+        )}
       </div>
 
       {/* Cards */}
-      <div className={`flex-1 overflow-y-auto px-2 py-2 space-y-2 ${stage.bg} rounded-b-2xl min-h-[120px]`}>
+      <div className={`flex-1 px-2 py-2 space-y-2 ${stage.bg} border border-gray-100 border-t-0 rounded-b-2xl min-h-[200px] max-h-[calc(100vh-22rem)] overflow-y-auto`}>
         {leads.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-gray-300">
-            <Building2 className="w-8 h-8 mb-2" />
-            <p className="text-xs">Sin leads</p>
+          <div className="flex flex-col items-center justify-center py-12 text-gray-300">
+            <Building2 className="w-10 h-10 mb-2 opacity-50" />
+            <p className="text-xs font-medium">Sin leads</p>
           </div>
         )}
         {leads.map(lead => (
@@ -1202,93 +1196,141 @@ export default function PipelinePage() {
     )
   }
 
+  // Calculated stats for hero cards
+  const totalLeads = stageCounts?.total ?? stats.total
+  const nuevoCount = stageCounts?.stages?.NUEVO ?? (stageGroups.NUEVO?.length || 0)
+  const contactadoCount = stageCounts?.stages?.CONTACTADO ?? (stageGroups.CONTACTADO?.length || 0)
+  const conversacionCount = stageCounts?.stages?.EN_CONVERSACION ?? (stageGroups.EN_CONVERSACION?.length || 0)
+  const ganadoCount = stageCounts?.stages?.GANADO ?? (stageGroups.GANADO?.length || 0)
+  const responseRate = contactadoCount > 0 ? Math.round((conversacionCount / contactadoCount) * 100) : 0
+
   return (
-    <div className="space-y-5">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-            <GitBranch className="w-6 h-6 text-emerald-600" /> Pipeline de Ventas
-          </h1>
-          <p className="text-gray-500 mt-0.5 text-sm">
-            Valor total: <span className="font-semibold text-gray-700">{formatCurrency(stats.totalValue)}</span>
-          </p>
+    <div className="space-y-4">
+      {/* ── Hero: Title + Quick Actions ─────────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
+            <GitBranch className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Pipeline de Ventas</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Gestiona tu embudo de leads en tiempo real</p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Stats pills - usa stageCounts (real desde DB) o cae al local */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gray-100 text-xs font-medium text-gray-600">
-              <Users className="w-3 h-3" /> {(stageCounts?.total ?? stats.total).toLocaleString()} leads
-            </span>
-            {STAGES.slice(0, 6).map(s => {
-              const realCount = stageCounts?.stages?.[s.key]
-              const count = realCount ?? (stageGroups[s.key]?.length || 0)
-              if (count === 0) return null
-              return (
-                <span key={s.key} className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${s.badge}`} title={s.label}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} /> {count.toLocaleString()}
-                </span>
-              )
-            })}
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-100 text-xs font-medium text-emerald-700">
-              <TrendingUp className="w-3 h-3" /> {stats.conversion}% conv.
-            </span>
-          </div>
-
+        <div className="flex items-center gap-2">
           {/* Search */}
           <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Buscar..."
+              placeholder="Buscar leads..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 rounded-xl border border-gray-200 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
+              className="pl-9 pr-3 py-2 rounded-xl border border-gray-200 bg-white text-sm w-56 focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-400"
             />
           </div>
 
           {/* View toggle */}
-          <div className="flex items-center bg-gray-100 rounded-xl p-0.5">
-            <button
-              onClick={() => setView('kanban')}
-              className={`p-1.5 rounded-lg transition-colors ${view === 'kanban' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
-              title="Kanban"
-            >
+          <div className="flex items-center bg-white border border-gray-200 rounded-xl p-1">
+            <button onClick={() => setView('kanban')}
+              className={`p-1.5 rounded-lg transition-all ${view === 'kanban' ? 'bg-emerald-50 text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Kanban">
               <LayoutGrid className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => setView('list')}
-              className={`p-1.5 rounded-lg transition-colors ${view === 'list' ? 'bg-white shadow-sm text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
-              title="Lista"
-            >
+            <button onClick={() => setView('list')}
+              className={`p-1.5 rounded-lg transition-all ${view === 'list' ? 'bg-emerald-50 text-emerald-600' : 'text-gray-400 hover:text-gray-600'}`}
+              title="Lista">
               <List className="w-4 h-4" />
             </button>
           </div>
 
           {/* Refresh */}
-          <button onClick={loadLeads} className="p-2 hover:bg-gray-100 rounded-xl transition-colors" title="Refrescar">
-            <RefreshCw className="w-4 h-4 text-gray-400" />
+          <button onClick={loadLeads} className="p-2 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl transition-colors" title="Refrescar">
+            <RefreshCw className="w-4 h-4 text-gray-500" />
           </button>
 
           {/* Auto Play */}
           {autoPlay ? (
             <button onClick={stopAutoPlay}
-              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors">
+              className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 shadow-sm transition-colors">
               <Square className="w-4 h-4" />
               Detener
             </button>
           ) : (
             <button onClick={startAutoPlay}
               disabled={leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp)).length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-sm font-semibold hover:from-emerald-700 hover:to-teal-700 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed">
               <Play className="w-4 h-4" />
               Auto Play
-              <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full">
+              <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded-full font-bold">
                 {leads.filter(l => l.stage === 'NUEVO' && (l.email || l.phone || l.whatsapp)).length}
               </span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* ── Stat Cards Hero ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {/* Total Leads */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center">
+              <Users className="w-4 h-4 text-gray-600" />
+            </div>
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Total</span>
+          </div>
+          <p className="text-2xl font-bold text-gray-900">{totalLeads.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Leads en base</p>
+        </div>
+
+        {/* Nuevos */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center">
+              <Star className="w-4 h-4 text-gray-600" />
+            </div>
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Nuevos</span>
+          </div>
+          <p className="text-2xl font-bold text-gray-900">{nuevoCount.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Sin contactar</p>
+        </div>
+
+        {/* Contactados */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Send className="w-4 h-4 text-blue-600" />
+            </div>
+            <span className="text-[10px] font-semibold text-blue-500 uppercase tracking-wider">Contactados</span>
+          </div>
+          <p className="text-2xl font-bold text-gray-900">{contactadoCount.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">Email/WhatsApp enviado</p>
+        </div>
+
+        {/* En conversación */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 hover:shadow-md transition-shadow">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center">
+              <MessageCircle className="w-4 h-4 text-amber-600" />
+            </div>
+            <span className="text-[10px] font-semibold text-amber-600 uppercase tracking-wider">Conversación</span>
+          </div>
+          <p className="text-2xl font-bold text-gray-900">{conversacionCount.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-500 mt-0.5">{responseRate}% tasa respuesta</p>
+        </div>
+
+        {/* Ganados */}
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl border border-emerald-400 p-4 hover:shadow-md transition-shadow text-white">
+          <div className="flex items-center justify-between mb-2">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4 text-white" />
+            </div>
+            <span className="text-[10px] font-semibold text-white/80 uppercase tracking-wider">Ganados</span>
+          </div>
+          <p className="text-2xl font-bold">{ganadoCount.toLocaleString()}</p>
+          <p className="text-[11px] text-white/80 mt-0.5">{stats.conversion}% conversión · {formatCurrency(stats.totalValue)}</p>
         </div>
       </div>
 
