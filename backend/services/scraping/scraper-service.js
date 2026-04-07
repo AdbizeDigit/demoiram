@@ -991,7 +991,27 @@ class ScraperService extends EventEmitter {
     if (city) { conditions.push(`city ILIKE $${idx++}`); params.push(`%${city}%`) }
     if (state) { conditions.push(`state ILIKE $${idx++}`); params.push(`%${state}%`) }
     if (sector) { conditions.push(`sector = $${idx++}`); params.push(sector) }
-    if (status) { conditions.push(`status = $${idx++}`); params.push(status) }
+    if (status) {
+      // Map canonical stage to UPPER variants and handle NULL (treated as NUEVO)
+      const stageMap = {
+        NUEVO: ['NUEVO', 'NEW', 'PENDING'],
+        CONTACTADO: ['CONTACTADO', 'CONTACTED'],
+        EN_CONVERSACION: ['EN_CONVERSACION', 'IN_CONVERSATION', 'REPLIED'],
+        PROPUESTA: ['PROPUESTA', 'PROPOSAL', 'PROPOSAL_SENT'],
+        NEGOCIACION: ['NEGOCIACION', 'NEGOTIATION', 'NEGOTIATING'],
+        GANADO: ['GANADO', 'WON', 'CLOSED_WON'],
+        PERDIDO: ['PERDIDO', 'LOST', 'CLOSED_LOST'],
+      }
+      const upper = String(status).toUpperCase()
+      const variants = stageMap[upper] || [String(status).toUpperCase()]
+      const placeholders = variants.map(() => `$${idx++}`).join(',')
+      if (upper === 'NUEVO') {
+        conditions.push(`(status IS NULL OR UPPER(status) IN (${placeholders}))`)
+      } else {
+        conditions.push(`UPPER(status) IN (${placeholders})`)
+      }
+      params.push(...variants)
+    }
     if (search) { conditions.push(`(name ILIKE $${idx} OR email ILIKE $${idx} OR phone ILIKE $${idx})`); params.push(`%${search}%`); idx++ }
     if (minScore) { conditions.push(`score >= $${idx++}`); params.push(parseInt(minScore)) }
 

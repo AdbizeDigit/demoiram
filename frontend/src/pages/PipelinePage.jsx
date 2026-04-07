@@ -1001,11 +1001,19 @@ export default function PipelinePage() {
   const [waAccounts, setWaAccounts] = useState([])
   const [emailStats, setEmailStats] = useState(null)
   const [stageCounts, setStageCounts] = useState(null)
+  const [awaitingReply, setAwaitingReply] = useState([])
 
   const loadStageCounts = useCallback(async () => {
     try {
       const { data } = await api.get('/api/leads/stage-counts')
       setStageCounts(data)
+    } catch {}
+  }, [])
+
+  const loadAwaitingReply = useCallback(async () => {
+    try {
+      const { data } = await api.get('/api/leads/awaiting-reply')
+      setAwaitingReply(data.leads || [])
     } catch {}
   }, [])
 
@@ -1030,6 +1038,7 @@ export default function PipelinePage() {
       try { await api.post('/api/leads/sync-status') } catch {}
       // Load real stage counts (for the totals shown in the header)
       loadStageCounts()
+      loadAwaitingReply()
 
       // Load advanced stages fully (small numbers, all visible) + NUEVO capped
       const stagesToLoad = ['NUEVO', 'CONTACTADO', 'EN_CONVERSACION', 'PROPUESTA', 'NEGOCIACION', 'GANADO', 'PERDIDO']
@@ -1381,6 +1390,39 @@ export default function PipelinePage() {
               <span className="text-[10px] text-gray-400">({emailStats.sent_total} total)</span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Awaiting Reply Alert */}
+      {awaitingReply.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-orange-200 bg-orange-100/50">
+            <AlertCircle className="w-4 h-4 text-orange-600" />
+            <span className="text-sm font-bold text-orange-800">{awaitingReply.length} contacto{awaitingReply.length > 1 ? 's' : ''} sin respuesta</span>
+            <span className="text-xs text-orange-600 ml-1">Esperando reply</span>
+          </div>
+          <div className="divide-y divide-orange-100 max-h-64 overflow-y-auto">
+            {awaitingReply.slice(0, 10).map(rl => {
+              const daysSince = rl.last_sent_at ? Math.floor((Date.now() - new Date(rl.last_sent_at).getTime()) / 86400000) : 0
+              return (
+                <div key={rl.id}
+                  onClick={() => navigate(`/admin/lead/${rl.id}`)}
+                  className="flex items-center gap-3 px-5 py-2.5 hover:bg-orange-100/50 cursor-pointer transition-colors">
+                  <Send className="w-3.5 h-3.5 text-orange-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-800 truncate">{rl.company || rl.name}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{rl.sector} {rl.city ? `· ${rl.city}` : ''} · {rl.sent_count} mensaje{rl.sent_count > 1 ? 's' : ''} enviado{rl.sent_count > 1 ? 's' : ''}</p>
+                  </div>
+                  <span className="text-[10px] text-orange-600 font-bold flex-shrink-0">
+                    hace {daysSince}d
+                  </span>
+                </div>
+              )
+            })}
+            {awaitingReply.length > 10 && (
+              <p className="text-[11px] text-orange-500 text-center py-2">+ {awaitingReply.length - 10} más</p>
+            )}
+          </div>
         </div>
       )}
 

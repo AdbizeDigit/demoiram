@@ -697,6 +697,29 @@ app.get('/api/email-daily-stats', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
+// Get leads that were contacted but haven't responded (waiting for reply)
+app.get('/api/leads/awaiting-reply', async (req, res) => {
+  try {
+    const { pool } = await import('./config/database.js')
+    const { rows } = await pool.query(`
+      SELECT l.id, l.name, l.company, l.phone, l.email, l.social_whatsapp, l.sector, l.city,
+        UPPER(COALESCE(l.status, 'NUEVO')) as status,
+        MAX(om.sent_at) as last_sent_at,
+        COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'SENT') as sent_count,
+        COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'REPLIED') as reply_count
+      FROM leads l
+      INNER JOIN outreach_messages om ON om.lead_id = l.id
+      WHERE UPPER(COALESCE(l.status, 'NUEVO')) IN ('CONTACTADO', 'CONTACTED')
+      GROUP BY l.id
+      HAVING COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'SENT') > 0
+        AND COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'REPLIED') = 0
+      ORDER BY MAX(om.sent_at) DESC NULLS LAST
+      LIMIT 30
+    `).catch(() => ({ rows: [] }))
+    res.json({ success: true, leads: rows, count: rows.length })
+  } catch (err) { res.status(500).json({ success: false, error: err.message }) }
+})
+
 // Get pipeline stage counts directly from DB (for the 192k+ leads case)
 app.get('/api/leads/stage-counts', async (req, res) => {
   try {
