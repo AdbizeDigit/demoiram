@@ -563,6 +563,40 @@ app.get('/api/whatsapp-accounts', async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
     const { rows } = await pool.query('SELECT id, name, phone, status, daily_limit, messages_today, messages_total, is_active, created_at FROM whatsapp_accounts ORDER BY created_at')
+
+    // Compute real messages_today/total from outreach_messages (Argentina timezone)
+    // Per-account count (only secondary accounts have wa_account_id set)
+    const accountStats = await pool.query(`
+      SELECT
+        wa_account_id,
+        COUNT(*) FILTER (WHERE (sent_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date = (NOW() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date) as today,
+        COUNT(*) as total
+      FROM outreach_messages
+      WHERE UPPER(channel) = 'WHATSAPP' AND UPPER(status) = 'SENT'
+      GROUP BY wa_account_id
+    `).catch(() => ({ rows: [] }))
+    const statsByAccount = {}
+    let mainTodayCount = 0
+    let mainTotalCount = 0
+    for (const r of accountStats.rows) {
+      if (r.wa_account_id === null) {
+        // Messages without account_id are attributed to main
+        mainTodayCount += parseInt(r.today || 0)
+        mainTotalCount += parseInt(r.total || 0)
+      } else {
+        statsByAccount[r.wa_account_id] = { today: parseInt(r.today || 0), total: parseInt(r.total || 0) }
+      }
+    }
+
+    // Override DB messages_today/total with real counts from outreach_messages
+    for (const row of rows) {
+      const stats = statsByAccount[row.id]
+      if (stats) {
+        row.messages_today = stats.today
+        row.messages_total = stats.total
+      }
+    }
+
     // Get connection status from WhatsApp service
     try {
       const { waManager } = await import('./services/outreach/whatsapp-connection-service.js')
@@ -570,15 +604,16 @@ app.get('/api/whatsapp-accounts', async (req, res) => {
       // Add main account as first if not in DB
       const hasMain = rows.some(r => r.name === 'Principal' || r.name?.startsWith('Principal'))
       if (hasMain) {
-        // Merge live status into existing Principal row
         const mainRow = rows.find(r => r.name === 'Principal' || r.name?.startsWith('Principal'))
         if (mainRow) {
           mainRow.isMain = true
           mainRow.status = mainStatus.status || mainRow.status
           mainRow.phone = mainStatus.phone || mainRow.phone
+          mainRow.messages_today = mainTodayCount
+          mainRow.messages_total = mainTotalCount
         }
       } else {
-        rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainStatus.phone || 'Sin conectar', status: mainStatus.status, daily_limit: 30, messages_today: 0, messages_total: 0, is_active: true, isMain: true })
+        rows.unshift({ id: 'main', name: 'Principal (Baileys)', phone: mainStatus.phone || 'Sin conectar', status: mainStatus.status, daily_limit: 30, messages_today: mainTodayCount, messages_total: mainTotalCount, is_active: true, isMain: true })
       }
       // Merge live connection status for secondary accounts
       for (const row of rows) {
