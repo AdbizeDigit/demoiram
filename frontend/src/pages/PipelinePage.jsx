@@ -1030,10 +1030,16 @@ export default function PipelinePage() {
       try { await api.post('/api/leads/sync-status') } catch {}
       // Load real stage counts (for the totals shown in the header)
       loadStageCounts()
-      // Bring 1000 leads max for the kanban view (we'll show the stage count badges from sql)
-      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 1000 } })
-      const data = res.data
-      const raw = data.leads || data.data || (Array.isArray(data) ? data : [])
+
+      // Load advanced stages fully (small numbers, all visible) + NUEVO capped
+      const stagesToLoad = ['NUEVO', 'CONTACTADO', 'EN_CONVERSACION', 'PROPUESTA', 'NEGOCIACION', 'GANADO', 'PERDIDO']
+      const responses = await Promise.all(
+        stagesToLoad.map(st =>
+          api.get('/api/scraping-engine/leads', { params: { status: st, limit: 200 } })
+            .catch(() => ({ data: { leads: [] } }))
+        )
+      )
+      const raw = responses.flatMap(r => r.data?.leads || r.data?.data || [])
       setLeads(raw.map(l => ({
         id: l.id || l._id,
         name: l.name || l.businessName || l.title || '',
