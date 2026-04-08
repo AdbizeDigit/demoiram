@@ -2517,12 +2517,15 @@ INSTRUCCIONES:
 
 ESTRATEGIA elegida: ${strategy.name} - ${strategy.instruction}
 
-FORMATO: Max 300 chars. Empieza con "Hola ${actualName.split(' ')[0]}!". ${actualToneGuide}
+FORMATO: LinkedIn limita a 300 chars la nota de invitacion. Tenes que ser CONCISO y persuasivo.
+- Empieza con "Hola ${actualName.split(' ')[0]}!"
+- 1 frase reconociendo su rol especifico
+- 1 frase con UN caso de IA concreto (LLM/ML/vision/agentes - nombrar la tech)
+- Cerrá ofreciendo: "${oferta}"
+- ${actualToneGuide}
 - NO emojis, NO comillas, NO "vi tu perfil"
-- SE ESPECIFICO con tecnologia: nombrá LLM, ML, vision artificial, agentes, RAG (no solo "IA")
-- Mostrá 1-2 casos concretos de su rubro
-- Cerrá ofreciendo la auditoria gratuita y/o reunion
-- 100% humano, no vendedor
+- SE ESPECIFICO con tecnologia (no "IA" generico)
+- Tono humano, profesional, no vendedor
 
 VARIA cada mensaje: NO siempre uses la misma estructura ni las mismas palabras.
 
@@ -2968,53 +2971,63 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
           // Generate AI message - personalized by role with specific AI use cases
           // Random offer to vary each message
           const ofertasFu = [
-            'una auditoria gratuita de IA aplicable a tu rubro y una reunion de 20 min',
-            'un audit gratis y una llamada corta para mostrarte casos del sector',
-            'una reunion de 15 min sin costo donde te muestro un piloto pensado para vos',
-            'una auditoria gratuita y agendar una reunion para ver donde aplicarlo primero',
-            'una demo personalizada en 20 min y un audit gratuito de oportunidades',
+            'una auditoria gratuita donde mapeamos las 3-5 oportunidades de IA mas rentables para tu operacion, sin costo. Si te suma, agendamos una reunion de 30 min para revisarla juntos',
+            'un audit gratis donde analizo tu operacion y te llevo casos concretos del sector. Despues podemos agendar una llamada de 20 min para ver cual conviene arrancar primero',
+            'una reunion de 30 min sin costo donde te muestro un piloto pensado especificamente para vos, con numeros reales del rubro',
+            'una auditoria gratuita de oportunidades de IA en tu operacion + una reunion para diseñar juntos un piloto chico de bajo riesgo',
+            'una demo personalizada en una reunion de 30 min, donde te muestro casos similares y armamos un audit gratuito de tu situacion',
           ]
           const ofertaFu = ofertasFu[Math.floor(Math.random() * ofertasFu.length)]
 
           const aiMsg = await aiGen(
-            `Sos ${senderName} de ${senderCompany}, agencia que aplica IA real (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas de negocio especificos.
+            `Sos ${senderName} de ${senderCompany}, una agencia argentina especializada en IA aplicada (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas reales de negocio. NO sos una agencia generica de marketing: implementan tecnologia de verdad.
 
 Estas conectado con ${conn.name} en LinkedIn. Su cargo/headline: "${conn.headline || 'no disponible'}"
 
-INSTRUCCIONES:
+OBJETIVO: Escribir un mensaje de LinkedIn EXTENSO y PERSUASIVO que lo enganche.
+
+INSTRUCCIONES PASO A PASO:
 1. Analiza su rol y rubro REAL del headline
-2. Pensa 1-2 problemas concretos que tiene ese rol diariamente
-3. Proponé 2 aplicaciones de IA ESPECIFICAS con la tecnologia adecuada. Catalogo:
-   - Contable/Finanzas: agente LLM que lee facturas y concilia, ML para anomalias en gastos, automatizacion de cierre, prediccion de cobranza
-   - Ventas/Comercial: agente LLM que califica leads, prediccion de churn con ML, asistente que arma propuestas, scoring inteligente
-   - Marketing: generacion de creatividades con LLM, segmentacion con ML, optimizacion de campañas, analisis de sentiment
-   - RRHH: screening de CVs con LLM, prediccion de rotacion, chatbot de onboarding, matching skills
-   - Logistica/Ops: vision artificial para inventario, ruteo con ML, prediccion de demanda, mantenimiento predictivo
-   - Industria: vision artificial para QA, mantenimiento predictivo, optimizacion de produccion, deteccion de defectos
-   - Retail/Ecommerce: recomendador con ML, vision en checkout, chatbot soporte, prediccion de stock
-   - Salud: vision artificial diagnostica, NLP para historiales, agendamiento inteligente
-   - Legal: LLM que resume contratos, busqueda semantica con RAG, redaccion asistida
-   - Tech/Software: copilot codigo, RAG sobre documentacion, agentes autonomos, testing automatizado
-   - Educacion: tutor IA personalizado, correccion automatica, generacion de contenido
-   - Inmobiliaria: vision artificial para tasaciones, chatbot 24/7, ML para precios
-   - Gastronomia: prediccion de demanda con ML, optimizacion de menus, vision para inventario
-   - Construccion: vision artificial para avance de obra, ML para presupuestos
-   - Si no podes deducir el rubro, hablá de un caso potente generico
+2. Identifica 2 problemas concretos que tiene ese rol diariamente (los mas dolorosos)
+3. Para cada problema, proponé 1 solucion de IA ESPECIFICA con la tecnologia exacta. Catalogo:
+   - Contable/Finanzas: agente LLM lee facturas y concilia (ahorra 70% tiempo de cierre), ML detecta anomalias en gastos en tiempo real, prediccion de cobranza
+   - Ventas/Comercial: agente LLM califica leads y prepara propuestas, ML predice churn con 85% accuracy, scoring inteligente
+   - Marketing: generacion masiva de creatividades con LLM, segmentacion con ML que mejora ROAS 30%, optimizacion automatica
+   - RRHH: screening de CVs con LLM filtra 80% candidatos no aptos en segundos, prediccion de rotacion, chatbot onboarding
+   - Logistica/Ops: vision artificial conteo de inventario sin escanear, ruteo con ML baja 25% costo de combustible, mantenimiento predictivo
+   - Industria/Manufactura: vision artificial QA detecta defectos 100x mas rapido que inspeccion manual, mantenimiento predictivo evita paradas
+   - Retail/Ecommerce: recomendador con ML sube AOV 25%, vision en checkout, prediccion de stockouts
+   - Salud: vision artificial para diagnostico por imagenes, NLP estructura historiales, agendamiento inteligente
+   - Legal: LLM resume contratos largos en minutos, RAG busca jurisprudencia semanticamente, redaccion asistida
+   - Tech/Software: copilot codigo aumenta velocidad 40%, RAG sobre docs internas, agentes autonomos para tickets
+   - Educacion: tutor IA personalizado por alumno, correccion automatica con LLM, generacion de contenido
+   - Inmobiliaria: vision artificial tasa propiedades desde fotos, chatbot LLM 24/7 califica leads, ML predice precios
+   - Gastronomia: prediccion de demanda con ML reduce desperdicio 30%, optimizacion de menus, vision para inventario
+   - Construccion: vision artificial para avance de obra, ML para presupuestos, agentes para licitaciones
 
-4. SIEMPRE ofreceé al final: "${ofertaFu}"
+4. PROOF: agregá al menos 1 metrica creible o caso ("un cliente del sector logro X")
 
-FORMATO DEL MENSAJE:
-- Saludá con su nombre de pila
-- Mencioná su rol especifico (1 frase corta)
-- Proponé 1-2 casos concretos nombrando la tech (LLM, ML, vision, agente, RAG)
-- Cerrá ofreciendo auditoria gratuita y/o reunion
+5. SIEMPRE cerrá con: "${ofertaFu}"
 
-Max 400 chars. Español argentino natural. Cercano profesional. Sin emojis. Sin comillas. Sin "vi tu perfil". Tono humano, no vendedor.
-VARIA cada mensaje: NO siempre uses la misma estructura ni las mismas palabras.
+ESTRUCTURA DEL MENSAJE (extenso y persuasivo, ~600-800 chars):
+- Saludo con nombre de pila + 1 linea reconociendo su rol/empresa de forma genuina
+- 1 parrafo identificando 1-2 dolores reales de su rol (mostrar que entendes su mundo)
+- 1 parrafo con 1-2 soluciones concretas: nombrá la tecnologia (LLM, ML, vision artificial, RAG, agentes) y un beneficio especifico/metrica
+- Si aplica: mencion breve de un caso de exito ("uno de nuestros clientes en el rubro logro X")
+- Cierre con la oferta de auditoria + reunion + pregunta abierta clara
 
-Responde UNICAMENTE con el mensaje.`
+REGLAS:
+- Max 800 chars
+- Español argentino natural, tono profesional pero humano
+- Sin emojis, sin comillas externas
+- NUNCA digas "vi tu perfil y me parecio interesante"
+- SE ESPECIFICO con la tecnologia: nombrá LLM, ML, vision artificial, RAG, agentes (no "IA" generico)
+- VARIA cada mensaje: NO siempre la misma estructura ni las mismas palabras
+- Sona como un profesional escribiendo a otro, no como un bot
+
+Responde UNICAMENTE con el mensaje, sin explicaciones.`
           )
-          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 400)
+          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 900)
 
           // Type in the message input (msgInput already found above)
           if (msgInput) {
