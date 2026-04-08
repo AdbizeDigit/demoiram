@@ -3039,21 +3039,101 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         return [...collected.values()]
       }
 
-      // Single pass: navigate to the connections list (no search filter) and collect ALL via infinite scroll.
-      // The previous letter-by-letter approach missed connections because LinkedIn's search filter is
-      // unreliable and 77 contacts fit easily in a single infinite-scroll pass.
+      // Fetch ALL connections directly from LinkedIn's internal Voyager API.
+      // This is the same endpoint the LinkedIn web app uses, so it returns the authoritative list
+      // bypassing DOM lazy-loading, search-filter bugs, and class-name drift.
       let sent = 0
       const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
       let totalFound = 0
 
-      liLog(pid, 'Cargando lista completa de conexiones...', 'info', 'connection')
-      await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
-      await sleep(3500 + Math.random() * 1500)
+      liLog(pid, 'Cargando lista completa de conexiones via API de LinkedIn...', 'info', 'connection')
+      // First visit the feed/home so the page has an active origin + cookies + csrf token
+      await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+      await sleep(2500)
 
-      const connections = await collectAllConnections('all')
+      const apiResult = await page.evaluate(async () => {
+        // Extract CSRF token from JSESSIONID cookie
+        const csrf = (document.cookie.split(';').find(c => c.trim().startsWith('JSESSIONID=')) || '')
+          .split('=')[1]?.replace(/"/g, '') || ''
+        const headers = {
+          'csrf-token': csrf,
+          'x-restli-protocol-version': '2.0.0',
+          'accept': 'application/vnd.linkedin.normalized+json+2.1',
+        }
+
+        const all = new Map()
+        let errors = []
+
+        // Try the dash (newer) endpoint first, then fallback to legacy
+        const endpoints = [
+          (start, count) => `/voyager/api/relationships/dash/connections?decorationId=com.linkedin.voyager.dash.deco.web.mynetwork.ConnectionListWithProfile-16&count=${count}&q=search&sortType=RECENTLY_ADDED&start=${start}`,
+          (start, count) => `/voyager/api/relationships/connections?count=${count}&q=viewer&sortType=RECENTLY_ADDED&start=${start}`,
+        ]
+
+        for (const buildUrl of endpoints) {
+          let start = 0
+          const count = 40
+          let consecutiveEmpty = 0
+          while (start < 1000 && consecutiveEmpty < 2) {
+            try {
+              const resp = await fetch(buildUrl(start, count), { headers, credentials: 'include' })
+              if (!resp.ok) { errors.push(`HTTP ${resp.status} @ start=${start}`); break }
+              const data = await resp.json()
+              // The response format varies; normalize by walking included/elements
+              const pool = []
+              if (Array.isArray(data.included)) pool.push(...data.included)
+              if (Array.isArray(data.elements)) pool.push(...data.elements)
+              let addedThisPage = 0
+              for (const item of pool) {
+                // Look for profile identifiers anywhere in the item
+                const flatStr = JSON.stringify(item)
+                const slugMatch = flatStr.match(/\/in\/([a-zA-Z0-9-]+)/) || null
+                const publicId = item.publicIdentifier || item.miniProfile?.publicIdentifier || slugMatch?.[1]
+                if (!publicId) continue
+                const firstName = item.firstName || item.miniProfile?.firstName || ''
+                const lastName = item.lastName || item.miniProfile?.lastName || ''
+                const occupation = item.occupation || item.miniProfile?.occupation || item.headline || ''
+                const name = `${firstName} ${lastName}`.trim()
+                if (!name) continue
+                const key = publicId.toLowerCase()
+                if (!all.has(key)) {
+                  all.set(key, {
+                    slug: publicId,
+                    name: name.slice(0, 80),
+                    headline: (occupation || '').slice(0, 150),
+                    url: `https://www.linkedin.com/in/${publicId}`,
+                  })
+                  addedThisPage++
+                }
+              }
+              if (addedThisPage === 0) consecutiveEmpty++
+              else consecutiveEmpty = 0
+              start += count
+            } catch (e) {
+              errors.push(`${e.message?.slice(0, 50)} @ start=${start}`)
+              break
+            }
+          }
+          if (all.size > 0) break // stop trying other endpoints if one worked
+        }
+
+        return { connections: [...all.values()], errors: errors.slice(0, 3), csrfLen: csrf.length }
+      })
+
+      liLog(pid, `API: ${apiResult.connections.length} conexiones | csrf:${apiResult.csrfLen}c${apiResult.errors.length ? ' | errores: ' + apiResult.errors.join(', ') : ''}`, apiResult.connections.length > 0 ? 'success' : 'warning', 'connection')
+
+      // Fallback: if API returned nothing, try scraping the connections page
+      let connections = apiResult.connections
+      if (connections.length === 0) {
+        liLog(pid, 'API vacia, fallback a scraping de pagina /connections/...', 'warning', 'connection')
+        await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+        await sleep(3500)
+        connections = await collectAllConnections('all')
+      }
+
       const newConns = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()))
       totalFound = newConns.length
-      liLog(pid, `Conexiones totales en pagina: ${connections.length} | sin mensaje: ${newConns.length} | a enviar: ${Math.min(newConns.length, maxMessages)}`, 'success', 'connection')
+      liLog(pid, `Conexiones totales: ${connections.length} | sin mensaje: ${newConns.length} | a enviar: ${Math.min(newConns.length, maxMessages)}`, 'success', 'connection')
 
       if (newConns.length > 0) {
         const toMessage = newConns.slice(0, maxMessages)
