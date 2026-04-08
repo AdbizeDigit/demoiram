@@ -1673,59 +1673,105 @@ app.post('/api/linkedin-profiles/:id/engagement/start', async (req, res) => {
 
         const session = linkedinBrowser.sessions.get(pid)
         if (!session?.page) { liAutoState.delete(pid); return }
-        const engPage = session.page
+        let engPage = session.page
         const { analyzeWithDeepSeek: engAI } = await import('./services/deepseek.js')
         const senderName = p?.avatar_name || p?.name || 'profesional'
         const senderRole = p?.avatar_role || 'experto en IA y publicidad digital'
         const senderCompany = p?.avatar_company || 'Adbize'
 
         liLog(pid, `Navegando al feed (max ${maxLikes} likes, ${maxComments} comentarios)...`, 'info', 'engagement')
-        await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'networkidle0', timeout: 30000 }).catch(async () => {
-          await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-        })
-        try {
-          await engPage.waitForFunction(
-            () => document.querySelectorAll('[data-urn]').length > 0 || document.querySelectorAll('.feed-shared-update-v2').length > 0,
-            { timeout: 15000 }
-          )
-        } catch {}
-        await sleep(3000 + Math.random() * 2000)
 
-        // Debug: log feed state
-        const feedDebug = await engPage.evaluate(() => {
-          const url = location.href
-          const allBtns = document.querySelectorAll('button')
-          const likeBtns = [...allBtns].filter(b => {
-            const label = (b.getAttribute('aria-label') || '').toLowerCase()
-            return label.includes('like') || label.includes('gusta') || label.includes('react')
+        // Helper: navigate to feed and verify it actually loaded with content
+        const navigateAndVerifyFeed = async () => {
+          await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+          await sleep(2500)
+          // Wait for either posts OR an auth wall to appear
+          try {
+            await engPage.waitForFunction(
+              () => {
+                const u = location.href
+                if (u.includes('/login') || u.includes('/authwall') || u.includes('/checkpoint') || u.includes('/uas/login')) return true
+                return document.querySelectorAll('[data-urn], .feed-shared-update-v2, .occludable-update').length > 0
+              },
+              { timeout: 20000 }
+            )
+          } catch {}
+          // Trigger lazy-load: scroll several times to force LinkedIn to render the feed
+          for (let i = 0; i < 4; i++) {
+            await engPage.evaluate(() => window.scrollBy(0, 600)).catch(() => {})
+            await sleep(1200)
+          }
+          await engPage.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
+          await sleep(1500)
+
+          return await engPage.evaluate(() => {
+            const url = location.href
+            const title = document.title
+            const bodyText = (document.body?.innerText || '').slice(0, 300).replace(/\s+/g, ' ')
+            const bodyLen = (document.body?.innerText || '').length
+            const allBtns = document.querySelectorAll('button')
+            const likeBtns = [...allBtns].filter(b => {
+              const label = (b.getAttribute('aria-label') || '').toLowerCase()
+              return label.includes('like') || label.includes('gusta') || label.includes('react')
+            })
+            const s1 = document.querySelectorAll('[data-urn]').length
+            const s2 = document.querySelectorAll('.feed-shared-update-v2').length
+            const s5 = document.querySelectorAll('.occludable-update').length
+            const isAuthWall = url.includes('/login') || url.includes('/authwall') || url.includes('/checkpoint') || url.includes('/uas/login') || /sign\s*in|iniciar\s*sesi/i.test(bodyText)
+            return { url: url.split('?')[0], title, bodyText, bodyLen, totalBtns: allBtns.length, likeBtns: likeBtns.length, s1, s2, s5, isAuthWall, hasContent: (s1 + s2 + s5) > 0 || likeBtns.length > 0 }
           })
-          const commentBtns = [...allBtns].filter(b => {
-            const label = (b.getAttribute('aria-label') || '').toLowerCase()
-            return label.includes('comment') || label.includes('comentar')
-          })
-          // Try multiple selectors for posts
-          const s1 = document.querySelectorAll('[data-urn]').length
-          const s2 = document.querySelectorAll('.feed-shared-update-v2').length
-          const s3 = document.querySelectorAll('[data-id]').length
-          const s4 = document.querySelectorAll('div[data-urn*="activity"]').length
-          const s5 = document.querySelectorAll('.occludable-update').length
-          const s6 = document.querySelectorAll('[class*="feed"]').length
-          // Try to find post containers by looking for like buttons and walking up
-          const postContainers = likeBtns.slice(0, 3).map(btn => {
-            let el = btn.parentElement
-            for (let i = 0; i < 15 && el; i++) {
-              if (el.getAttribute('data-urn') || el.getAttribute('data-id') || el.classList?.toString()?.includes('update')) return {
-                tag: el.tagName, classes: el.className?.toString()?.slice(0, 80), urn: el.getAttribute('data-urn') || el.getAttribute('data-id') || ''
-              }
-              el = el.parentElement
+        }
+
+        let feedDebug = await navigateAndVerifyFeed()
+        liLog(pid, `Feed: ${feedDebug.url} title:"${(feedDebug.title || '').slice(0, 40)}" body:${feedDebug.bodyLen}c btns:${feedDebug.totalBtns} likes:${feedDebug.likeBtns} [urn:${feedDebug.s1} shared:${feedDebug.s2} occl:${feedDebug.s5}]`, 'info', 'engagement')
+
+        // If page is empty or shows auth wall, force re-login and retry once
+        if (!feedDebug.hasContent || feedDebug.isAuthWall) {
+          liLog(pid, `Feed vacio o auth wall (${feedDebug.isAuthWall ? 'login wall' : 'sin contenido'}). Preview: "${feedDebug.bodyText.slice(0, 120)}". Reconectando...`, 'warning', 'engagement')
+          try {
+            await linkedinBrowser.disconnect(pid)
+          } catch {}
+          const reconnected = await linkedinBrowser.ensureConnected(pid)
+          if (!reconnected) {
+            liLog(pid, 'No se pudo reconectar a LinkedIn (sesion expirada o credenciales invalidas).', 'error', 'engagement')
+            liAutoState.delete(pid)
+            return
+          }
+          const newSession = linkedinBrowser.sessions.get(pid)
+          if (!newSession?.page) {
+            liLog(pid, 'No hay pagina disponible tras reconexion.', 'error', 'engagement')
+            liAutoState.delete(pid)
+            return
+          }
+          // Swap engPage to the fresh authenticated page
+          engPage = newSession.page
+          // Reload feed on the new page
+          try {
+            await engPage.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 30000 })
+            await sleep(3000)
+            for (let i = 0; i < 4; i++) {
+              await engPage.evaluate(() => window.scrollBy(0, 600)).catch(() => {})
+              await sleep(1200)
             }
-            return null
-          }).filter(Boolean)
-          return { url: url.split('?')[0], likeBtns: likeBtns.length, commentBtns: commentBtns.length, s1, s2, s3, s4, s5, s6, postContainers, totalBtns: allBtns.length }
-        })
-        liLog(pid, `Feed: ${feedDebug.url} likes:${feedDebug.likeBtns} comments:${feedDebug.commentBtns} [urn:${feedDebug.s1} shared:${feedDebug.s2} id:${feedDebug.s3} activity:${feedDebug.s4} occludable:${feedDebug.s5} feed:${feedDebug.s6}]`, 'info', 'engagement')
-        if (feedDebug.postContainers.length > 0) {
-          liLog(pid, `Post containers: ${feedDebug.postContainers.map(c => `${c.tag}[${c.urn?.slice(0,30) || c.classes?.slice(0,40)}]`).join(', ')}`, 'info', 'engagement')
+            await engPage.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
+          } catch {}
+          feedDebug = await engPage.evaluate(() => {
+            const allBtns = document.querySelectorAll('button')
+            const likeBtns = [...allBtns].filter(b => {
+              const label = (b.getAttribute('aria-label') || '').toLowerCase()
+              return label.includes('like') || label.includes('gusta') || label.includes('react')
+            })
+            const s1 = document.querySelectorAll('[data-urn]').length
+            const s2 = document.querySelectorAll('.feed-shared-update-v2').length
+            const s5 = document.querySelectorAll('.occludable-update').length
+            return { url: location.href.split('?')[0], title: document.title, bodyLen: (document.body?.innerText || '').length, totalBtns: allBtns.length, likeBtns: likeBtns.length, s1, s2, s5, hasContent: (s1 + s2 + s5) > 0 || likeBtns.length > 0 }
+          })
+          liLog(pid, `Feed (retry): ${feedDebug.url} body:${feedDebug.bodyLen}c btns:${feedDebug.totalBtns} likes:${feedDebug.likeBtns} [urn:${feedDebug.s1} shared:${feedDebug.s2} occl:${feedDebug.s5}]`, 'info', 'engagement')
+          if (!feedDebug.hasContent) {
+            liLog(pid, 'Feed sigue vacio tras reconexion. Abortando engagement.', 'error', 'engagement')
+            liAutoState.delete(pid)
+            return
+          }
         }
 
         let totalLikes = 0
@@ -1765,17 +1811,16 @@ app.post('/api/linkedin-profiles/:id/engagement/start', async (req, res) => {
                     const commentBtn = postEl.querySelector('button[aria-label*="Comment"], button[aria-label*="comentar"], button[aria-label*="Comentar"]')
                     const alreadyLiked = likeBtn.getAttribute('aria-pressed') === 'true'
 
-                    if (postText.length >= 20) {
-                      results.push({
-                        urn: id,
-                        postText,
-                        author: author.slice(0, 60),
-                        headline: '',
-                        alreadyLiked,
-                        hasLikeBtn: true,
-                        hasCommentBtn: !!commentBtn,
-                      })
-                    }
+                    // Accept image/video posts too (no text requirement for likes)
+                    results.push({
+                      urn: id,
+                      postText,
+                      author: author.slice(0, 60),
+                      headline: '',
+                      alreadyLiked,
+                      hasLikeBtn: true,
+                      hasCommentBtn: !!commentBtn,
+                    })
                   }
                   break
                 }
@@ -2880,26 +2925,118 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
       const messagedSlugs = new Set(alreadyMessaged.rows.map(r => (r.linkedin_url || '').match(/\/in\/([^/]+)/)?.[1]?.toLowerCase()).filter(Boolean))
       liLog(pid, `${messagedSlugs.size} conexiones ya contactadas en DB`, 'info', 'connection')
 
-      // Function to extract connections from current page
-      const extractConnections = async () => {
-        await sleep(2000)
-        for (let i = 0; i < 5; i++) { await page.evaluate(() => window.scrollBy(0, 1000)); await sleep(1200) }
+      // Extract connections currently rendered on the page (no scrolling — caller controls scroll)
+      // Strategy: find every visible profile link (a[href*="/in/"]) inside the main content area,
+      // dedupe by slug, and walk up to the card for name/headline. Resilient to LinkedIn class renames.
+      const extractCurrentConnections = async () => {
         return page.evaluate(() => {
-          const actionBtns = [...document.querySelectorAll('button')]
-            .filter(b => {
-              const label = (b.getAttribute('aria-label') || '').toLowerCase()
-              return (label.includes('más acciones') || label.includes('more actions')) && b.offsetWidth > 0
-            })
-          return actionBtns.map((btn, idx) => {
-            const card = btn.closest('li') || btn.closest('[class*="card"]') || btn.parentElement?.parentElement?.parentElement
-            const link = card ? card.querySelector('a[href*="/in/"]') : null
-            const url = link ? (link.href || '').split('?')[0].replace(/\/$/, '') : ''
-            const slug = url.match(/\/in\/([^/]+)/)?.[1] || ''
-            const allText = card ? card.innerText || '' : ''
-            const lines = allText.split('\n').map(l => l.trim()).filter(l => l.length > 1 && l.length < 200 && !l.match(/^(enviar mensaje|message|contacto desde|mostrar más)/i))
-            return { idx, name: (lines[0] || '').slice(0, 80), headline: (lines[1] || '').slice(0, 150), url, slug }
-          }).filter(c => c.name && c.slug)
+          const seen = new Map()
+          const links = [...document.querySelectorAll('a[href*="/in/"]')]
+          for (const link of links) {
+            // Skip links inside the global nav / header / aside
+            if (link.closest('nav, header, aside')) continue
+            if (link.offsetWidth === 0 || link.offsetHeight === 0) continue
+            const href = (link.href || '').split('?')[0].replace(/\/$/, '')
+            const slug = href.match(/\/in\/([^/]+)/)?.[1]
+            if (!slug) continue
+            const key = slug.toLowerCase()
+            if (seen.has(key)) continue
+
+            // Walk up to a plausible card container
+            let card = link
+            for (let i = 0; i < 8 && card?.parentElement; i++) {
+              card = card.parentElement
+              const tag = card.tagName
+              const cls = (card.className?.toString() || '').toLowerCase()
+              if (tag === 'LI' || cls.includes('card') || cls.includes('connection') || cls.includes('entity-result') || cls.includes('mn-connection')) break
+            }
+
+            // Try to read name from the link text first (LinkedIn usually wraps name in the profile link)
+            let name = (link.innerText || '').trim().replace(/\s+/g, ' ').split('\n')[0].slice(0, 80)
+            // If link text is empty (icon-only link), pull from the card
+            if (!name && card) {
+              const txt = (card.innerText || '').split('\n').map(l => l.trim()).filter(Boolean)
+              name = (txt[0] || '').slice(0, 80)
+            }
+            if (!name) continue
+
+            // Headline = first line after the name in the card text
+            let headline = ''
+            if (card) {
+              const lines = (card.innerText || '').split('\n').map(l => l.trim())
+                .filter(l => l && l.length < 200 && !/^(message|enviar mensaje|connect|conectar|follow|seguir|más|more|·)$/i.test(l))
+              const nameIdx = lines.findIndex(l => l.toLowerCase().includes(name.toLowerCase().slice(0, 20)))
+              headline = (nameIdx >= 0 ? lines[nameIdx + 1] : lines[1]) || ''
+              headline = headline.slice(0, 150)
+            }
+
+            seen.set(key, { name, headline, url: href, slug })
+          }
+          return [...seen.values()]
         })
+      }
+
+      // Collect ALL connections for the current search by scrolling until LinkedIn stops loading more
+      // (LinkedIn's connections list is infinite-scroll — must scroll to bottom repeatedly)
+      const collectAllConnections = async (label) => {
+        await sleep(2000)
+        // Diagnostic on first call: log what page we're on
+        const diag = await page.evaluate(() => ({
+          url: location.href.split('?')[0] + (location.search ? '?' + location.search.slice(0, 30) : ''),
+          title: document.title.slice(0, 60),
+          allInLinks: document.querySelectorAll('a[href*="/in/"]').length,
+          visibleInLinks: [...document.querySelectorAll('a[href*="/in/"]')].filter(a => a.offsetWidth > 0 && !a.closest('nav, header, aside')).length,
+          bodyLen: (document.body?.innerText || '').length,
+        }))
+        liLog(pid, `[${label}] page: "${diag.title}" inLinks:${diag.allInLinks}(vis:${diag.visibleInLinks}) body:${diag.bodyLen}c`, 'info', 'connection')
+
+        const collected = new Map() // slug -> connection
+        let stableRounds = 0
+        const maxScrollRounds = 40 // hard cap to avoid infinite loops
+        let prevHeight = 0
+
+        for (let round = 0; round < maxScrollRounds && stableRounds < 3; round++) {
+          if (!liAutoState.get(pid)?.running) break
+
+          // Extract whatever is currently rendered
+          const current = await extractCurrentConnections()
+          let newInThisRound = 0
+          for (const c of current) {
+            const key = c.slug.toLowerCase()
+            if (!collected.has(key)) { collected.set(key, c); newInThisRound++ }
+          }
+
+          // Scroll to the bottom to trigger lazy load of more results
+          const { scrollH, viewportH } = await page.evaluate(() => {
+            window.scrollTo(0, document.body.scrollHeight)
+            return { scrollH: document.body.scrollHeight, viewportH: window.innerHeight }
+          })
+
+          // Try clicking a "Show more / Mostrar mas" button if LinkedIn shows one
+          await page.evaluate(() => {
+            const btns = [...document.querySelectorAll('button')]
+            const more = btns.find(b => {
+              const t = (b.innerText || b.getAttribute('aria-label') || '').toLowerCase()
+              return (t.includes('show more') || t.includes('mostrar más') || t.includes('mostrar mas') || t.includes('see more')) && b.offsetWidth > 0
+            })
+            if (more) more.click()
+          }).catch(() => {})
+
+          await sleep(1800 + Math.random() * 800)
+
+          // Detect if the page actually grew. If height didn't change AND no new connections, count as stable
+          if (scrollH === prevHeight && newInThisRound === 0) {
+            stableRounds++
+          } else {
+            stableRounds = 0
+          }
+          prevHeight = scrollH
+
+          if (round % 3 === 0) {
+            liLog(pid, `[${label}] scroll ${round + 1}: ${collected.size} acumulados (+${newInThisRound})`, 'info', 'connection')
+          }
+        }
+        return [...collected.values()]
       }
 
       // Iterate through alphabet letters to search all connections
@@ -2917,13 +3054,18 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         await page.goto(`https://www.linkedin.com/mynetwork/invite-connect/connections/?search=${letter}`, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
         await sleep(3000 + Math.random() * 1500)
 
-        const connections = await extractConnections()
+        // Collect EVERY connection for this letter via infinite scroll BEFORE messaging
+        // (messaging navigates away from the search page, so we must collect first)
+        const connections = await collectAllConnections(letter)
         const newConns = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()) && !allConnections.find(a => a.slug === c.slug))
 
-        if (newConns.length === 0) continue
+        if (newConns.length === 0) {
+          liLog(pid, `Letra "${letter}": ${connections.length} resultados totales, 0 nuevos`, 'info', 'connection')
+          continue
+        }
         totalFound += newConns.length
         allConnections.push(...newConns)
-        liLog(pid, `Letra "${letter}": ${connections.length} resultados, ${newConns.length} sin mensaje`, 'info', 'connection')
+        liLog(pid, `Letra "${letter}": ${connections.length} resultados totales, ${newConns.length} sin mensaje`, 'success', 'connection')
 
         const toMessage = newConns.slice(0, maxMessages - sent)
 
