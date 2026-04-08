@@ -2896,7 +2896,7 @@ app.post('/api/linkedin-profiles/:id/automation/stop', async (req, res) => {
 // Check accepted connections & send follow-up messages (independent button)
 app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
   const pid = req.params.id
-  const maxMessages = req.body.maxMessages || 20
+  const maxMessages = req.body.maxMessages || 100
   liLog(pid, `Iniciando envio de mensajes a conexiones (max ${maxMessages})...`, 'info', 'connection')
   res.json({ success: true, message: 'Envio de mensajes iniciado' })
 
@@ -3039,35 +3039,24 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
         return [...collected.values()]
       }
 
-      // Iterate through alphabet letters to search all connections
+      // Single pass: navigate to the connections list (no search filter) and collect ALL via infinite scroll.
+      // The previous letter-by-letter approach missed connections because LinkedIn's search filter is
+      // unreliable and 77 contacts fit easily in a single infinite-scroll pass.
       let sent = 0
       const { analyzeWithDeepSeek: aiGen } = await import('./services/deepseek.js')
-      const letters = 'abcdefghijklmnopqrstuvwxyz'.split('')
       let totalFound = 0
-      const allConnections = []
 
-      for (const letter of letters) {
-        if (sent >= maxMessages) break
+      liLog(pid, 'Cargando lista completa de conexiones...', 'info', 'connection')
+      await page.goto('https://www.linkedin.com/mynetwork/invite-connect/connections/', { waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {})
+      await sleep(3500 + Math.random() * 1500)
 
-        // Navigate to connections page with search
-        liLog(pid, `Buscando conexiones con "${letter}"...`, 'info', 'connection')
-        await page.goto(`https://www.linkedin.com/mynetwork/invite-connect/connections/?search=${letter}`, { waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => {})
-        await sleep(3000 + Math.random() * 1500)
+      const connections = await collectAllConnections('all')
+      const newConns = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()))
+      totalFound = newConns.length
+      liLog(pid, `Conexiones totales en pagina: ${connections.length} | sin mensaje: ${newConns.length} | a enviar: ${Math.min(newConns.length, maxMessages)}`, 'success', 'connection')
 
-        // Collect EVERY connection for this letter via infinite scroll BEFORE messaging
-        // (messaging navigates away from the search page, so we must collect first)
-        const connections = await collectAllConnections(letter)
-        const newConns = connections.filter(c => !messagedSlugs.has(c.slug.toLowerCase()) && !allConnections.find(a => a.slug === c.slug))
-
-        if (newConns.length === 0) {
-          liLog(pid, `Letra "${letter}": ${connections.length} resultados totales, 0 nuevos`, 'info', 'connection')
-          continue
-        }
-        totalFound += newConns.length
-        allConnections.push(...newConns)
-        liLog(pid, `Letra "${letter}": ${connections.length} resultados totales, ${newConns.length} sin mensaje`, 'success', 'connection')
-
-        const toMessage = newConns.slice(0, maxMessages - sent)
+      if (newConns.length > 0) {
+        const toMessage = newConns.slice(0, maxMessages)
 
         for (const conn of toMessage) {
           if (sent >= maxMessages) break
@@ -3231,7 +3220,7 @@ Responde UNICAMENTE con el mensaje, sin explicaciones.`
         }
       }
 
-      } // end letter loop
+      } // end if newConns.length > 0
 
       liLog(pid, `Completado: ${sent} mensajes enviados, ${totalFound} conexiones sin mensaje encontradas en total`, 'success', 'connection')
     } catch (err) { liLog(pid, `Error en follow-up: ${err.message?.slice(0, 80)}`, 'error', 'connection') }
