@@ -2985,7 +2985,7 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
 
 Estas conectado con ${conn.name} en LinkedIn. Su cargo/headline: "${conn.headline || 'no disponible'}"
 
-OBJETIVO: Escribir un mensaje EXTENSO y PERSUASIVO mostrandole COMO podrian implementar IA en SU negocio.
+OBJETIVO: Escribir un mensaje EXTENSO y PERSUASIVO mostrandole COMO podrian implementar IA en SU negocio, incluyendo un caso AVANZADO de Machine Learning o Vision Artificial que lo sorprenda.
 
 INSTRUCCIONES:
 1. Analiza su rol y rubro REAL del headline
@@ -3006,29 +3006,47 @@ INSTRUCCIONES:
    - Gastronomia: prediccion de demanda con ML, optimizacion de menus, vision artificial para inventario en cocina
    - Construccion: vision artificial para seguimiento de obra, ML para presupuestos, agentes para gestion de licitaciones
 
-4. SIEMPRE cerrá con: "${ofertaFu}"
+4. SIEMPRE incluí UN ejemplo AVANZADO de Machine Learning o Vision Artificial pensado para su rubro. Ideas avanzadas por sector:
+   - Contable: ML que aprende patrones de gasto historicos y arma forecast de cashflow a 90 dias con intervalos de confianza; deteccion de fraude con isolation forest
+   - Ventas: ML que predice cuando un cliente va a churnear analizando su patron de uso y comunicaciones; clustering de cuentas para priorizar
+   - Marketing: ML que arma audiencias lookalike sobre comportamiento real de tus mejores clientes; modelos de mix de marketing (MMM) para asignar pauta
+   - RRHH: ML que predice exito de un candidato segun perfiles historicos exitosos; analisis de redes para detectar talento clave
+   - Logistica: vision artificial sobre camaras del deposito que mide ocupacion en tiempo real; ML que predice retrasos por clima/trafico
+   - Industria: vision artificial con redes convolucionales que detecta micro-defectos invisibles al ojo humano; gemelo digital con ML para optimizar parametros
+   - Retail: vision artificial que mide cuanto tiempo paran los clientes frente a cada gondola y arma heatmaps; ML para dinamica de precios
+   - Salud: vision artificial sobre radiografias/ecografias entrenada en miles de casos; ML que predice readmision hospitalaria
+   - Legal: ML que predice probabilidad de exito de un caso segun jurisprudencia similar; clustering de clausulas riesgosas
+   - Tech: ML que detecta anomalias en logs de produccion antes de que crashee; modelos de prediccion de carga
+   - Educacion: ML que predice deserción escolar y arma alertas tempranas; vision artificial para tomar asistencia
+   - Inmobiliaria: vision artificial que detecta calidad de fotos y mejora las malas; ML que predice tiempo en mercado
+   - Gastronomia: ML con datos historicos + clima + eventos para predecir demanda por hora; vision para portion control
+   - Construccion: vision artificial sobre drones que mide avance de obra m² por dia; ML para estimacion de presupuestos
 
-ESTRUCTURA (extenso y persuasivo, 600-800 chars):
+5. SIEMPRE cerrá con: "${ofertaFu}"
+
+ESTRUCTURA (extenso y persuasivo, 700-900 chars):
 - Saludo con nombre de pila + 1 linea reconociendo su rol/empresa
-- 1 parrafo identificando 1-2 dolores reales del rol (mostrar empatia, que entendes su mundo)
-- 1 parrafo explicando COMO podrian implementar IA: nombrá la tecnologia (LLM, ML, vision artificial, RAG, agentes) y describí brevemente como funcionaria EN SU NEGOCIO
+- 1 parrafo identificando 1-2 dolores reales del rol (mostrar empatia)
+- 1 parrafo explicando COMO podrian implementar IA basica: agente LLM o automatizacion. Nombrá la tecnologia y describí brevemente como funcionaria EN SU NEGOCIO
+- 1 parrafo con un ejemplo AVANZADO de ML o vision artificial pensado para su rubro (esto es lo que lo va a sorprender)
 - Cierre con la oferta de auditoria gratuita + reunion + pregunta abierta
 
 REGLAS CRITICAS:
 - NO inventes metricas falsas ("70% de reduccion", "duplicó X", "un cliente logro Y")
 - NO menciones casos de exito ficticios
 - Hablá en condicional: "podriamos implementar", "se podria armar", "sirve para"
-- Max 800 chars
+- Max 1000 chars
 - Español argentino natural, profesional pero humano
 - Sin emojis, sin comillas externas
 - NUNCA digas "vi tu perfil y me parecio interesante"
 - SE ESPECIFICO con la tecnologia: nombrá LLM, ML, vision artificial, RAG, agentes (no "IA" generico)
+- El ejemplo avanzado de ML/vision tiene que ser TECNICAMENTE creible y especifico al rubro
 - VARIA cada mensaje: NO siempre la misma estructura ni las mismas palabras
 - Sona como un profesional escribiendo a otro
 
 Responde UNICAMENTE con el mensaje, sin explicaciones.`
           )
-          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 900)
+          const cleanMsg = aiMsg.trim().replace(/^["']|["']$/g, '').slice(0, 1100)
 
           // Type in the message input (msgInput already found above)
           if (msgInput) {
