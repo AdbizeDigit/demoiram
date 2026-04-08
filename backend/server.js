@@ -2520,10 +2520,11 @@ ESTRATEGIA elegida: ${strategy.name} - ${strategy.instruction}
 FORMATO: LinkedIn limita a 300 chars la nota de invitacion. Tenes que ser CONCISO y persuasivo.
 - Empieza con "Hola ${actualName.split(' ')[0]}!"
 - 1 frase reconociendo su rol especifico
-- 1 frase con UN caso de IA concreto (LLM/ML/vision/agentes - nombrar la tech)
+- 1 frase explicando COMO podrian implementar IA en su negocio (LLM/ML/vision/agentes - nombrar la tech)
 - Cerrá ofreciendo: "${oferta}"
 - ${actualToneGuide}
 - NO emojis, NO comillas, NO "vi tu perfil"
+- NO inventes metricas ni casos de exito falsos. Hablá en condicional: "podriamos implementar"
 - SE ESPECIFICO con tecnologia (no "IA" generico)
 - Tono humano, profesional, no vendedor
 
@@ -2980,50 +2981,50 @@ app.post('/api/linkedin-profiles/:id/followup-accepted', async (req, res) => {
           const ofertaFu = ofertasFu[Math.floor(Math.random() * ofertasFu.length)]
 
           const aiMsg = await aiGen(
-            `Sos ${senderName} de ${senderCompany}, una agencia argentina especializada en IA aplicada (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas reales de negocio. NO sos una agencia generica de marketing: implementan tecnologia de verdad.
+            `Sos ${senderName} de ${senderCompany}, una agencia argentina especializada en IA aplicada (LLMs, machine learning, vision artificial, RAG, agentes autonomos, automatizacion) a problemas reales de negocio. Implementan tecnologia de verdad, no son una agencia generica de marketing.
 
 Estas conectado con ${conn.name} en LinkedIn. Su cargo/headline: "${conn.headline || 'no disponible'}"
 
-OBJETIVO: Escribir un mensaje de LinkedIn EXTENSO y PERSUASIVO que lo enganche.
+OBJETIVO: Escribir un mensaje EXTENSO y PERSUASIVO mostrandole COMO podrian implementar IA en SU negocio.
 
-INSTRUCCIONES PASO A PASO:
+INSTRUCCIONES:
 1. Analiza su rol y rubro REAL del headline
-2. Identifica 2 problemas concretos que tiene ese rol diariamente (los mas dolorosos)
-3. Para cada problema, proponé 1 solucion de IA ESPECIFICA con la tecnologia exacta. Catalogo:
-   - Contable/Finanzas: agente LLM lee facturas y concilia (ahorra 70% tiempo de cierre), ML detecta anomalias en gastos en tiempo real, prediccion de cobranza
-   - Ventas/Comercial: agente LLM califica leads y prepara propuestas, ML predice churn con 85% accuracy, scoring inteligente
-   - Marketing: generacion masiva de creatividades con LLM, segmentacion con ML que mejora ROAS 30%, optimizacion automatica
-   - RRHH: screening de CVs con LLM filtra 80% candidatos no aptos en segundos, prediccion de rotacion, chatbot onboarding
-   - Logistica/Ops: vision artificial conteo de inventario sin escanear, ruteo con ML baja 25% costo de combustible, mantenimiento predictivo
-   - Industria/Manufactura: vision artificial QA detecta defectos 100x mas rapido que inspeccion manual, mantenimiento predictivo evita paradas
-   - Retail/Ecommerce: recomendador con ML sube AOV 25%, vision en checkout, prediccion de stockouts
-   - Salud: vision artificial para diagnostico por imagenes, NLP estructura historiales, agendamiento inteligente
-   - Legal: LLM resume contratos largos en minutos, RAG busca jurisprudencia semanticamente, redaccion asistida
-   - Tech/Software: copilot codigo aumenta velocidad 40%, RAG sobre docs internas, agentes autonomos para tickets
+2. Identifica 2 problemas concretos de su dia a dia
+3. Para cada problema, explicá COMO se podria implementar IA con la tecnologia adecuada. Catalogo de aplicaciones por rubro:
+   - Contable/Finanzas: agente LLM que lee facturas en PDF y arma asientos automaticos, ML para detectar gastos anomalos, automatizacion de conciliaciones bancarias, prediccion de cobranza
+   - Ventas/Comercial: agente LLM que califica leads del primer mensaje, scoring inteligente con ML, asistente que arma propuestas leyendo el brief, prediccion de churn
+   - Marketing: generacion de creatividades con LLM, segmentacion automatica con ML, optimizacion de pauta en tiempo real, analisis de sentiment en redes
+   - RRHH: screening de CVs con LLM que entiende skills reales, chatbot de onboarding 24/7, prediccion de rotacion, matching candidato-puesto
+   - Logistica/Ops: vision artificial para conteo de inventario sin escaneo, ruteo optimizado con ML, prediccion de demanda, mantenimiento predictivo
+   - Industria/Manufactura: vision artificial para deteccion de defectos en linea, mantenimiento predictivo analizando vibracion/temperatura, optimizacion de produccion
+   - Retail/Ecommerce: recomendador con ML, vision artificial en checkout, chatbot LLM de soporte, prediccion de stockouts
+   - Salud: vision artificial para diagnostico por imagenes, NLP que estructura historiales, agendamiento inteligente, asistente clinico
+   - Legal: LLM que resume contratos largos, busqueda semantica de jurisprudencia con RAG, redaccion asistida, revisor de clausulas
+   - Tech/Software: copilot de codigo, RAG sobre documentacion interna, agentes autonomos para tickets, testing automatizado
    - Educacion: tutor IA personalizado por alumno, correccion automatica con LLM, generacion de contenido
-   - Inmobiliaria: vision artificial tasa propiedades desde fotos, chatbot LLM 24/7 califica leads, ML predice precios
-   - Gastronomia: prediccion de demanda con ML reduce desperdicio 30%, optimizacion de menus, vision para inventario
-   - Construccion: vision artificial para avance de obra, ML para presupuestos, agentes para licitaciones
+   - Inmobiliaria: vision artificial para tasaciones desde fotos, chatbot LLM 24/7 para leads, ML para precios
+   - Gastronomia: prediccion de demanda con ML, optimizacion de menus, vision artificial para inventario en cocina
+   - Construccion: vision artificial para seguimiento de obra, ML para presupuestos, agentes para gestion de licitaciones
 
-4. PROOF: agregá al menos 1 metrica creible o caso ("un cliente del sector logro X")
+4. SIEMPRE cerrá con: "${ofertaFu}"
 
-5. SIEMPRE cerrá con: "${ofertaFu}"
+ESTRUCTURA (extenso y persuasivo, 600-800 chars):
+- Saludo con nombre de pila + 1 linea reconociendo su rol/empresa
+- 1 parrafo identificando 1-2 dolores reales del rol (mostrar empatia, que entendes su mundo)
+- 1 parrafo explicando COMO podrian implementar IA: nombrá la tecnologia (LLM, ML, vision artificial, RAG, agentes) y describí brevemente como funcionaria EN SU NEGOCIO
+- Cierre con la oferta de auditoria gratuita + reunion + pregunta abierta
 
-ESTRUCTURA DEL MENSAJE (extenso y persuasivo, ~600-800 chars):
-- Saludo con nombre de pila + 1 linea reconociendo su rol/empresa de forma genuina
-- 1 parrafo identificando 1-2 dolores reales de su rol (mostrar que entendes su mundo)
-- 1 parrafo con 1-2 soluciones concretas: nombrá la tecnologia (LLM, ML, vision artificial, RAG, agentes) y un beneficio especifico/metrica
-- Si aplica: mencion breve de un caso de exito ("uno de nuestros clientes en el rubro logro X")
-- Cierre con la oferta de auditoria + reunion + pregunta abierta clara
-
-REGLAS:
+REGLAS CRITICAS:
+- NO inventes metricas falsas ("70% de reduccion", "duplicó X", "un cliente logro Y")
+- NO menciones casos de exito ficticios
+- Hablá en condicional: "podriamos implementar", "se podria armar", "sirve para"
 - Max 800 chars
-- Español argentino natural, tono profesional pero humano
+- Español argentino natural, profesional pero humano
 - Sin emojis, sin comillas externas
 - NUNCA digas "vi tu perfil y me parecio interesante"
 - SE ESPECIFICO con la tecnologia: nombrá LLM, ML, vision artificial, RAG, agentes (no "IA" generico)
 - VARIA cada mensaje: NO siempre la misma estructura ni las mismas palabras
-- Sona como un profesional escribiendo a otro, no como un bot
+- Sona como un profesional escribiendo a otro
 
 Responde UNICAMENTE con el mensaje, sin explicaciones.`
           )
