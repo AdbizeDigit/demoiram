@@ -1034,8 +1034,12 @@ export default function PipelinePage() {
   const loadLeads = useCallback(async () => {
     setLoading(true)
     try {
-      // Sync statuses first: any lead with sent messages should be CONTACTADO, with replies → EN_CONVERSACION
-      try { await api.post('/api/leads/sync-status') } catch {}
+      // Sync statuses in the background — never block the UI on it.
+      // It runs UPDATEs across the whole leads table and can be slow under load.
+      // When it finishes we silently refresh stage counts so totals catch up.
+      api.post('/api/leads/sync-status')
+        .then(() => { loadStageCounts() })
+        .catch(() => {})
       // Load real stage counts (for the totals shown in the header)
       loadStageCounts()
       loadAwaitingReply()

@@ -3,6 +3,9 @@ import axios from 'axios'
 // Create axios instance with default configuration
 const api = axios.create({
   baseURL: '/',
+  // Hard cap so a slow/hung backend can never freeze the UI forever.
+  // Long-running endpoints (AI generation, etc.) should set their own timeout.
+  timeout: 45000,
   headers: {
     'Content-Type': 'application/json'
   }
