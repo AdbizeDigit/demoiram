@@ -619,7 +619,8 @@ class WhatsAppMultiAccountManager {
   }
 
   // Smart send: picks best account (connected + has capacity), sends
-  async sendMessageRotating(phone, text, leadId = null) {
+  async sendMessageRotating(phone, text, leadId = null, options = {}) {
+    const { allowOverLimit = false } = options;
     const { pool } = await import('../../config/database.js');
 
     // Get all active accounts from DB
@@ -643,13 +644,18 @@ class WhatsAppMultiAccountManager {
       else todayByAccount[r.wa_account_id] = parseInt(r.today || 0);
     }
 
-    // Build candidate list: filter accounts with available capacity, sort by least used
+    // Build candidate list: filter accounts with available capacity, sort by least used.
+    // When allowOverLimit is set (e.g. replying inside an active conversation), include
+    // accounts even if they hit the daily cold-outreach cap.
     const candidates = [];
 
     // Main account (hardcoded limit 30, virtual)
     const MAIN_LIMIT = 30;
-    if (mainTodayCount < MAIN_LIMIT) {
+    if (mainTodayCount < MAIN_LIMIT || allowOverLimit) {
       candidates.push({ id: 'main', name: 'Principal', today: mainTodayCount, limit: MAIN_LIMIT });
+      if (mainTodayCount >= MAIN_LIMIT) {
+        console.log(`[waManager] Principal OVER LIMIT (${mainTodayCount}/${MAIN_LIMIT}), allowed (active convo)`);
+      }
     } else {
       console.log(`[waManager] Principal AT LIMIT (${mainTodayCount}/${MAIN_LIMIT}), skipping`);
     }
@@ -658,8 +664,11 @@ class WhatsAppMultiAccountManager {
     for (const acc of dbAccounts) {
       const today = todayByAccount[acc.id] || 0;
       const limit = acc.daily_limit || 100;
-      if (today < limit) {
+      if (today < limit || allowOverLimit) {
         candidates.push({ id: acc.id, name: acc.name, today, limit });
+        if (today >= limit) {
+          console.log(`[waManager] ${acc.name} OVER LIMIT (${today}/${limit}), allowed (active convo)`);
+        }
       } else {
         console.log(`[waManager] ${acc.name} AT LIMIT (${today}/${limit}), skipping`);
       }

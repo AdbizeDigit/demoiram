@@ -436,7 +436,35 @@ router.post('/whatsapp/send-direct', async (req, res) => {
       );
       resolvedLeadId = leadRes.rows[0]?.id || null;
     }
-    const result = await waManager.sendMessageRotating(phone, message, resolvedLeadId);
+
+    // If this is a reply inside an active conversation (lead already replied to us, or
+    // we already exchanged any WhatsApp message with them), bypass the daily cold-outreach
+    // limit. Daily caps are meant to throttle NEW prospecting, not replies in-flight.
+    let allowOverLimit = false;
+    if (resolvedLeadId) {
+      const convoCheck = await pool.query(
+        `SELECT 1 FROM outreach_messages
+         WHERE lead_id = $1 AND UPPER(channel) = 'WHATSAPP'
+         LIMIT 1`,
+        [resolvedLeadId]
+      ).catch(() => ({ rows: [] }));
+      if (convoCheck.rows.length > 0) allowOverLimit = true;
+    }
+
+    let result;
+    try {
+      result = await waManager.sendMessageRotating(phone, message, resolvedLeadId, { allowOverLimit });
+    } catch (sendErr) {
+      // Surface daily-limit errors as 429 with a human message instead of generic 500
+      if (/limite diario/i.test(sendErr.message)) {
+        return res.status(429).json({
+          success: false,
+          error: 'Las cuentas de WhatsApp llegaron al limite diario. Intenta manana o conecta otra cuenta.',
+          code: 'DAILY_LIMIT_REACHED',
+        });
+      }
+      throw sendErr;
+    }
 
     if (resolvedLeadId) {
       await pool.query(
