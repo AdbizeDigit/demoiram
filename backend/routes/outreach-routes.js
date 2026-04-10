@@ -4,6 +4,7 @@ import { pool } from '../config/database.js';
 import { emailOutreachService } from '../services/outreach/email-outreach-service.js';
 import { whatsappOutreachService } from '../services/outreach/whatsapp-outreach-service.js';
 import { callScriptService } from '../services/outreach/call-script-service.js';
+import { outreachLearning } from '../services/outreach/outreach-learning-service.js';
 
 const router = Router();
 router.use(protect, adminOnly);
@@ -199,6 +200,50 @@ router.post('/call/script', async (req, res) => {
 
     res.json({ success: true, script });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── Learning / Insights (closed-loop coach) ──
+
+// GET /insights - latest playbook + metrics
+router.get('/insights', async (req, res) => {
+  try {
+    const active = await outreachLearning.getActive();
+    if (active) {
+      return res.json({
+        success: true,
+        playbook: active.playbook,
+        metrics: active.metrics,
+        version: active.version,
+        sample_size: active.sample_size,
+        generated_at: active.generated_at,
+        is_active: true,
+      });
+    }
+    // No playbook yet — return live metrics so the UI still has something to show
+    const metrics = await outreachLearning.computeMetrics();
+    res.json({ success: true, playbook: null, metrics, version: 0, sample_size: 0, generated_at: null, is_active: false });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /insights/regenerate - re-run analysis and produce a new playbook version
+router.post('/insights/regenerate', async (req, res) => {
+  try {
+    const row = await outreachLearning.regenerate();
+    res.json({
+      success: true,
+      playbook: row.playbook,
+      metrics: row.metrics,
+      version: row.version,
+      sample_size: row.sample_size,
+      generated_at: row.generated_at,
+      is_active: true,
+    });
+  } catch (error) {
+    console.error('[Insights Regenerate] Error:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });

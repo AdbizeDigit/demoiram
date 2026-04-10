@@ -103,7 +103,15 @@ class EmailOutreachService {
     const config = await emailTemplateConfig.getActiveConfig();
     const avatar = await this.getActiveAvatar();
 
-    const systemPrompt = config?.system_prompt || this.getDefaultSystemPrompt();
+    let systemPrompt = config?.system_prompt || this.getDefaultSystemPrompt();
+    // Inject the active learning playbook so every new email benefits from past results.
+    try {
+      const { outreachLearning } = await import('./outreach-learning-service.js');
+      const playbook = await outreachLearning.getActivePlaybookText();
+      if (playbook) {
+        systemPrompt += `\n\nPLAYBOOK DE APRENDIZAJE (extraido de tus propios resultados, seguilo):\n${playbook}`;
+      }
+    } catch {}
     const senderName = avatar?.name || process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Adbize';
 
     const stepContext = {

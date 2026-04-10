@@ -65,7 +65,17 @@ Responde SOLO JSON: {"message":"texto"}`;
     const sector = (lead.sector || '').toLowerCase().replace('ai-agent:', '')
     const ideas = sectorIdeas[sector] || Object.values(sectorIdeas).find(v => sector.includes(Object.keys(sectorIdeas).find(k => sector.includes(k)) || '')) || 'Por ejemplo, usar IA para automatizar procesos repetitivos o mejorar la atencion al cliente'
 
-    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.
+    // Inject the active learning playbook (built from real reply/won data)
+    let learningBlock = '';
+    try {
+      const { outreachLearning } = await import('./outreach-learning-service.js');
+      const playbook = await outreachLearning.getActivePlaybookText();
+      if (playbook) {
+        learningBlock = `\n\nPLAYBOOK DE APRENDIZAJE (extraido de tus propios resultados, seguilo):\n${playbook}\n`;
+      }
+    } catch {}
+
+    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.${learningBlock}
 
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
 
