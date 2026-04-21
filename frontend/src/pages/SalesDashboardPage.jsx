@@ -6,6 +6,8 @@ import {
   Mail, Activity, Sparkles, ChevronRight, Trophy, Brain, Calendar, ExternalLink
 } from 'lucide-react'
 import api from '../services/api'
+import AICoachPanel from '../components/feedback/AICoachPanel'
+import AutoImprovePanel from '../components/feedback/AutoImprovePanel'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -381,6 +383,10 @@ export default function SalesDashboardPage() {
             color="violet" />
         </div>
 
+        {/* Feedback / learning panels — shared with Pipeline page */}
+        <AICoachPanel />
+        <AutoImprovePanel />
+
         {/* Charts row: daily stacked + hourly rate */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
@@ -449,28 +455,6 @@ export default function SalesDashboardPage() {
                   </div>
                 )
               })}
-            </div>
-
-            {/* Mini AI Coach summary */}
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <div className="flex items-center gap-1.5 mb-2">
-                <Brain className="w-3.5 h-3.5 text-violet-500" />
-                <span className="text-[11px] font-semibold text-gray-700">AI Coach</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <div>
-                  <p className="text-sm font-bold text-violet-700">{coach.avgScore != null ? coach.avgScore : '—'}</p>
-                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">score avg</p>
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-gray-700">{formatNumber(coach.scored)}</p>
-                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">scored</p>
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-gray-700">{formatNumber(coach.activeVersions)}</p>
-                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">versiones</p>
-                </div>
-              </div>
             </div>
           </div>
         </div>
