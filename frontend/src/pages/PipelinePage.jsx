@@ -1580,7 +1580,7 @@ export default function PipelinePage() {
                 )}
               </div>
               <p className="text-[11px] text-gray-500 truncate">
-                Cada 6h puntúa mensajes (0-100) y muta parámetros por sector. Si una versión nueva rinde peor, rollback automático.
+                Una vez al día puntúa mensajes (0-100) y muta parámetros por sector. Si una versión nueva rinde peor, rollback automático.
               </p>
             </div>
           </div>

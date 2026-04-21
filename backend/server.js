@@ -3720,18 +3720,28 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error inicializando auto-mejora:', err.message);
   }
 
-  // Cron: ciclo de scoring + tuning cada 6 horas.
-  // Primer run después de 5 minutos para no pegarle al arranque.
-  setTimeout(() => {
-    import('./services/outreach/outreach-tuning-service.js')
-      .then(m => m.outreachTuning.runCycle())
-      .catch(err => console.error('[OutreachTuning] first run failed:', err.message));
-  }, 5 * 60 * 1000);
-  setInterval(() => {
+  // Cron: ciclo de scoring + tuning una vez al día, a las 04:00 UTC (≈01:00 Argentina).
+  // Primer run a los 5 min del arranque para procesar pendientes, después diario.
+  const runTuningCycle = () => {
     import('./services/outreach/outreach-tuning-service.js')
       .then(m => m.outreachTuning.runCycle())
       .catch(err => console.error('[OutreachTuning] cycle failed:', err.message));
-  }, 6 * 60 * 60 * 1000);
+  };
+  setTimeout(runTuningCycle, 5 * 60 * 1000);
+  // Schedule the next 04:00 UTC, then repeat every 24h.
+  const scheduleNextDailyTuning = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setUTCHours(4, 0, 0, 0);
+    if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+    const msUntilNext = next.getTime() - now.getTime();
+    setTimeout(() => {
+      runTuningCycle();
+      setInterval(runTuningCycle, 24 * 60 * 60 * 1000);
+    }, msUntilNext);
+    console.log(`🕓 Auto-mejora diaria programada para ${next.toISOString()}`);
+  };
+  scheduleNextDailyTuning();
 
   // Cron: scoring-only cada 20 minutos — mantiene los scores frescos para el frontend.
   setInterval(() => {
