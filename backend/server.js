@@ -39,6 +39,7 @@ import scrapingTerritoriesRoutes from './routes/scraping-territories.js'
 import detectionRoutes from './routes/detection.js'
 import scrapingSystemRoutes from './routes/scraping-routes.js'
 import outreachRoutes from './routes/outreach-routes.js'
+import salesDashboardRoutes, { leadsRouter as salesLeadsRouter } from './routes/sales-dashboard.js'
 import avatarRoutes from './routes/avatar-routes.js'
 import agentRunnerRoutes from './routes/agent-runner-routes.js'
 import { connectDB } from './config/database.js'
@@ -143,6 +144,9 @@ app.post('/api/webhook/email', async (req, res) => {
 })
 
 app.use('/api/outreach', outreachRoutes)
+// Sales dashboard: rich metrics + follow-up.
+app.use('/api/dashboard', salesDashboardRoutes)
+app.use('/api/leads', salesLeadsRouter)
 app.use('/api/avatars', avatarRoutes)
 app.use('/api/agent-runner', agentRunnerRoutes)
 
@@ -3523,71 +3527,6 @@ Responde SOLO JSON:
     const response = await analyzeWithDeepSeek(aiPrompt)
     const parsed = JSON.parse(response.match(/\{[\s\S]*\}/)?.[0] || '{}')
     res.json({ success: true, pdfData: parsed })
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message })
-  }
-})
-
-app.get('/api/dashboard/sales-metrics', async (req, res) => {
-  try {
-    const { pool } = await import('./config/database.js')
-
-    // Today's contacted leads
-    const today = await pool.query("SELECT count(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE AND status = 'SENT'")
-    const yesterday = await pool.query("SELECT count(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE - 1 AND sent_at < CURRENT_DATE AND status = 'SENT'")
-
-    // Response rate
-    const totalSent = await pool.query("SELECT count(*) FROM outreach_messages WHERE status = 'SENT'")
-    const totalReplied = await pool.query("SELECT count(*) FROM outreach_messages WHERE status = 'REPLIED'")
-
-    // Active conversations
-    const activeConvos = await pool.query("SELECT count(*) FROM leads WHERE status = 'EN_CONVERSACION'")
-
-    // Won this month
-    const wonMonth = await pool.query("SELECT count(*), COALESCE(sum(CAST(NULLIF(score, 0) AS numeric) * 100), 0) as value FROM leads WHERE UPPER(status) = 'GANADO' AND updated_at >= date_trunc('month', CURRENT_DATE)")
-
-    // Daily contacts last 7 days
-    const daily = await pool.query("SELECT DATE(sent_at) as day, count(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE - 7 AND status = 'SENT' GROUP BY DATE(sent_at) ORDER BY day")
-
-    // Response by hour
-    const byHour = await pool.query("SELECT EXTRACT(HOUR FROM sent_at) as hour, count(*) FROM outreach_messages WHERE status = 'REPLIED' AND sent_at IS NOT NULL GROUP BY hour ORDER BY hour")
-
-    // Recent replies with text for sentiment
-    const recentReplies = await pool.query(`
-      SELECT m.id, m.body, m.subject, m.sent_at, l.id as lead_id, l.name as lead_name
-      FROM outreach_messages m
-      LEFT JOIN leads l ON l.id = m.lead_id
-      WHERE m.status = 'REPLIED' AND m.channel = 'WHATSAPP'
-      ORDER BY m.sent_at DESC LIMIT 15
-    `)
-
-    // Inactive leads (EN_CONVERSACION, no messages in 3+ days)
-    const inactive = await pool.query(`
-      SELECT l.id, l.name, l.phone, l.status,
-        (SELECT max(sent_at) FROM outreach_messages WHERE lead_id = l.id) as last_activity,
-        (SELECT body FROM outreach_messages WHERE lead_id = l.id ORDER BY sent_at DESC LIMIT 1) as last_message
-      FROM leads l
-      WHERE l.status = 'EN_CONVERSACION'
-      AND (SELECT max(sent_at) FROM outreach_messages WHERE lead_id = l.id) < NOW() - INTERVAL '3 days'
-      ORDER BY (SELECT max(sent_at) FROM outreach_messages WHERE lead_id = l.id) ASC
-      LIMIT 10
-    `)
-
-    res.json({
-      success: true,
-      contactedToday: parseInt(today.rows[0].count),
-      contactedYesterday: parseInt(yesterday.rows[0].count),
-      totalSent: parseInt(totalSent.rows[0].count),
-      totalReplied: parseInt(totalReplied.rows[0].count),
-      responseRate: parseInt(totalSent.rows[0].count) > 0 ? Math.round((parseInt(totalReplied.rows[0].count) / parseInt(totalSent.rows[0].count)) * 100) : 0,
-      activeConversations: parseInt(activeConvos.rows[0].count),
-      wonThisMonth: parseInt(wonMonth.rows[0].count),
-      wonValue: parseInt(wonMonth.rows[0].value || 0),
-      dailyContacts: daily.rows.map(r => ({ day: r.day, count: parseInt(r.count) })),
-      responseByHour: byHour.rows.map(r => ({ hour: parseInt(r.hour), count: parseInt(r.count) })),
-      recentReplies: recentReplies.rows,
-      inactiveLeads: inactive.rows,
-    })
   } catch (err) {
     res.status(500).json({ success: false, error: err.message })
   }

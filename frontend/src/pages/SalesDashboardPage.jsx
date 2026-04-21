@@ -1,163 +1,205 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BarChart3, TrendingUp, Users, MessageCircle, Clock, AlertCircle, CheckCircle2, Loader2, Zap, ArrowUp, ArrowDown, Send } from 'lucide-react'
+import {
+  BarChart3, TrendingUp, Users, MessageCircle, Clock, AlertCircle, CheckCircle2, Loader2,
+  Zap, ArrowUp, ArrowDown, Send, Target, DollarSign, Award, Flame, Filter as FilterIcon,
+  Mail, Activity, Sparkles, ChevronRight, Trophy, Brain, Calendar, ExternalLink
+} from 'lucide-react'
 import api from '../services/api'
 
-// ── Sentiment keywords ──────────────────────────────────────────────────────────
-
-const POSITIVE_KEYWORDS = ['gracias', 'interesa', 'bueno', 'dale', 'si', 'genial', 'perfecto', 'quiero']
-const NEGATIVE_KEYWORDS = ['no', 'spam', 'molesta', 'basta', 'dejen', 'no interesa', 'no gracias']
-
-function analyzeSentiment(text) {
-  if (!text) return 'neutral'
-  const lower = text.toLowerCase()
-  // Check multi-word negatives first
-  for (const kw of NEGATIVE_KEYWORDS) {
-    if (kw.includes(' ')) {
-      if (lower.includes(kw)) return 'negativo'
-    }
-  }
-  const words = lower.split(/\s+/)
-  for (const w of words) {
-    if (NEGATIVE_KEYWORDS.includes(w)) return 'negativo'
-  }
-  for (const w of words) {
-    if (POSITIVE_KEYWORDS.includes(w)) return 'positivo'
-  }
-  return 'neutral'
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const SENTIMENT_CFG = {
-  positivo: { label: 'Positivo', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
-  negativo: { label: 'Negativo', bg: 'bg-red-100', text: 'text-red-700', dot: 'bg-red-500' },
+  positive: { label: 'Positivo', bg: 'bg-emerald-100', text: 'text-emerald-700', dot: 'bg-emerald-500' },
+  negative: { label: 'Negativo', bg: 'bg-red-100',     text: 'text-red-700',     dot: 'bg-red-500' },
   neutral:  { label: 'Neutral',  bg: 'bg-amber-100',   text: 'text-amber-700',   dot: 'bg-amber-500' },
+  unknown:  { label: 'Sin analizar', bg: 'bg-gray-100', text: 'text-gray-500',   dot: 'bg-gray-400' },
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────────
+const STAGE_CFG = {
+  NUEVO:           { label: 'Nuevo',           color: 'bg-gray-400',    text: 'text-gray-700' },
+  CONTACTADO:      { label: 'Contactado',      color: 'bg-blue-500',    text: 'text-blue-700' },
+  EN_CONVERSACION: { label: 'En conversación', color: 'bg-amber-500',   text: 'text-amber-700' },
+  PROPUESTA:       { label: 'Propuesta',       color: 'bg-purple-500',  text: 'text-purple-700' },
+  NEGOCIACION:     { label: 'Negociación',     color: 'bg-indigo-500',  text: 'text-indigo-700' },
+  GANADO:          { label: 'Ganado',          color: 'bg-emerald-500', text: 'text-emerald-700' },
+  PERDIDO:         { label: 'Perdido',         color: 'bg-red-500',     text: 'text-red-700' },
+}
 
 function formatNumber(n) {
   if (n == null) return '0'
-  return Number(n).toLocaleString('es-ES')
+  return Number(n).toLocaleString('es-AR')
 }
-
 function formatCurrency(val) {
   if (!val || val === 0) return '$0'
-  if (val >= 1000000) return `$${(val / 1000000).toFixed(1)}M`
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`
   if (val >= 1000) return `$${(val / 1000).toFixed(0)}K`
-  return `$${val.toLocaleString()}`
+  return `$${val.toLocaleString('es-AR')}`
 }
-
 function formatPct(n) {
   if (n == null) return '0%'
   return `${Number(n).toFixed(1)}%`
 }
-
-function daysAgo(dateStr) {
-  if (!dateStr) return 0
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return 0
-  return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000))
-}
-
 function dayLabel(dateStr) {
+  if (!dateStr) return ''
   const d = new Date(dateStr)
-  return d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })
+  return d.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })
+}
+function shortTime(dateStr) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+function initials(name) {
+  if (!name) return '?'
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()
 }
 
-// ── KPI Card ─────────────────────────────────────────────────────────────────────
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ icon: Icon, label, value, subtitle, trend, trendLabel, color }) {
+function KpiCard({ icon: Icon, label, value, subtitle, trend, trendLabel, color = 'blue', onClick }) {
   const colorMap = {
-    emerald: { bg: 'bg-emerald-50', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', ring: 'ring-emerald-200' },
     blue:    { bg: 'bg-blue-50',    iconBg: 'bg-blue-100',    iconText: 'text-blue-600',    ring: 'ring-blue-200' },
+    emerald: { bg: 'bg-emerald-50', iconBg: 'bg-emerald-100', iconText: 'text-emerald-600', ring: 'ring-emerald-200' },
     amber:   { bg: 'bg-amber-50',   iconBg: 'bg-amber-100',   iconText: 'text-amber-600',   ring: 'ring-amber-200' },
     red:     { bg: 'bg-red-50',     iconBg: 'bg-red-100',     iconText: 'text-red-600',     ring: 'ring-red-200' },
+    violet:  { bg: 'bg-violet-50',  iconBg: 'bg-violet-100',  iconText: 'text-violet-600',  ring: 'ring-violet-200' },
+    indigo:  { bg: 'bg-indigo-50',  iconBg: 'bg-indigo-100',  iconText: 'text-indigo-600',  ring: 'ring-indigo-200' },
   }
   const c = colorMap[color] || colorMap.blue
-
+  const Container = onClick ? 'button' : 'div'
   return (
-    <div className={`${c.bg} rounded-2xl p-5 ring-1 ${c.ring} transition-all hover:shadow-md`}>
-      <div className="flex items-start justify-between mb-3">
-        <div className={`${c.iconBg} ${c.iconText} p-2.5 rounded-xl`}>
-          <Icon className="w-5 h-5" />
+    <Container
+      onClick={onClick}
+      className={`${c.bg} text-left rounded-2xl p-4 ring-1 ${c.ring} transition-all hover:shadow-md ${onClick ? 'hover:-translate-y-0.5 cursor-pointer' : ''}`}
+    >
+      <div className="flex items-start justify-between mb-2">
+        <div className={`${c.iconBg} ${c.iconText} p-2 rounded-xl`}>
+          <Icon className="w-4 h-4" />
         </div>
         {trend != null && (
-          <div className={`flex items-center gap-0.5 text-xs font-semibold ${trend >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-            {trend >= 0 ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
-            {Math.abs(trend).toFixed(1)}%
+          <div className={`flex items-center gap-0.5 text-[11px] font-semibold ${trend > 0 ? 'text-emerald-600' : trend < 0 ? 'text-red-500' : 'text-gray-400'}`}>
+            {trend > 0 ? <ArrowUp className="w-3 h-3" /> : trend < 0 ? <ArrowDown className="w-3 h-3" /> : null}
+            {Math.abs(Number(trend)).toFixed(1)}%
           </div>
         )}
       </div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-sm text-gray-500 mt-0.5">{label}</p>
-      {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-      {trendLabel && <p className="text-xs text-gray-400 mt-1">{trendLabel}</p>}
-    </div>
+      <p className="text-xl font-bold text-gray-900 leading-tight">{value}</p>
+      <p className="text-[11px] text-gray-500 mt-0.5 leading-tight">{label}</p>
+      {subtitle && <p className="text-[10px] text-gray-400 mt-1 leading-tight truncate">{subtitle}</p>}
+      {trendLabel && !subtitle && <p className="text-[10px] text-gray-400 mt-1">{trendLabel}</p>}
+    </Container>
   )
 }
 
-// ── Bar Chart (CSS-only) ─────────────────────────────────────────────────────────
+// ─── Stacked bar chart (daily contacts email vs whatsapp) ────────────────────
 
-function CssBarChart({ data, label, color = 'bg-blue-500', height = 160 }) {
+function StackedDailyChart({ data, height = 180 }) {
   if (!data || data.length === 0) {
-    return (
-      <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>
-        Sin datos
-      </div>
-    )
+    return <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>Sin datos</div>
   }
-  const max = Math.max(...data.map(d => d.value), 1)
+  const max = Math.max(...data.map(d => d.total), 1)
   return (
     <div>
       <div className="flex items-end gap-1.5 justify-between" style={{ height }}>
         {data.map((d, i) => {
-          const pct = (d.value / max) * 100
+          const total = d.total || 0
+          const emailPct = total > 0 ? (d.email / total) * 100 : 0
+          const barH = Math.max((total / max) * 100, 2)
           return (
             <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
-              {/* Tooltip */}
-              <div className="absolute -top-8 bg-gray-800 text-white text-xs px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
-                {d.value} {label}
+              <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 leading-tight">
+                <div className="font-bold">{total} total</div>
+                <div>Email: {d.email} · WA: {d.whatsapp}</div>
               </div>
-              <div
-                className={`w-full ${color} rounded-t-md transition-all duration-500 ease-out hover:opacity-80 min-h-[4px]`}
-                style={{ height: `${Math.max(pct, 3)}%` }}
-              />
+              <div className="w-full flex flex-col justify-end rounded-t-md overflow-hidden" style={{ height: `${barH}%`, minHeight: '4px' }}>
+                <div className="w-full bg-emerald-500 transition-all" style={{ height: `${100 - emailPct}%` }} />
+                <div className="w-full bg-blue-500 transition-all" style={{ height: `${emailPct}%` }} />
+              </div>
             </div>
           )
         })}
       </div>
       <div className="flex gap-1.5 justify-between mt-2">
         {data.map((d, i) => (
-          <div key={i} className="flex-1 text-center text-[10px] text-gray-500 truncate">
-            {d.label}
-          </div>
+          <div key={i} className="flex-1 text-center text-[9px] text-gray-500 truncate">{dayLabel(d.date)}</div>
         ))}
+      </div>
+      <div className="flex items-center gap-4 mt-3 text-[10px] text-gray-500">
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-blue-500 rounded-sm" /> Email</span>
+        <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-emerald-500 rounded-sm" /> WhatsApp</span>
       </div>
     </div>
   )
 }
 
-// ── Horizontal Bar Chart ─────────────────────────────────────────────────────────
+// ─── Hourly response rate chart ──────────────────────────────────────────────
 
-function HorizontalBarChart({ data, label }) {
+function HourlyRateChart({ data, height = 180 }) {
   if (!data || data.length === 0) {
-    return <div className="text-gray-400 text-sm text-center py-8">Sin datos</div>
+    return <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>Sin datos</div>
   }
-  const max = Math.max(...data.map(d => d.value), 1)
+  const filtered = data.filter(d => d.sent >= 2)
+  const best = filtered.reduce((best, d) => d.rate > (best?.rate || 0) ? d : best, null)
+  const max = Math.max(...data.map(d => d.rate), 1)
+  return (
+    <div>
+      <div className="flex items-end gap-0.5 justify-between" style={{ height }}>
+        {data.map((d, i) => {
+          const h = Math.max((d.rate / max) * 100, d.sent > 0 ? 3 : 0)
+          const isBest = best && d.hour === best.hour
+          const noData = d.sent < 2
+          return (
+            <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group relative">
+              <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 leading-tight">
+                <div className="font-bold">{String(d.hour).padStart(2,'0')}:00</div>
+                <div>{d.rate}% · {d.replied}/{d.sent}</div>
+              </div>
+              <div
+                className={`w-full rounded-t-sm transition-all ${isBest ? 'bg-emerald-500' : noData ? 'bg-gray-200' : 'bg-blue-400 hover:bg-blue-500'}`}
+                style={{ height: `${h}%`, minHeight: noData ? '1px' : '2px' }}
+              />
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex justify-between mt-2 text-[9px] text-gray-400">
+        <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+      </div>
+      {best && (
+        <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 font-medium">
+          <Flame className="w-3.5 h-3.5" />
+          Mejor hora: <span className="font-bold">{String(best.hour).padStart(2,'0')}h</span> · {best.rate}% respuesta
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Funnel visualization ─────────────────────────────────────────────────────
+
+function Funnel({ stages }) {
+  if (!stages || stages.length === 0) return <div className="text-gray-400 text-sm">Sin datos</div>
+  const max = Math.max(...stages.map(s => s.count), 1)
   return (
     <div className="space-y-1.5">
-      {data.map((d, i) => {
-        const pct = (d.value / max) * 100
+      {stages.map((s, i) => {
+        const cfg = STAGE_CFG[s.stage] || STAGE_CFG.NUEVO
+        const pctWidth = Math.max((s.count / max) * 100, 3)
         return (
-          <div key={i} className="flex items-center gap-2">
-            <span className="text-xs text-gray-500 w-8 text-right font-mono">{d.label}</span>
-            <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden relative group">
-              <div
-                className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(pct, 2)}%` }}
-              />
-              <span className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-semibold text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                {d.value}% {label}
+          <div key={s.stage} className="flex items-center gap-3">
+            <div className="w-28 flex-shrink-0 text-right">
+              <p className="text-[11px] font-semibold text-gray-700 truncate">{cfg.label}</p>
+              {s.fromPrev != null && (
+                <p className={`text-[10px] ${s.fromPrev >= 50 ? 'text-emerald-600' : s.fromPrev >= 25 ? 'text-amber-600' : 'text-red-500'} font-medium`}>
+                  {s.fromPrev}% del anterior
+                </p>
+              )}
+            </div>
+            <div className="flex-1 h-7 bg-gray-100 rounded-lg overflow-hidden relative">
+              <div className={`h-full ${cfg.color} rounded-lg transition-all duration-700 ease-out`} style={{ width: `${pctWidth}%` }} />
+              <span className="absolute inset-0 flex items-center px-3 text-[11px] font-bold text-white mix-blend-plus-lighter">
+                {formatNumber(s.count)}
               </span>
             </div>
           </div>
@@ -167,19 +209,20 @@ function HorizontalBarChart({ data, label }) {
   )
 }
 
-// ── Sentiment Badge ──────────────────────────────────────────────────────────────
+// ─── Sentiment badge ─────────────────────────────────────────────────────────
 
 function SentimentBadge({ sentiment }) {
-  const cfg = SENTIMENT_CFG[sentiment] || SENTIMENT_CFG.neutral
+  const key = sentiment || 'unknown'
+  const cfg = SENTIMENT_CFG[key] || SENTIMENT_CFG.unknown
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold ${cfg.bg} ${cfg.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold ${cfg.bg} ${cfg.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
       {cfg.label}
     </span>
   )
 }
 
-// ── Main Component ───────────────────────────────────────────────────────────────
+// ─── Main component ──────────────────────────────────────────────────────────
 
 export default function SalesDashboardPage() {
   const navigate = useNavigate()
@@ -187,383 +230,445 @@ export default function SalesDashboardPage() {
   const [error, setError] = useState(null)
   const [data, setData] = useState(null)
   const [sendingFollowUp, setSendingFollowUp] = useState({})
+  const [channelFilter, setChannelFilter] = useState('all')  // 'all' | 'email' | 'whatsapp'
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
     try {
       setError(null)
       const res = await api.get('/api/dashboard/sales-metrics')
       setData(res.data)
     } catch (err) {
       console.error('Error loading sales metrics:', err)
-      setError('No se pudieron cargar las metricas de ventas')
-      // Load mock data for development
-      setData(buildMockData())
+      setError(err?.response?.data?.error || 'No se pudieron cargar las métricas')
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     loadData()
-    const interval = setInterval(loadData, 30000) // refresh every 30s
-    return () => clearInterval(interval)
+    const iv = setInterval(() => loadData(true), 60_000)
+    return () => clearInterval(iv)
   }, [loadData])
 
   const handleFollowUp = useCallback(async (leadId) => {
     setSendingFollowUp(prev => ({ ...prev, [leadId]: true }))
     try {
-      await api.post(`/api/leads/${leadId}/follow-up`)
+      await api.post(`/api/leads/${leadId}/follow-up`, {}, { timeout: 90_000 })
+      await loadData(true)
     } catch (err) {
-      console.error('Error sending follow-up:', err)
+      console.error('Follow-up failed:', err?.response?.data?.error || err.message)
+      alert(err?.response?.data?.error || 'No se pudo enviar el follow-up')
     } finally {
       setSendingFollowUp(prev => ({ ...prev, [leadId]: false }))
     }
-  }, [])
+  }, [loadData])
 
-  // ── Loading state ──────────────────────────────────────────────────────────────
+  const filteredReplies = useMemo(() => {
+    if (!data?.recentReplies) return []
+    if (channelFilter === 'all') return data.recentReplies
+    return data.recentReplies.filter(r => (r.channel || '').toLowerCase() === channelFilter)
+  }, [data, channelFilter])
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex items-center justify-center">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
-          <p className="mt-4 text-gray-600 font-medium">Cargando dashboard de ventas...</p>
+          <Loader2 className="w-10 h-10 text-blue-600 animate-spin mx-auto" />
+          <p className="mt-3 text-sm text-gray-600 font-medium">Cargando dashboard de ventas...</p>
         </div>
       </div>
     )
   }
 
-  const {
-    kpis = {},
-    dailyContacts = [],
-    hourlyResponse = [],
-    recentReplies = [],
-    inactiveLeads = [],
-  } = data || {}
-
-  // ── Render ─────────────────────────────────────────────────────────────────────
+  const { kpis = {}, dailyContacts = [], hourlyResponse = [], funnel = [], sectors = [],
+    channels = {}, recentReplies = [], topPriorityLeads = [], inactiveLeads = [], recentWins = [], coach = {} } = data || {}
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 py-6 px-4">
+      <div className="max-w-7xl mx-auto space-y-6">
 
-        {/* ── Header ──────────────────────────────────────────────────────────── */}
-        <div className="mb-8 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <div className="bg-blue-100 p-2.5 rounded-xl">
-                <BarChart3 className="w-7 h-7 text-blue-600" />
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <div className="bg-blue-100 p-2 rounded-xl">
+                <BarChart3 className="w-6 h-6 text-blue-600" />
               </div>
               Dashboard de Ventas
             </h1>
-            <p className="text-gray-500 mt-1 ml-14">Metricas en tiempo real del pipeline comercial</p>
+            <p className="text-xs sm:text-sm text-gray-500 mt-1 ml-12">
+              Métricas en vivo del pipeline · última actualización {data?.generated_at ? shortTime(data.generated_at) : '—'}
+            </p>
           </div>
-          <button
-            onClick={() => { setLoading(true); loadData() }}
-            className="self-start sm:self-auto flex items-center gap-2 px-4 py-2.5 bg-white rounded-xl ring-1 ring-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:ring-gray-300 transition-all shadow-sm"
-          >
-            <Zap className="w-4 h-4 text-blue-500" />
-            Actualizar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate('/admin/pipeline')}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-xl ring-1 ring-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-all">
+              <Target className="w-3.5 h-3.5 text-blue-500" />
+              Ver pipeline
+            </button>
+            <button
+              onClick={() => loadData()}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white rounded-xl ring-1 ring-gray-200 text-xs font-medium text-gray-700 hover:bg-gray-50 transition-all">
+              <Zap className="w-3.5 h-3.5 text-blue-500" />
+              Actualizar
+            </button>
+          </div>
         </div>
 
-        {/* ── Error banner ────────────────────────────────────────────────────── */}
         {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 rounded-2xl p-4 flex items-center gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-            <p className="text-sm text-red-700">{error}</p>
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+            <p className="text-xs text-red-700">{error}</p>
           </div>
         )}
 
-        {/* ── KPI Cards ───────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <KpiCard
-            icon={Send}
-            label="Leads contactados hoy"
-            value={formatNumber(kpis.contactedToday)}
-            trend={kpis.contactedTodayTrend}
-            trendLabel="vs ayer"
-            color="blue"
-          />
-          <KpiCard
-            icon={TrendingUp}
-            label="Tasa de respuesta"
-            value={formatPct(kpis.responseRate)}
-            trend={kpis.responseRateTrend}
-            subtitle={`${formatNumber(kpis.replied)} respondidos / ${formatNumber(kpis.sent)} enviados`}
-            color="emerald"
-          />
-          <KpiCard
-            icon={MessageCircle}
-            label="En conversacion activa"
-            value={formatNumber(kpis.activeConversations)}
-            color="amber"
-          />
-          <KpiCard
-            icon={CheckCircle2}
-            label="Ganados este mes"
-            value={formatNumber(kpis.wonThisMonth)}
-            subtitle={`Valor total: ${formatCurrency(kpis.wonValue)}`}
-            color="emerald"
-          />
+        {/* KPI grid — 6 cards */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <KpiCard icon={Send} label="Contactados hoy" value={formatNumber(kpis.contactedToday)} trend={kpis.contactedTodayTrend} trendLabel="vs ayer" color="blue" />
+          <KpiCard icon={TrendingUp} label="Tasa respuesta" value={formatPct(kpis.responseRate)} trend={kpis.responseRateTrend}
+            subtitle={`${formatNumber(kpis.replied)} / ${formatNumber(kpis.sent)}`} color="emerald" />
+          <KpiCard icon={MessageCircle} label="En conversación" value={formatNumber(kpis.activeConversations)} color="amber" onClick={() => navigate('/admin/pipeline')} />
+          <KpiCard icon={Target} label="Pipeline valor" value={formatCurrency(kpis.pipelineValue)}
+            subtitle="leads activos × score" color="indigo" />
+          <KpiCard icon={Award} label="Ganados mes" value={formatNumber(kpis.wonThisMonth)} subtitle={formatCurrency(kpis.wonValue)} color="emerald" />
+          <KpiCard icon={Activity} label="Conversión"
+            value={formatPct(kpis.conversionRate)}
+            subtitle={kpis.avgResponseHours != null ? `resp. en ${kpis.avgResponseHours}h` : 'ganados/(gan+perd)'}
+            color="violet" />
         </div>
 
-        {/* ── Charts Section ──────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Left: Daily contacts bar chart */}
-          <div className="bg-white rounded-2xl p-6 ring-1 ring-gray-200 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
+        {/* Charts row: daily stacked + hourly rate */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">Leads contactados por dia</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Ultimos 7 dias</p>
+                <h2 className="text-sm font-semibold text-gray-900">Contactos diarios</h2>
+                <p className="text-[11px] text-gray-400">Últimos 14 días · Email + WhatsApp</p>
               </div>
-              <div className="bg-blue-50 p-2 rounded-lg">
-                <BarChart3 className="w-4 h-4 text-blue-500" />
-              </div>
+              <BarChart3 className="w-4 h-4 text-blue-500" />
             </div>
-            <CssBarChart
-              data={dailyContacts.map(d => ({
-                label: dayLabel(d.date),
-                value: d.count,
-              }))}
-              label="leads"
-              color="bg-blue-500"
-              height={180}
-            />
+            <StackedDailyChart data={dailyContacts} />
           </div>
-
-          {/* Right: Hourly response rate */}
-          <div className="bg-white rounded-2xl p-6 ring-1 ring-gray-200 shadow-sm">
-            <div className="flex items-center justify-between mb-5">
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">Tasa de respuesta por hora</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Mejores horas para enviar</p>
+                <h2 className="text-sm font-semibold text-gray-900">Respuesta por hora del día</h2>
+                <p className="text-[11px] text-gray-400">% respuesta · últimos 60 días</p>
               </div>
-              <div className="bg-emerald-50 p-2 rounded-lg">
-                <Clock className="w-4 h-4 text-emerald-500" />
-              </div>
+              <Clock className="w-4 h-4 text-emerald-500" />
             </div>
-            <div className="max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
-              <HorizontalBarChart
-                data={hourlyResponse.map(d => ({
-                  label: `${String(d.hour).padStart(2, '0')}h`,
-                  value: Math.round(d.rate),
-                }))}
-                label="resp"
-              />
-            </div>
+            <HourlyRateChart data={hourlyResponse} />
           </div>
         </div>
 
-        {/* ── Sentiment Analysis ──────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl p-6 ring-1 ring-gray-200 shadow-sm mb-8">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Analisis de sentimiento</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Respuestas recientes clasificadas automaticamente</p>
+        {/* Row: Funnel (2 cols) + Channels split (1 col) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Embudo de ventas</h2>
+                <p className="text-[11px] text-gray-400">Leads por etapa y conversión entre etapas</p>
+              </div>
+              <Target className="w-4 h-4 text-violet-500" />
             </div>
-            <div className="flex gap-2">
-              {Object.entries(SENTIMENT_CFG).map(([key, cfg]) => (
-                <span key={key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${cfg.bg} ${cfg.text}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                  {cfg.label}
-                </span>
-              ))}
-            </div>
+            <Funnel stages={funnel} />
           </div>
-
-          {recentReplies.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm">
-              No hay respuestas recientes para analizar
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Canales</h2>
+                <p className="text-[11px] text-gray-400">Rendimiento por canal</p>
+              </div>
+              <Send className="w-4 h-4 text-indigo-500" />
             </div>
-          ) : (
-            <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
-              {recentReplies.map((reply, i) => {
-                const sentiment = reply.sentiment || analyzeSentiment(reply.message)
+            <div className="space-y-3">
+              {['EMAIL', 'WHATSAPP'].map(ch => {
+                const c = channels[ch] || { sent: 0, replied: 0, replyRate: 0, avgScore: null }
+                const Icon = ch === 'EMAIL' ? Mail : MessageCircle
+                const colorBar = ch === 'EMAIL' ? 'bg-blue-500' : 'bg-emerald-500'
                 return (
-                  <div
-                    key={reply.id || i}
-                    className="flex items-start gap-4 p-4 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors group"
-                  >
-                    {/* Avatar */}
-                    <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                      <Users className="w-4 h-4 text-blue-600" />
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-sm font-semibold text-gray-900 truncate">
-                          {reply.leadName || 'Lead desconocido'}
-                        </span>
-                        <SentimentBadge sentiment={sentiment} />
-                        <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">
-                          {reply.date ? new Date(reply.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
-                        </span>
+                  <div key={ch}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1.5">
+                        <Icon className={`w-3.5 h-3.5 ${ch === 'EMAIL' ? 'text-blue-500' : 'text-emerald-500'}`} />
+                        <span className="text-xs font-semibold text-gray-700">{ch === 'EMAIL' ? 'Email' : 'WhatsApp'}</span>
                       </div>
-                      <p className="text-sm text-gray-600 line-clamp-2">
-                        {reply.message || 'Sin contenido'}
-                      </p>
-                      {reply.channel && (
-                        <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] text-gray-400">
-                          {reply.channel === 'whatsapp' ? <MessageCircle className="w-3 h-3" /> : <Send className="w-3 h-3" />}
-                          {reply.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
-                        </span>
-                      )}
+                      <span className="text-xs font-bold text-gray-800">{formatPct(c.replyRate)}</span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
+                      <div className={`h-full ${colorBar} transition-all duration-500`} style={{ width: `${Math.min(100, c.replyRate)}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                      <span>{formatNumber(c.replied)} / {formatNumber(c.sent)}</span>
+                      {c.avgScore != null && <span>score avg: <span className="font-semibold text-gray-700">{c.avgScore}</span></span>}
                     </div>
                   </div>
                 )
               })}
             </div>
-          )}
-        </div>
 
-        {/* ── Inactive Leads Alert ────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl p-6 ring-1 ring-gray-200 shadow-sm">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-3">
-              <div className="bg-red-50 p-2 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-red-500" />
+            {/* Mini AI Coach summary */}
+            <div className="mt-4 pt-3 border-t border-gray-100">
+              <div className="flex items-center gap-1.5 mb-2">
+                <Brain className="w-3.5 h-3.5 text-violet-500" />
+                <span className="text-[11px] font-semibold text-gray-700">AI Coach</span>
               </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Leads inactivos</h2>
-                <p className="text-xs text-gray-400 mt-0.5">En conversacion sin actividad por 3+ dias</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-sm font-bold text-violet-700">{coach.avgScore != null ? coach.avgScore : '—'}</p>
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">score avg</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-700">{formatNumber(coach.scored)}</p>
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">scored</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-gray-700">{formatNumber(coach.activeVersions)}</p>
+                  <p className="text-[9px] text-gray-400 uppercase tracking-wider">versiones</p>
+                </div>
               </div>
             </div>
-            {inactiveLeads.length > 0 && (
-              <span className="bg-red-100 text-red-700 text-xs font-bold px-2.5 py-1 rounded-full">
-                {inactiveLeads.length} pendiente{inactiveLeads.length !== 1 ? 's' : ''}
-              </span>
+          </div>
+        </div>
+
+        {/* Row: Top sectors + Top priority leads */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Sectores top por respuesta</h2>
+                <p className="text-[11px] text-gray-400">Mínimo 5 envíos · ordenado por % respuesta</p>
+              </div>
+              <Trophy className="w-4 h-4 text-amber-500" />
+            </div>
+            {sectors.length === 0 ? (
+              <p className="text-center text-xs text-gray-400 py-6">Sin datos suficientes</p>
+            ) : (
+              <div className="space-y-1.5">
+                {sectors.slice(0, 8).map((s, i) => (
+                  <div key={s.sector} className="flex items-center gap-3 group">
+                    <span className="w-5 text-[10px] font-bold text-gray-400">{i + 1}</span>
+                    <span className="flex-1 text-xs text-gray-700 truncate capitalize">{s.sector}</span>
+                    <div className="w-32 h-5 bg-gray-100 rounded-full overflow-hidden relative">
+                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full" style={{ width: `${Math.min(100, s.replyRate)}%` }} />
+                      <span className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-bold text-white">
+                        {s.replyRate}%
+                      </span>
+                    </div>
+                    <div className="w-20 text-right text-[10px] text-gray-500">
+                      <span className="font-semibold">{s.replied}</span>/{s.sent}
+                      {s.won > 0 && <span className="text-emerald-600 ml-1">· {s.won}W</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {inactiveLeads.length === 0 ? (
-            <div className="text-center py-10">
-              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
-              <p className="text-gray-500 text-sm font-medium">Todos los leads estan al dia</p>
-              <p className="text-gray-400 text-xs mt-1">No hay conversaciones sin seguimiento</p>
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-900">Leads prioritarios</h2>
+                <p className="text-[11px] text-gray-400">Activos con mayor score · enfocate acá</p>
+              </div>
+              <Flame className="w-4 h-4 text-red-500" />
             </div>
-          ) : (
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-              {inactiveLeads.map((lead, i) => {
-                const days = lead.daysInactive || daysAgo(lead.lastActivity)
-                const isSending = sendingFollowUp[lead.id]
-                return (
-                  <div
-                    key={lead.id || i}
-                    className="flex items-center gap-4 p-4 rounded-xl bg-red-50/50 hover:bg-red-50 ring-1 ring-red-100 transition-colors"
-                  >
-                    {/* Avatar */}
-                    <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                      <Clock className="w-5 h-5 text-red-500" />
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900 truncate">
-                          {lead.name || 'Lead sin nombre'}
-                        </span>
-                        <span className="bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0">
-                          {days} dia{days !== 1 ? 's' : ''} inactivo
-                        </span>
+            {topPriorityLeads.length === 0 ? (
+              <p className="text-center text-xs text-gray-400 py-6">No hay leads activos</p>
+            ) : (
+              <div className="space-y-1.5 max-h-[320px] overflow-y-auto pr-1">
+                {topPriorityLeads.map(l => {
+                  const cfg = STAGE_CFG[l.stage] || STAGE_CFG.CONTACTADO
+                  return (
+                    <div
+                      key={l.id}
+                      onClick={() => navigate(`/admin/leads/${l.id}`)}
+                      className="flex items-center gap-2.5 p-2 rounded-lg hover:bg-gray-50 cursor-pointer group transition-colors">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-indigo-700">
+                        {initials(l.name)}
                       </div>
-                      {lead.lastMessage && (
-                        <p className="text-xs text-gray-500 mt-1 truncate">
-                          Ultimo: &ldquo;{lead.lastMessage}&rdquo;
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-gray-900 truncate">{l.name}</p>
+                        <p className="text-[10px] text-gray-500 truncate">
+                          <span className="capitalize">{l.sector || 'sin sector'}</span>
+                          {l.city && <> · {l.city}</>}
                         </p>
-                      )}
-                      {lead.email && (
-                        <p className="text-[10px] text-gray-400 mt-0.5 truncate">{lead.email}</p>
-                      )}
+                      </div>
+                      <div className="flex flex-col items-end flex-shrink-0 gap-0.5">
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold ${cfg.text} bg-opacity-10`} style={{ backgroundColor: 'rgba(0,0,0,0.03)' }}>
+                          <span className={`w-1 h-1 rounded-full ${cfg.color}`} />
+                          {cfg.label}
+                        </span>
+                        <span className="text-[10px] font-bold text-gray-700">score {l.score}</span>
+                      </div>
+                      <ChevronRight className="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-600 flex-shrink-0" />
                     </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
 
-                    {/* Actions */}
-                    <button
-                      onClick={() => handleFollowUp(lead.id)}
-                      disabled={isSending}
-                      className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 text-white text-xs font-semibold rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm flex-shrink-0"
-                    >
-                      {isSending ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Send className="w-3.5 h-3.5" />
-                      )}
-                      {isSending ? 'Enviando...' : 'Follow-up'}
-                    </button>
+        {/* Recent replies with sentiment */}
+        <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+          <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Respuestas recientes</h2>
+              <p className="text-[11px] text-gray-400">Sentimiento detectado automáticamente por el AI Coach</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                {[{ key: 'all', label: 'Todas' }, { key: 'email', label: 'Email' }, { key: 'whatsapp', label: 'WA' }].map(f => (
+                  <button key={f.key} onClick={() => setChannelFilter(f.key)}
+                    className={`text-[10px] px-2 py-1 rounded ${channelFilter === f.key ? 'bg-white shadow-sm font-semibold text-gray-800' : 'text-gray-500'} transition-all`}>
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1.5 ml-2">
+                {Object.entries(SENTIMENT_CFG).filter(([k]) => k !== 'unknown').map(([k, c]) => (
+                  <span key={k} className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold ${c.bg} ${c.text}`}>
+                    <span className={`w-1 h-1 rounded-full ${c.dot}`} /> {c.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {filteredReplies.length === 0 ? (
+            <div className="text-center py-8 text-xs text-gray-400">No hay respuestas recientes</div>
+          ) : (
+            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
+              {filteredReplies.map((r, i) => (
+                <div key={r.id || i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors group cursor-pointer"
+                  onClick={() => r.leadId && navigate(`/admin/leads/${r.leadId}`)}>
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-blue-700">
+                    {initials(r.leadName)}
                   </div>
-                )
-              })}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-xs font-semibold text-gray-900 truncate">{r.leadName}</span>
+                      <SentimentBadge sentiment={r.sentiment} />
+                      {r.channel && (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-gray-500">
+                          {r.channel === 'whatsapp' ? <MessageCircle className="w-2.5 h-2.5" /> : <Mail className="w-2.5 h-2.5" />}
+                          {r.channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-gray-400 ml-auto flex-shrink-0">{shortTime(r.date)}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 line-clamp-2">{r.message || r.subject || 'Sin contenido'}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
+        {/* Row: Recent wins + Inactive leads */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="bg-emerald-50 p-1.5 rounded-lg">
+                  <Trophy className="w-4 h-4 text-emerald-500" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Ganados recientes</h2>
+                  <p className="text-[11px] text-gray-400">Últimos 60 días</p>
+                </div>
+              </div>
+            </div>
+            {recentWins.length === 0 ? (
+              <div className="text-center py-8 text-xs text-gray-400">Todavía no hay clientes ganados</div>
+            ) : (
+              <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+                {recentWins.map(w => (
+                  <div key={w.id} onClick={() => navigate(`/admin/leads/${w.id}`)}
+                    className="flex items-center gap-3 p-2 rounded-lg bg-emerald-50/50 hover:bg-emerald-50 cursor-pointer group transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-gray-900 truncate">{w.name}</p>
+                      <p className="text-[10px] text-gray-500 truncate">
+                        <span className="capitalize">{w.sector || 'sin sector'}</span>
+                        {w.city && <> · {w.city}</>}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xs font-bold text-emerald-700">{formatCurrency(w.value)}</p>
+                      <p className="text-[9px] text-gray-400">{shortTime(w.wonAt)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl p-5 ring-1 ring-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="bg-red-50 p-1.5 rounded-lg">
+                  <AlertCircle className="w-4 h-4 text-red-500" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-semibold text-gray-900">Leads inactivos</h2>
+                  <p className="text-[11px] text-gray-400">En conversación sin respuesta hace 3+ días</p>
+                </div>
+              </div>
+              {inactiveLeads.length > 0 && (
+                <span className="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {inactiveLeads.length}
+                </span>
+              )}
+            </div>
+            {inactiveLeads.length === 0 ? (
+              <div className="text-center py-8">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                <p className="text-xs text-gray-500 font-medium">Todos los leads al día</p>
+              </div>
+            ) : (
+              <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1">
+                {inactiveLeads.map(l => {
+                  const isSending = sendingFollowUp[l.id]
+                  const stageCfg = STAGE_CFG[l.stage] || STAGE_CFG.EN_CONVERSACION
+                  return (
+                    <div key={l.id} className="flex items-center gap-2.5 p-2 rounded-lg bg-red-50/50 hover:bg-red-50 ring-1 ring-red-100 transition-colors">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                        <Clock className="w-3.5 h-3.5 text-red-500" />
+                      </div>
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => navigate(`/admin/leads/${l.id}`)}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold text-gray-900 truncate">{l.name}</span>
+                          <span className="bg-red-100 text-red-700 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0">
+                            {l.daysInactive}d
+                          </span>
+                          <span className={`text-[9px] font-semibold ${stageCfg.text}`}>{stageCfg.label}</span>
+                        </div>
+                        {l.lastMessage && (
+                          <p className="text-[10px] text-gray-500 mt-0.5 truncate">"{l.lastMessage}"</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleFollowUp(l.id)}
+                        disabled={isSending}
+                        className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 text-white text-[10px] font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex-shrink-0">
+                        {isSending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                        {isSending ? 'Enviando' : 'Follow-up'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
-}
-
-// ── Mock Data (fallback for development) ─────────────────────────────────────────
-
-function buildMockData() {
-  const today = new Date()
-  const dailyContacts = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today)
-    d.setDate(d.getDate() - (6 - i))
-    return {
-      date: d.toISOString().split('T')[0],
-      count: Math.floor(Math.random() * 40) + 5,
-    }
-  })
-
-  const hourlyResponse = Array.from({ length: 24 }, (_, h) => ({
-    hour: h,
-    rate: h >= 8 && h <= 20
-      ? Math.floor(Math.random() * 35) + 10
-      : Math.floor(Math.random() * 10),
-  }))
-
-  const sampleMessages = [
-    { name: 'Carlos Mendez', msg: 'Gracias por la informacion, me interesa mucho el servicio', channel: 'email' },
-    { name: 'Ana Rodriguez', msg: 'No gracias, ya tenemos proveedor', channel: 'whatsapp' },
-    { name: 'Luis Garcia', msg: 'Podrian enviarme mas detalles sobre los precios?', channel: 'email' },
-    { name: 'Maria Torres', msg: 'Genial, quiero agendar una llamada para la proxima semana', channel: 'whatsapp' },
-    { name: 'Roberto Diaz', msg: 'Dejen de enviarme mensajes por favor', channel: 'email' },
-    { name: 'Patricia Ruiz', msg: 'Bueno, me parece una propuesta interesante', channel: 'whatsapp' },
-    { name: 'Fernando Lopez', msg: 'Recibido, lo reviso y les comento', channel: 'email' },
-    { name: 'Sofia Morales', msg: 'Perfecto, dale adelante con la propuesta', channel: 'whatsapp' },
-  ]
-
-  const recentReplies = sampleMessages.map((m, i) => ({
-    id: `reply-${i}`,
-    leadName: m.name,
-    message: m.msg,
-    channel: m.channel,
-    date: new Date(Date.now() - i * 3600000 * 2).toISOString(),
-    sentiment: analyzeSentiment(m.msg),
-  }))
-
-  const inactiveLeads = [
-    { id: 'lead-1', name: 'Empresa ABC S.A.', daysInactive: 5, lastMessage: 'Me interesa, enviame la propuesta', email: 'contacto@abc.com' },
-    { id: 'lead-2', name: 'Tech Solutions MX', daysInactive: 4, lastMessage: 'Dejame revisarlo con mi equipo', email: 'info@techsolutions.mx' },
-    { id: 'lead-3', name: 'Juan Perez - Consultor', daysInactive: 3, lastMessage: 'Si, podemos agendar una llamada', email: 'juan@consultor.com' },
-  ]
-
-  return {
-    kpis: {
-      contactedToday: 27,
-      contactedTodayTrend: 12.5,
-      responseRate: 18.3,
-      responseRateTrend: 2.1,
-      replied: 48,
-      sent: 262,
-      activeConversations: 15,
-      wonThisMonth: 4,
-      wonValue: 32500,
-    },
-    dailyContacts,
-    hourlyResponse,
-    recentReplies,
-    inactiveLeads,
-  }
 }
