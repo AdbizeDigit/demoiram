@@ -93,41 +93,66 @@ function KpiCard({ icon: Icon, label, value, subtitle, trend, trendLabel, color 
 }
 
 // ─── Stacked bar chart (daily contacts email vs whatsapp) ────────────────────
+// SVG-based so rendering is deterministic — no flex-sizing tricks, no opacity tooltip hacks.
 
 function StackedDailyChart({ data, height = 180 }) {
   if (!data || data.length === 0) {
     return <div className="flex items-center justify-center text-gray-400 text-sm" style={{ height }}>Sin datos</div>
   }
+  const W = 600
+  const H = height
+  const padL = 8, padR = 8, padT = 8, padB = 24
+  const chartW = W - padL - padR
+  const chartH = H - padT - padB
   const max = Math.max(...data.map(d => d.total), 1)
+  const barW = chartW / data.length
+  const gap = Math.min(6, barW * 0.2)
+  const innerBarW = barW - gap
+
   return (
     <div>
-      <div className="flex items-end gap-1.5 justify-between" style={{ height }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none">
+        {/* Grid lines */}
+        {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+          <line key={i} x1={padL} x2={W - padR} y1={padT + chartH * p} y2={padT + chartH * p}
+            stroke="#e5e7eb" strokeWidth="1" strokeDasharray={p === 1 ? '' : '3 3'} />
+        ))}
         {data.map((d, i) => {
           const total = d.total || 0
-          const emailPct = total > 0 ? (d.email / total) * 100 : 0
-          const barH = Math.max((total / max) * 100, 2)
+          const emailH = total > 0 ? (d.email / max) * chartH : 0
+          const waH = total > 0 ? (d.whatsapp / max) * chartH : 0
+          const x = padL + i * barW + gap / 2
+          const yEmail = padT + chartH - emailH
+          const yWa = padT + chartH - emailH - waH
+          const labelY = H - 8
+          const tooltipY = Math.max(padT + 12, yWa - 4)
           return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1 group relative">
-              <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 leading-tight">
-                <div className="font-bold">{total} total</div>
-                <div>Email: {d.email} · WA: {d.whatsapp}</div>
-              </div>
-              <div className="w-full flex flex-col justify-end rounded-t-md overflow-hidden" style={{ height: `${barH}%`, minHeight: '4px' }}>
-                <div className="w-full bg-emerald-500 transition-all" style={{ height: `${100 - emailPct}%` }} />
-                <div className="w-full bg-blue-500 transition-all" style={{ height: `${emailPct}%` }} />
-              </div>
-            </div>
+            <g key={i}>
+              {/* Invisible hover target covers the whole column */}
+              <rect x={padL + i * barW} y={padT} width={barW} height={chartH} fill="transparent" className="peer" />
+              {/* Email (blue) — bottom */}
+              {total > 0 && (
+                <rect x={x} y={yEmail} width={innerBarW} height={emailH} fill="#3b82f6" rx="2" />
+              )}
+              {/* WhatsApp (emerald) — stacked on top */}
+              {total > 0 && (
+                <rect x={x} y={yWa} width={innerBarW} height={waH} fill="#10b981" rx="2" />
+              )}
+              {/* Native tooltip via SVG <title> — always works, no CSS needed */}
+              <title>{`${dayLabel(d.date)} — ${total} total · Email ${d.email} · WA ${d.whatsapp}`}</title>
+              {/* Day label */}
+              <text x={padL + i * barW + barW / 2} y={labelY} textAnchor="middle"
+                fontSize="9" fill="#6b7280" style={{ fontFamily: 'inherit' }}>
+                {dayLabel(d.date)}
+              </text>
+            </g>
           )
         })}
-      </div>
-      <div className="flex gap-1.5 justify-between mt-2">
-        {data.map((d, i) => (
-          <div key={i} className="flex-1 text-center text-[9px] text-gray-500 truncate">{dayLabel(d.date)}</div>
-        ))}
-      </div>
-      <div className="flex items-center gap-4 mt-3 text-[10px] text-gray-500">
+      </svg>
+      <div className="flex items-center gap-4 mt-2 text-[10px] text-gray-500">
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-blue-500 rounded-sm" /> Email</span>
         <span className="flex items-center gap-1.5"><span className="w-2 h-2 bg-emerald-500 rounded-sm" /> WhatsApp</span>
+        <span className="ml-auto text-[10px] text-gray-400">Pico: {max} contactos</span>
       </div>
     </div>
   )
@@ -142,34 +167,50 @@ function HourlyRateChart({ data, height = 180 }) {
   const filtered = data.filter(d => d.sent >= 2)
   const best = filtered.reduce((best, d) => d.rate > (best?.rate || 0) ? d : best, null)
   const max = Math.max(...data.map(d => d.rate), 1)
+  const W = 600
+  const H = height
+  const padL = 8, padR = 8, padT = 8, padB = 20
+  const chartW = W - padL - padR
+  const chartH = H - padT - padB
+  const barW = chartW / data.length
+  const gap = Math.max(1, barW * 0.15)
+  const innerBarW = barW - gap
+
   return (
     <div>
-      <div className="flex items-end gap-0.5 justify-between" style={{ height }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height }} preserveAspectRatio="none">
+        {[0, 0.25, 0.5, 0.75, 1].map((p, i) => (
+          <line key={i} x1={padL} x2={W - padR} y1={padT + chartH * p} y2={padT + chartH * p}
+            stroke="#e5e7eb" strokeWidth="1" strokeDasharray={p === 1 ? '' : '3 3'} />
+        ))}
         {data.map((d, i) => {
-          const h = Math.max((d.rate / max) * 100, d.sent > 0 ? 3 : 0)
-          const isBest = best && d.hour === best.hour
           const noData = d.sent < 2
+          const h = noData ? 1 : Math.max((d.rate / max) * chartH, 2)
+          const x = padL + i * barW + gap / 2
+          const y = padT + chartH - h
+          const isBest = best && d.hour === best.hour
+          const fill = isBest ? '#10b981' : noData ? '#e5e7eb' : '#60a5fa'
           return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-0.5 group relative">
-              <div className="absolute -top-12 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 leading-tight">
-                <div className="font-bold">{String(d.hour).padStart(2,'0')}:00</div>
-                <div>{d.rate}% · {d.replied}/{d.sent}</div>
-              </div>
-              <div
-                className={`w-full rounded-t-sm transition-all ${isBest ? 'bg-emerald-500' : noData ? 'bg-gray-200' : 'bg-blue-400 hover:bg-blue-500'}`}
-                style={{ height: `${h}%`, minHeight: noData ? '1px' : '2px' }}
-              />
-            </div>
+            <g key={i}>
+              <rect x={x} y={y} width={innerBarW} height={h} fill={fill} rx="1.5" />
+              <title>{`${String(d.hour).padStart(2,'0')}:00 — ${d.rate}% (${d.replied}/${d.sent})`}</title>
+            </g>
           )
         })}
-      </div>
-      <div className="flex justify-between mt-2 text-[9px] text-gray-400">
-        <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
-      </div>
+        {/* Axis labels */}
+        {[0, 6, 12, 18, 23].map(h => {
+          const x = padL + h * barW + barW / 2
+          return (
+            <text key={h} x={x} y={H - 4} textAnchor="middle" fontSize="9" fill="#9ca3af" style={{ fontFamily: 'inherit' }}>
+              {String(h).padStart(2, '0')}h
+            </text>
+          )
+        })}
+      </svg>
       {best && (
         <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 font-medium">
           <Flame className="w-3.5 h-3.5" />
-          Mejor hora: <span className="font-bold">{String(best.hour).padStart(2,'0')}h</span> · {best.rate}% respuesta
+          Mejor hora: <span className="font-bold">{String(best.hour).padStart(2,'0')}h</span> · {best.rate}% respuesta · {best.replied}/{best.sent}
         </div>
       )}
     </div>
