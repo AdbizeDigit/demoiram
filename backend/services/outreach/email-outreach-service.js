@@ -104,6 +104,13 @@ class EmailOutreachService {
     const avatar = await this.getActiveAvatar();
 
     let systemPrompt = config?.system_prompt || this.getDefaultSystemPrompt();
+    // Load auto-tuned generation params for this (channel, sector).
+    let params = null;
+    try {
+      const { outreachParams } = await import('./outreach-params-service.js');
+      params = await outreachParams.getActive('EMAIL', lead.sector);
+      systemPrompt += `\n\n${outreachParams.renderPromptBlock(params)}`;
+    } catch {}
     // Inject the active learning playbook so every new email benefits from past results.
     try {
       const { outreachLearning } = await import('./outreach-learning-service.js');
@@ -138,7 +145,11 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
 
     try {
       const { analyzeWithDeepSeek } = await import('../deepseek.js');
-      const response = await analyzeWithDeepSeek(`${systemPrompt}\n\n${leadContext}`);
+      const response = await analyzeWithDeepSeek(
+        `${systemPrompt}\n\n${leadContext}`,
+        2000,
+        { temperature: params?.temperature }
+      );
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -147,7 +158,7 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
 
         // Wrap in HTML template
         const finalHtml = await this.wrapInTemplate(bodyHtml, avatar, config);
-        return { subject, body: finalHtml };
+        return { subject, body: finalHtml, _paramsVersionId: params?.id || null };
       }
     } catch (err) {
       console.error('[EmailOutreach] AI generation failed:', err.message);
@@ -156,6 +167,7 @@ Firma se agrega automaticamente, NO la incluyas en el body.`;
     // Fallback to template (also wrap in HTML template with avatar signature)
     const fallback = this.getTemplateEmail(lead, stepType, stepNumber);
     fallback.body = await this.wrapInTemplate(fallback.body, avatar, config);
+    fallback._paramsVersionId = params?.id || null;
     return fallback;
   }
 
@@ -472,9 +484,9 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
       const scheduledFor = new Date(Date.now() + step.day * 24 * 60 * 60 * 1000);
 
       const res = await pool.query(
-        `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, subject, body, ai_generated, status, scheduled_for)
-         VALUES ($1, $2, 'EMAIL', $3, $4, $5, true, 'SCHEDULED', $6) RETURNING *`,
-        [leadId, campaignId, SEQUENCE_STEPS.indexOf(step) + 1, email.subject, email.body, scheduledFor]
+        `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, subject, body, ai_generated, status, scheduled_for, params_version_id)
+         VALUES ($1, $2, 'EMAIL', $3, $4, $5, true, 'SCHEDULED', $6, $7) RETURNING *`,
+        [leadId, campaignId, SEQUENCE_STEPS.indexOf(step) + 1, email.subject, email.body, scheduledFor, email._paramsVersionId || null]
       );
       messages.push(res.rows[0]);
     }
@@ -494,11 +506,11 @@ Responde SOLO con JSON: { "subject": "asunto", "body_html": "HTML del email" }`;
     const email = await this.generateEmail(lead, 'introduction', 1);
     await this.sendEmail(lead.email, email.subject, email.body);
 
-    // Save to DB
+    // Save to DB (with params_version_id so the tuning loop can attribute outcome)
     await pool.query(
-      `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, subject, body, ai_generated, status, sent_at)
-       VALUES ($1, $2, 'EMAIL', 1, $3, $4, true, 'SENT', NOW())`,
-      [leadId, campaignId, email.subject, email.body]
+      `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, subject, body, ai_generated, status, sent_at, params_version_id)
+       VALUES ($1, $2, 'EMAIL', 1, $3, $4, true, 'SENT', NOW(), $5)`,
+      [leadId, campaignId, email.subject, email.body, email._paramsVersionId || null]
     );
 
     return email;

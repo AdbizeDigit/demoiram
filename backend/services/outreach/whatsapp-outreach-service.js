@@ -2,10 +2,17 @@ import { pool } from '../../config/database.js';
 import { analyzeWithDeepSeek } from '../deepseek.js';
 
 class WhatsAppOutreachService {
+  // Holds the params_version_id used for the last generated message so callers
+  // that INSERT into outreach_messages can attribute the outcome to a version.
+  constructor() {
+    this.lastParamsVersionId = null;
+  }
+
   // Generate personalized WhatsApp message with AI
   async generateMessage(lead) {
     const senderName = process.env.SMTP_FROM_NAME?.replace(/_/g, ' ') || 'Gian Koch';
     const senderFullName = 'Gian Franco Koch';
+    this.lastParamsVersionId = null;
 
     // Check if this is a referred/derived lead
     const isReferido = (lead.source_url || lead.sourceUrl || '').startsWith('referido:');
@@ -75,7 +82,19 @@ Responde SOLO JSON: {"message":"texto"}`;
       }
     } catch {}
 
-    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.${learningBlock}
+    // Load auto-tuned params for this (channel, sector).
+    let params = null;
+    let paramsBlock = '';
+    try {
+      const { outreachParams } = await import('./outreach-params-service.js');
+      params = await outreachParams.getActive('WHATSAPP', lead.sector);
+      this.lastParamsVersionId = params?.id || null;
+      paramsBlock = `\n\n${outreachParams.renderPromptBlock(params)}\n`;
+    } catch {}
+
+    const maxWords = params?.max_words || 55;
+
+    const systemPrompt = `Eres ${senderName} de Adbize. Genera un mensaje de WhatsApp en espanol argentino, natural pero profesional.${learningBlock}${paramsBlock}
 
 Este es el PRIMER mensaje a un numero de la empresa. Probablemente atienda alguien que no es el dueño ni el encargado.
 
@@ -94,7 +113,7 @@ TONO:
 REGLAS:
 - NO uses simbolos raros, ni guiones largos, ni comillas, ni corchetes, ni parentesis
 - NO seas demasiado directo pidiendo el contacto, que fluya naturalmente
-- Max 55 palabras
+- Max ${maxWords} palabras
 - Max 1 emoji
 - Texto plano sin formato
 
@@ -104,7 +123,11 @@ Responde SOLO con JSON:
 {"message": "texto del mensaje de whatsapp"}`;
 
     try {
-      const response = await analyzeWithDeepSeek(`${systemPrompt}\n\n${context}`);
+      const response = await analyzeWithDeepSeek(
+        `${systemPrompt}\n\n${context}`,
+        2000,
+        { temperature: params?.temperature }
+      );
       const jsonMatch = response.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
@@ -179,9 +202,9 @@ Responde SOLO JSON: {"message":"texto de respuesta"}`;
   // Save WhatsApp outreach
   async saveMessage(leadId, message, campaignId) {
     const result = await pool.query(
-      `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, body, ai_generated, status)
-       VALUES ($1, $2, 'WHATSAPP', 1, $3, true, 'GENERATED') RETURNING *`,
-      [leadId, campaignId, message]
+      `INSERT INTO outreach_messages (lead_id, campaign_id, channel, step, body, ai_generated, status, params_version_id)
+       VALUES ($1, $2, 'WHATSAPP', 1, $3, true, 'GENERATED', $4) RETURNING *`,
+      [leadId, campaignId, message, this.lastParamsVersionId || null]
     );
     return result.rows[0];
   }

@@ -3709,6 +3709,37 @@ app.listen(PORT, async () => {
     console.error('⚠️ Error inicializando tablas de outreach:', err.message);
   }
 
+  // Inicializar sistema de auto-mejora (scoring + params + tuning)
+  try {
+    const { outreachScoring } = await import('./services/outreach/outreach-scoring-service.js');
+    const { outreachParams } = await import('./services/outreach/outreach-params-service.js');
+    await outreachScoring.initSchema();
+    await outreachParams.initSchema();
+    console.log('🧠 Sistema de auto-mejora inicializado (scoring + params)');
+  } catch (err) {
+    console.error('⚠️ Error inicializando auto-mejora:', err.message);
+  }
+
+  // Cron: ciclo de scoring + tuning cada 6 horas.
+  // Primer run después de 5 minutos para no pegarle al arranque.
+  setTimeout(() => {
+    import('./services/outreach/outreach-tuning-service.js')
+      .then(m => m.outreachTuning.runCycle())
+      .catch(err => console.error('[OutreachTuning] first run failed:', err.message));
+  }, 5 * 60 * 1000);
+  setInterval(() => {
+    import('./services/outreach/outreach-tuning-service.js')
+      .then(m => m.outreachTuning.runCycle())
+      .catch(err => console.error('[OutreachTuning] cycle failed:', err.message));
+  }, 6 * 60 * 60 * 1000);
+
+  // Cron: scoring-only cada 20 minutos — mantiene los scores frescos para el frontend.
+  setInterval(() => {
+    import('./services/outreach/outreach-scoring-service.js')
+      .then(m => m.outreachScoring.scoreBatch({ limit: 100 }))
+      .catch(err => console.error('[OutreachScoring] batch failed:', err.message));
+  }, 20 * 60 * 1000);
+
   // Inicializar email config
   try {
     const { default: emailTemplateConfig } = await import('./services/outreach/email-template-config.js');

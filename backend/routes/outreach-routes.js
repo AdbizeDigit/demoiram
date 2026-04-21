@@ -5,6 +5,9 @@ import { emailOutreachService } from '../services/outreach/email-outreach-servic
 import { whatsappOutreachService } from '../services/outreach/whatsapp-outreach-service.js';
 import { callScriptService } from '../services/outreach/call-script-service.js';
 import { outreachLearning } from '../services/outreach/outreach-learning-service.js';
+import { outreachParams } from '../services/outreach/outreach-params-service.js';
+import { outreachScoring } from '../services/outreach/outreach-scoring-service.js';
+import { outreachTuning } from '../services/outreach/outreach-tuning-service.js';
 
 const router = Router();
 router.use(protect, adminOnly);
@@ -244,6 +247,83 @@ router.post('/insights/regenerate', async (req, res) => {
     });
   } catch (error) {
     console.error('[Insights Regenerate] Error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ── Auto-improvement: scoring + params + tuning ──
+
+// GET /auto-improve/summary — one-shot snapshot for the frontend
+router.get('/auto-improve/summary', async (req, res) => {
+  try {
+    const [scoringSummary, activeParams, lastRun] = await Promise.all([
+      outreachScoring.summary(),
+      outreachParams.listActive(),
+      Promise.resolve(outreachTuning.getLastRun()),
+    ]);
+    res.json({ success: true, scoring: scoringSummary, params: activeParams, last_run: lastRun });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET /auto-improve/params/:channel/:sector/history — timeline of versions for one bucket
+router.get('/auto-improve/params/:channel/:sector/history', async (req, res) => {
+  try {
+    const { channel, sector } = req.params;
+    const rows = await outreachParams.history(channel, sector);
+    res.json({ success: true, history: rows });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /auto-improve/params/:id/freeze — pause exploration on this bucket
+router.post('/auto-improve/params/:id/freeze', async (req, res) => {
+  try {
+    const row = await outreachParams.setFrozen(req.params.id, true);
+    res.json({ success: true, params: row });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /auto-improve/params/:id/unfreeze
+router.post('/auto-improve/params/:id/unfreeze', async (req, res) => {
+  try {
+    const row = await outreachParams.setFrozen(req.params.id, false);
+    res.json({ success: true, params: row });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /auto-improve/params/:id/rollback — manual rollback to a previous version
+router.post('/auto-improve/params/:id/rollback', async (req, res) => {
+  try {
+    const row = await outreachParams.rollbackTo(req.params.id);
+    res.json({ success: true, params: row });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /auto-improve/run-now — force a tuning cycle (admin trigger)
+router.post('/auto-improve/run-now', async (req, res) => {
+  try {
+    const summary = await outreachTuning.runCycle({ scoreBatchLimit: 200 });
+    res.json({ success: true, summary });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /auto-improve/score-now — force a scoring pass only (cheaper)
+router.post('/auto-improve/score-now', async (req, res) => {
+  try {
+    const result = await outreachScoring.scoreBatch({ limit: 200 });
+    res.json({ success: true, result });
+  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -583,10 +663,10 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
     const { waManager } = await import('../services/outreach/whatsapp-connection-service.js');
     const result = await waManager.sendMessageRotating(phone, message, leadId);
 
-    // Save to outreach messages as SENT
+    // Save to outreach messages as SENT (with params_version_id for attribution)
     await pool.query(
-      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3)",
-      [leadId, message, result.wa_account_id]
+      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id, params_version_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3, $4)",
+      [leadId, message, result.wa_account_id, whatsappOutreachService.lastParamsVersionId || null]
     );
     // Move lead to CONTACTADO if it was NUEVO
     await pool.query(

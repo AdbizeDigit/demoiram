@@ -74,10 +74,12 @@ class DeepSeekService {
 
 const deepseekService = new DeepSeekService()
 
-export async function analyzeWithDeepSeek(prompt, maxTokens = 2000) {
+export async function analyzeWithDeepSeek(prompt, maxTokens = 2000, options = {}) {
+  const { temperature } = options || {}
   const result = await deepseekService.chat({
     messages: [{ role: 'user', content: prompt }],
-    maxTokens
+    maxTokens,
+    ...(typeof temperature === 'number' ? { temperature } : {})
   })
   return result.content
 }
