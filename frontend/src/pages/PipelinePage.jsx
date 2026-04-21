@@ -1056,8 +1056,8 @@ export default function PipelinePage() {
     } catch {}
   }, [])
 
-  const loadLeads = useCallback(async () => {
-    setLoading(true)
+  const loadLeads = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true)
     try {
       // Sync statuses in the background — never block the UI on it.
       // It runs UPDATEs across the whole leads table and can be slow under load.
@@ -1103,7 +1103,7 @@ export default function PipelinePage() {
     } catch {
       setLeads([])
     }
-    setLoading(false)
+    if (!silent) setLoading(false)
   }, [])
 
   useEffect(() => { loadLeads() }, [loadLeads])
@@ -1201,13 +1201,19 @@ export default function PipelinePage() {
   }
 
   // Poll auto-play status from backend
+  const wasRunningRef = useRef(false)
   useEffect(() => {
     const poll = async () => {
       try {
         const { data } = await api.get('/api/autoplay/status')
         setAutoPlay(data.running)
         setAutoProgress({ done: data.done, total: data.total, current: data.current || '' })
-        if (!data.running && data.done > 0 && data.done >= data.total) loadLeads()
+        // Only refresh on the running → stopped transition, not every tick after.
+        // And do it silently so the full-page loader doesn't flash every 2s.
+        if (wasRunningRef.current && !data.running && data.done > 0 && data.done >= data.total) {
+          loadLeads({ silent: true })
+        }
+        wasRunningRef.current = !!data.running
       } catch {}
     }
     poll()
