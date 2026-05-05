@@ -3,7 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, sellerOrAdmin } from '../middleware/auth.js';
 import { avatarService } from '../services/outreach/avatar-service.js';
 import { pool } from '../config/database.js';
 
@@ -37,7 +37,7 @@ const upload = multer({
 });
 
 const router = Router();
-router.use(protect, adminOnly);
+router.use(protect, sellerOrAdmin);
 
 // GET /avatars - List all avatars
 router.get('/', async (req, res) => {

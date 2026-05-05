@@ -209,7 +209,10 @@ export default function LeadsTab() {
                   </div>
                 </div>
                 <button
-                  onClick={() => navigate(`/admin/lead/${lead.id}`)}
+                  onClick={() => {
+                    const isSeller = window.location.pathname.startsWith('/vendedor')
+                    navigate(`${isSeller ? '/vendedor' : '/admin'}/lead/${lead.id}`)
+                  }}
                   className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
                   title="Ver detalle completo"
                 >

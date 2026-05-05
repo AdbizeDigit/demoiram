@@ -47,6 +47,29 @@ export const adminOnly = (req, res, next) => {
   next()
 }
 
+// Permite acceso a admin O vendedor (seller). Útil para todo el flujo de prospección
+// que el vendedor necesita: leads, pipeline, outreach, métricas, etc.
+export const sellerOrAdmin = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'No autorizado' })
+  }
+  if (req.user.role !== 'admin' && req.user.role !== 'seller') {
+    return res.status(403).json({ message: 'Acceso denegado. Solo vendedores o administradores.' })
+  }
+  next()
+}
+
+// Solo vendedor (no admin) - útil para acciones que solo deben ser de un vendedor
+export const sellerOnly = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'No autorizado' })
+  }
+  if (req.user.role !== 'seller') {
+    return res.status(403).json({ message: 'Acceso restringido a vendedores' })
+  }
+  next()
+}
+
 // Middleware para verificar límites de uso de servicios
 export const checkServiceLimit = (serviceName) => {
   return async (req, res, next) => {

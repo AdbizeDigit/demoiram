@@ -42,6 +42,7 @@ import outreachRoutes from './routes/outreach-routes.js'
 import salesDashboardRoutes, { leadsRouter as salesLeadsRouter } from './routes/sales-dashboard.js'
 import avatarRoutes from './routes/avatar-routes.js'
 import agentRunnerRoutes from './routes/agent-runner-routes.js'
+import sellerRoutes from './routes/seller.js'
 import { connectDB } from './config/database.js'
 import { initializeScheduledSearches } from './routes/automation.js'
 import CustomChatbot from './models/CustomChatbot.js'
@@ -149,6 +150,7 @@ app.use('/api/dashboard', salesDashboardRoutes)
 app.use('/api/leads', salesLeadsRouter)
 app.use('/api/avatars', avatarRoutes)
 app.use('/api/agent-runner', agentRunnerRoutes)
+app.use('/api/seller', sellerRoutes)
 
 // ── Notifications ────────────────────────────────────────────────────────────
 // Init table

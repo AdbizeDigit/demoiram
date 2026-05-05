@@ -1,19 +1,20 @@
 import { Router } from 'express';
 import { pool } from '../config/database.js';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, sellerOrAdmin } from '../middleware/auth.js';
 import scraperService from '../services/scraping/scraper-service.js';
 import competitorScraper from '../services/scraping/competitor-scraper.js';
 import { enrichmentService } from '../services/scraping/enrichment-service.js';
 
 const router = Router();
 
-// All scraping routes require authentication + admin privileges
-router.use(protect, adminOnly);
+// Vendedores y admin pueden consultar leads / pipelines.
+// Operaciones de scraping (zonas, jobs, scan competidores) quedan admin-only via per-route guards.
+router.use(protect, sellerOrAdmin);
 
 // ─── Zones ───────────────────────────────────────────────────────────────────
 
 // POST /scraping/zones - Create a new zone
-router.post('/zones', async (req, res) => {
+router.post('/zones', adminOnly, async (req, res) => {
   try {
     const zone = await scraperService.createZone(req.body);
     res.status(201).json({ success: true, data: zone });
@@ -45,7 +46,7 @@ router.get('/zones/:id', async (req, res) => {
 });
 
 // POST /scraping/zones/:id/scan - Start scraping a zone
-router.post('/zones/:id/scan', async (req, res) => {
+router.post('/zones/:id/scan', adminOnly, async (req, res) => {
   try {
     const job = await scraperService.scanZone(req.params.id, req.body);
     res.json({ success: true, data: job });
@@ -55,7 +56,7 @@ router.post('/zones/:id/scan', async (req, res) => {
 });
 
 // POST /scraping/zones/seed - Seed zones for a country
-router.post('/zones/seed', async (req, res) => {
+router.post('/zones/seed', adminOnly, async (req, res) => {
   try {
     const { country } = req.body;
     if (!country) return res.status(400).json({ success: false, error: 'Country requerido' });
@@ -218,7 +219,7 @@ router.get('/countries', async (req, res) => {
 // ─── Auto-scraping ───────────────────────────────────────────────────────────
 
 // POST /scraping/auto/start - Start permanent scraping
-router.post('/auto/start', async (req, res) => {
+router.post('/auto/start', adminOnly, async (req, res) => {
   try {
     const result = await scraperService.startPermanentScraping(req.body?.userId || null);
     res.json({ success: true, data: result });
@@ -228,7 +229,7 @@ router.post('/auto/start', async (req, res) => {
 });
 
 // POST /scraping/auto/stop - Stop auto-scraping
-router.post('/auto/stop', async (req, res) => {
+router.post('/auto/stop', adminOnly, async (req, res) => {
   try {
     const result = await scraperService.stopAutoScraping();
     res.json({ success: true, data: result });
@@ -327,8 +328,8 @@ router.post('/leads/:id/enrich', async (req, res) => {
 
 // ─── Competitors ─────────────────────────────────────────────────────────────
 
-// POST /scraping/competitors/scan - Start competitor scan
-router.post('/competitors/scan', async (req, res) => {
+// POST /scraping/competitors/scan - Start competitor scan (admin only)
+router.post('/competitors/scan', adminOnly, async (req, res) => {
   try {
     const { states } = req.body;
     // Run scan in background, respond immediately

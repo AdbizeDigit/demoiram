@@ -53,6 +53,14 @@ const PdfDesignerPage = lazy(() => import('./pages/PdfDesignerPage'))
 const SalesDashboardPage = lazy(() => import('./pages/SalesDashboardPage'))
 const LinkedInPage = lazy(() => import('./pages/LinkedInPage'))
 const WhatsAppAccountsPage = lazy(() => import('./pages/WhatsAppAccountsPage'))
+const SellersManagementPage = lazy(() => import('./pages/SellersManagementPage'))
+
+// Seller (vendedor) section
+const SellerLayout = lazy(() => import('./components/SellerLayout'))
+const SellerDashboard = lazy(() => import('./pages/SellerDashboard'))
+const SellerRecommendationsPage = lazy(() => import('./pages/SellerRecommendationsPage'))
+const SellerLeadDetailPage = lazy(() => import('./pages/SellerLeadDetailPage'))
+const SellerCallsPage = lazy(() => import('./pages/SellerCallsPage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -125,7 +133,23 @@ function App() {
             <Route path="sales-dashboard" element={<SalesDashboardPage />} />
             <Route path="linkedin" element={<LinkedInPage />} />
             <Route path="whatsapp-accounts" element={<WhatsAppAccountsPage />} />
+            <Route path="sellers" element={<SellersManagementPage />} />
             <Route path="*" element={<DetectionEnginePage />} />
+          </Route>
+
+          {/* Seller (vendedor) section */}
+          <Route path="/vendedor" element={<PrivateRoute><SellerLayout /></PrivateRoute>}>
+            <Route index element={<SellerDashboard />} />
+            <Route path="recomendados" element={<SellerRecommendationsPage />} />
+            <Route path="leads" element={<LeadsPage />} />
+            <Route path="lead/:id" element={<SellerLeadDetailPage />} />
+            <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="email" element={<EmailOutreachPage />} />
+            <Route path="whatsapp" element={<WhatsAppOutreachPage />} />
+            <Route path="llamadas" element={<SellerCallsPage />} />
+            <Route path="linkedin" element={<LinkedInPage />} />
+            <Route path="metricas" element={<SalesDashboardPage />} />
+            <Route path="*" element={<SellerDashboard />} />
           </Route>
         </Routes>
       </Suspense>

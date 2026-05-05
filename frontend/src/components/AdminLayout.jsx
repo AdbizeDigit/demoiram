@@ -6,13 +6,14 @@ import {
   Radar, Radio, Globe, Target, Cpu, GitBranch, Users,
   ChevronLeft, ChevronRight, LogOut, ArrowLeft, Activity,
   Shield, Search, Settings, BarChart3, Mail, MessageCircle, Bot, Zap,
-  Bell, X, Check, ExternalLink, FileText, Linkedin, Phone,
+  Bell, X, Check, ExternalLink, FileText, Linkedin, Phone, Briefcase,
 } from 'lucide-react'
 
 const navItems = [
   { path: '/admin', icon: Radar, label: 'Motor de Deteccion', end: true },
   { path: '/admin/pipeline', icon: GitBranch, label: 'Pipeline' },
   { path: '/admin/leads', icon: Users, label: 'Leads' },
+  { path: '/admin/sellers', icon: Briefcase, label: 'Vendedores' },
   { path: '/admin/email-outreach', icon: Mail, label: 'Email Outreach' },
   { path: '/admin/whatsapp-outreach', icon: MessageCircle, label: 'WhatsApp Outreach' },
   { path: '/admin/whatsapp-accounts', icon: Phone, label: 'Cuentas WhatsApp' },

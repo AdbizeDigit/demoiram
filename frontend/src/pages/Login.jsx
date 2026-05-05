@@ -21,7 +21,10 @@ function Login() {
     const result = await login(email, password)
 
     if (result.success) {
-      navigate('/dashboard')
+      const role = useAuthStore.getState().user?.role
+      if (role === 'seller') navigate('/vendedor')
+      else if (role === 'admin') navigate('/admin')
+      else navigate('/dashboard')
     } else {
       setError(result.error)
     }

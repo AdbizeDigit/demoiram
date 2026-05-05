@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, sellerOrAdmin } from '../middleware/auth.js';
 import { pool } from '../config/database.js';
 
 const router = Router();
 const leadsRouter = Router();
-router.use(protect, adminOnly);
-leadsRouter.use(protect, adminOnly);
+router.use(protect, sellerOrAdmin);
+leadsRouter.use(protect, sellerOrAdmin);
 
 const ACTIVE_STAGES = ['CONTACTADO', 'EN_CONVERSACION', 'PROPUESTA', 'NEGOCIACION'];
 const STAGE_ORDER = ['NUEVO', 'CONTACTADO', 'EN_CONVERSACION', 'PROPUESTA', 'NEGOCIACION', 'GANADO', 'PERDIDO'];

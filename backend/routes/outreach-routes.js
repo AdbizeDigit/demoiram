@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect, adminOnly, sellerOrAdmin } from '../middleware/auth.js';
 import { pool } from '../config/database.js';
 import { emailOutreachService } from '../services/outreach/email-outreach-service.js';
 import { whatsappOutreachService } from '../services/outreach/whatsapp-outreach-service.js';
@@ -10,7 +10,8 @@ import { outreachScoring } from '../services/outreach/outreach-scoring-service.j
 import { outreachTuning } from '../services/outreach/outreach-tuning-service.js';
 
 const router = Router();
-router.use(protect, adminOnly);
+// Vendedores y admin pueden enviar email/whatsapp y consultar mensajes
+router.use(protect, sellerOrAdmin);
 
 // ── Campaigns ──
 
