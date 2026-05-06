@@ -71,11 +71,11 @@ export default function WhatsAppOutreachPage() {
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
 
-  // Admin guard
-  const isAdmin = user?.role === 'admin' || user?.email === 'contacto@adbize.com'
+  // Acceso para admin y seller (la sección de vendedores reusa esta página)
+  const hasAccess = user?.role === 'admin' || user?.role === 'seller' || user?.email === 'contacto@adbize.com'
   useEffect(() => {
-    if (!isAdmin) navigate('/dashboard')
-  }, [isAdmin, navigate])
+    if (user && !hasAccess) navigate('/dashboard')
+  }, [user, hasAccess, navigate])
 
   // ── State ──
   const [leads, setLeads] = useState([])
@@ -466,7 +466,7 @@ export default function WhatsAppOutreachPage() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  if (!isAdmin) return null
+  if (!hasAccess) return null
 
   return (
     <div style={{ height: 'calc(100vh - 140px)', display: 'flex', flexDirection: 'column', background: '#f0f2f5', margin: '-32px', borderRadius: 12, overflow: 'hidden' }}>
