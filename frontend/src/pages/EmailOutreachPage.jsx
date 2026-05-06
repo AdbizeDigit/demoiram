@@ -78,6 +78,11 @@ export default function EmailOutreachPage() {
     localStorage.setItem(`email_ai_${leadId}`, String(enabled))
   }
 
+  // ── Modo "vendedor": filtra leads asignados y mensajes enviados por el vendedor ──
+  const isSellerScope = typeof window !== 'undefined' && window.location.pathname.startsWith('/vendedor')
+  const sellerLeadsParam = isSellerScope ? { assignedSellerId: 'me' } : {}
+  const sellerMsgsParam = isSellerScope ? { sentBy: 'me' } : {}
+
   // ── Load data ──
   const loadStats = useCallback(async () => {
     try {
@@ -90,18 +95,18 @@ export default function EmailOutreachPage() {
 
   const loadMessages = useCallback(async () => {
     try {
-      const res = await api.get('/api/outreach/messages', { params: { channel: 'EMAIL', limit: 500 } })
+      const res = await api.get('/api/outreach/messages', { params: { channel: 'EMAIL', limit: 500, ...sellerMsgsParam } })
       const data = res.data
       setMessages(data.messages || data.data || [])
     } catch (err) {
       console.error('Error loading messages:', err)
       setMessages([])
     }
-  }, [])
+  }, [isSellerScope])
 
   const loadLeads = useCallback(async () => {
     try {
-      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200 } })
+      const res = await api.get('/api/scraping-engine/leads', { params: { limit: 200, ...sellerLeadsParam } })
       const allLeads = res.data?.leads || res.data || []
       setLeads(allLeads.filter(l => l.email || l.lead_data?.email))
     } catch (err) {
