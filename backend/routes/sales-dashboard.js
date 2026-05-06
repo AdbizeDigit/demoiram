@@ -26,6 +26,20 @@ function normalizeStage(s) {
  */
 router.get('/sales-metrics', async (req, res) => {
   try {
+    // Resolución del filtro por vendedor: si es seller siempre filtra; admin puede pedir uno con ?assignedSellerId
+    const sellerId = req.user.role === 'seller'
+      ? req.user.id
+      : (req.query.assignedSellerId === 'me'
+          ? req.user.id
+          : (req.query.assignedSellerId ? parseInt(req.query.assignedSellerId) : null));
+    // Fragmentos SQL — interpolación segura porque sellerId siempre viene de parseInt o req.user.id
+    const omSeller = sellerId ? `AND sent_by_seller_id = ${sellerId}` : '';
+    const omSellerOnly = sellerId ? `WHERE sent_by_seller_id = ${sellerId}` : '';
+    const omSellerAlias = sellerId ? `AND om.sent_by_seller_id = ${sellerId}` : '';
+    const lSeller = sellerId ? `AND assigned_seller_id = ${sellerId}` : '';
+    const lSellerOnly = sellerId ? `WHERE assigned_seller_id = ${sellerId}` : '';
+    const lSellerAlias = sellerId ? `AND l.assigned_seller_id = ${sellerId}` : '';
+
     const [
       contactedToday,
       contactedYesterday,
@@ -49,21 +63,21 @@ router.get('/sales-metrics', async (req, res) => {
       coachSummary,
       coachActiveVersions,
     ] = await Promise.all([
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE AND UPPER(status) = 'SENT'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE - 1 AND sent_at < CURRENT_DATE AND UPPER(status) = 'SENT'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE UPPER(status) = 'SENT'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE UPPER(status) = 'REPLIED'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '7 days' AND UPPER(status) = 'SENT'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '7 days' AND UPPER(status) = 'REPLIED'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '14 days' AND sent_at < NOW() - INTERVAL '7 days' AND UPPER(status) = 'SENT'"),
-      pool.query("SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '14 days' AND sent_at < NOW() - INTERVAL '7 days' AND UPPER(status) = 'REPLIED'"),
-      pool.query("SELECT COUNT(*) FROM leads WHERE UPPER(status) = 'EN_CONVERSACION'"),
-      pool.query("SELECT COUNT(*) AS c, COALESCE(SUM(COALESCE(score, 0) * 100), 0) AS v FROM leads WHERE UPPER(status) = 'GANADO' AND updated_at >= date_trunc('month', CURRENT_DATE)"),
-      pool.query(`SELECT COALESCE(SUM(COALESCE(score, 0) * 100), 0) AS v FROM leads WHERE UPPER(status) IN ('CONTACTADO','EN_CONVERSACION','PROPUESTA','NEGOCIACION')`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE AND UPPER(status) = 'SENT' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= CURRENT_DATE - 1 AND sent_at < CURRENT_DATE AND UPPER(status) = 'SENT' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE UPPER(status) = 'SENT' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE UPPER(status) = 'REPLIED' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '7 days' AND UPPER(status) = 'SENT' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '7 days' AND UPPER(status) = 'REPLIED' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '14 days' AND sent_at < NOW() - INTERVAL '7 days' AND UPPER(status) = 'SENT' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM outreach_messages WHERE sent_at >= NOW() - INTERVAL '14 days' AND sent_at < NOW() - INTERVAL '7 days' AND UPPER(status) = 'REPLIED' ${omSeller}`),
+      pool.query(`SELECT COUNT(*) FROM leads WHERE UPPER(status) = 'EN_CONVERSACION' ${lSeller}`),
+      pool.query(`SELECT COUNT(*) AS c, COALESCE(SUM(COALESCE(score, 0) * 100), 0) AS v FROM leads WHERE UPPER(status) = 'GANADO' AND updated_at >= date_trunc('month', CURRENT_DATE) ${lSeller}`),
+      pool.query(`SELECT COALESCE(SUM(COALESCE(score, 0) * 100), 0) AS v FROM leads WHERE UPPER(status) IN ('CONTACTADO','EN_CONVERSACION','PROPUESTA','NEGOCIACION') ${lSeller}`),
       pool.query(`SELECT
         COUNT(*) FILTER (WHERE UPPER(status) = 'GANADO') AS won,
         COUNT(*) FILTER (WHERE UPPER(status) = 'PERDIDO') AS lost
-        FROM leads`),
+        FROM leads ${lSellerOnly}`),
       // Median-ish: avg hours between first SENT and first REPLIED per lead, in the last 30d
       pool.query(`
         WITH pairs AS (
@@ -73,6 +87,7 @@ router.get('/sales-metrics', async (req, res) => {
           FROM outreach_messages om
           WHERE om.lead_id IS NOT NULL
             AND om.sent_at >= NOW() - INTERVAL '30 days'
+            ${omSellerAlias}
           GROUP BY om.lead_id
         )
         SELECT AVG(EXTRACT(EPOCH FROM (first_reply - first_sent)) / 3600.0) AS avg_hours
@@ -86,6 +101,7 @@ router.get('/sales-metrics', async (req, res) => {
         WHERE sent_at >= CURRENT_DATE - INTERVAL '13 days'
           AND UPPER(status) IN ('SENT', 'REPLIED', 'OPENED', 'FAILED')
           AND channel IS NOT NULL
+          ${omSeller}
         GROUP BY DATE(sent_at), UPPER(channel)
         ORDER BY day
       `),
@@ -96,13 +112,15 @@ router.get('/sales-metrics', async (req, res) => {
           COUNT(*) FILTER (WHERE UPPER(status) = 'REPLIED') AS replied
         FROM outreach_messages
         WHERE sent_at IS NOT NULL AND sent_at >= NOW() - INTERVAL '60 days'
+          ${omSeller}
         GROUP BY EXTRACT(HOUR FROM sent_at)
         ORDER BY hour
       `),
       // Funnel by normalized stage
       pool.query(`
         SELECT UPPER(COALESCE(NULLIF(status,''), 'NUEVO')) AS stage, COUNT(*) AS c
-        FROM leads GROUP BY UPPER(COALESCE(NULLIF(status,''), 'NUEVO'))
+        FROM leads ${lSellerOnly}
+        GROUP BY UPPER(COALESCE(NULLIF(status,''), 'NUEVO'))
       `),
       // Top sectors by reply rate with at least 5 sends
       pool.query(`
@@ -114,6 +132,7 @@ router.get('/sales-metrics', async (req, res) => {
         FROM outreach_messages om
         JOIN leads l ON l.id = om.lead_id
         WHERE UPPER(om.status) IN ('SENT','REPLIED')
+          ${omSellerAlias}
         GROUP BY COALESCE(NULLIF(l.sector,''), 'sin_sector')
         HAVING COUNT(om.*) >= 5
         ORDER BY (COUNT(om.*) FILTER (WHERE UPPER(om.status) = 'REPLIED'))::float / COUNT(om.*) DESC
@@ -127,9 +146,10 @@ router.get('/sales-metrics', async (req, res) => {
           AVG(outcome_score) FILTER (WHERE outcome_score IS NOT NULL) AS avg_score
         FROM outreach_messages
         WHERE channel IS NOT NULL
+          ${omSeller}
         GROUP BY UPPER(channel)
       `),
-      // Recent replies — prefer incoming reply rows (step 0 / status REPLIED), decorate with sentiment from scoring
+      // Recent replies
       pool.query(`
         SELECT om.id, om.body AS message, om.subject, om.channel,
                COALESCE(om.replied_at, om.sent_at, om.created_at) AS date,
@@ -145,6 +165,7 @@ router.get('/sales-metrics', async (req, res) => {
         FROM outreach_messages om
         LEFT JOIN leads l ON l.id = om.lead_id
         WHERE UPPER(om.status) = 'REPLIED'
+          ${sellerId ? `AND (om.sent_by_seller_id = ${sellerId} OR l.assigned_seller_id = ${sellerId})` : ''}
         ORDER BY COALESCE(om.replied_at, om.sent_at, om.created_at) DESC
         LIMIT 20
       `),
@@ -157,10 +178,11 @@ router.get('/sales-metrics', async (req, res) => {
                EXTRACT(DAY FROM (NOW() - l.updated_at))::int AS days_in_stage
         FROM leads l
         WHERE UPPER(l.status) = ANY($1)
+          ${lSellerAlias}
         ORDER BY l.score DESC NULLS LAST, l.updated_at DESC
         LIMIT 12
       `, [ACTIVE_STAGES]),
-      // Inactive leads: EN_CONVERSACION/PROPUESTA/NEGOCIACION with no activity in 3+ days
+      // Inactive leads
       pool.query(`
         SELECT l.id, l.name, l.email, l.phone, UPPER(l.status) AS stage,
                (SELECT MAX(sent_at) FROM outreach_messages WHERE lead_id = l.id) AS last_activity,
@@ -169,6 +191,7 @@ router.get('/sales-metrics', async (req, res) => {
         FROM leads l
         WHERE UPPER(l.status) IN ('EN_CONVERSACION','PROPUESTA','NEGOCIACION')
           AND (SELECT MAX(sent_at) FROM outreach_messages WHERE lead_id = l.id) < NOW() - INTERVAL '3 days'
+          ${lSellerAlias}
         ORDER BY (SELECT MAX(sent_at) FROM outreach_messages WHERE lead_id = l.id) ASC NULLS LAST
         LIMIT 12
       `),
@@ -178,6 +201,7 @@ router.get('/sales-metrics', async (req, res) => {
                COALESCE(l.score, 0) * 100 AS value
         FROM leads l
         WHERE UPPER(l.status) = 'GANADO' AND l.updated_at >= NOW() - INTERVAL '60 days'
+          ${lSellerAlias}
         ORDER BY l.updated_at DESC
         LIMIT 10
       `),
