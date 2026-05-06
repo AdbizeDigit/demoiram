@@ -5,14 +5,17 @@ import api from '../services/api'
 import {
   LayoutDashboard, Users, GitBranch, Mail, MessageCircle, Phone,
   Linkedin, BarChart3, Sparkles, ChevronLeft, ChevronRight, LogOut,
-  Bell, X, ExternalLink, Briefcase
+  Bell, X, ExternalLink, Briefcase, Zap, Calendar, AlertCircle
 } from 'lucide-react'
 
 const navItems = [
   { path: '/vendedor', icon: LayoutDashboard, label: 'Mi Panel', end: true },
+  { path: '/vendedor/alertas', icon: AlertCircle, label: 'Alertas' },
   { path: '/vendedor/recomendados', icon: Sparkles, label: 'Recomendados IA' },
   { path: '/vendedor/leads', icon: Users, label: 'Todos los Leads' },
   { path: '/vendedor/pipeline', icon: GitBranch, label: 'Mi Pipeline' },
+  { path: '/vendedor/secuencias', icon: Zap, label: 'Secuencias' },
+  { path: '/vendedor/agenda', icon: Calendar, label: 'Mi Agenda' },
   { path: '/vendedor/email', icon: Mail, label: 'Email' },
   { path: '/vendedor/whatsapp', icon: MessageCircle, label: 'WhatsApp' },
   { path: '/vendedor/llamadas', icon: Phone, label: 'Llamadas' },

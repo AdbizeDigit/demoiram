@@ -44,6 +44,8 @@ import salesDashboardRoutes, { leadsRouter as salesLeadsRouter } from './routes/
 import avatarRoutes from './routes/avatar-routes.js'
 import agentRunnerRoutes from './routes/agent-runner-routes.js'
 import sellerRoutes from './routes/seller.js'
+import sellerToolsRoutes, { publicRouter as sellerToolsPublic } from './routes/seller-tools.js'
+import { startSequenceRunner } from './services/sequence-runner.js'
 import { connectDB } from './config/database.js'
 import { initializeScheduledSearches } from './routes/automation.js'
 import CustomChatbot from './models/CustomChatbot.js'
@@ -152,6 +154,10 @@ app.use('/api/leads', salesLeadsRouter)
 app.use('/api/avatars', avatarRoutes)
 app.use('/api/agent-runner', agentRunnerRoutes)
 app.use('/api/seller', sellerRoutes)
+app.use('/api/seller', sellerToolsRoutes)
+// Rutas públicas (sin auth): pixel tracking + booking
+app.use('/', sellerToolsPublic)
+app.use('/api/public', sellerToolsPublic)
 
 // ── Notifications ────────────────────────────────────────────────────────────
 // Init table
@@ -3616,6 +3622,9 @@ app.listen(PORT, async () => {
   // Inicializar búsquedas programadas automáticas
   await initializeScheduledSearches()
   console.log('🤖 Sistema de automatización inicializado')
+
+  // Iniciar el runner de secuencias de follow-up del vendedor
+  try { startSequenceRunner() } catch (e) { console.error('⚠️ Sequence runner failed:', e.message) }
 
   // Inicializar tablas de scraping
   try {

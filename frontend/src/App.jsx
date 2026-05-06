@@ -61,6 +61,10 @@ const SellerDashboard = lazy(() => import('./pages/SellerDashboard'))
 const SellerRecommendationsPage = lazy(() => import('./pages/SellerRecommendationsPage'))
 const SellerLeadDetailPage = lazy(() => import('./pages/SellerLeadDetailPage'))
 const SellerCallsPage = lazy(() => import('./pages/SellerCallsPage'))
+const SellerSequencesPage = lazy(() => import('./pages/SellerSequencesPage'))
+const SellerAgendaPage = lazy(() => import('./pages/SellerAgendaPage'))
+const SellerAlertsPage = lazy(() => import('./pages/SellerAlertsPage'))
+const PublicBookingPage = lazy(() => import('./pages/PublicBookingPage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -85,6 +89,8 @@ function App() {
           <Route path="/" element={<LandingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          {/* Página pública de booking (sin auth) */}
+          <Route path="/agendar/:slug" element={<PublicBookingPage />} />
 
           <Route path="/dashboard" element={<PrivateRoute><Layout /></PrivateRoute>}>
             <Route index element={<Dashboard />} />
@@ -149,6 +155,9 @@ function App() {
             <Route path="llamadas" element={<SellerCallsPage />} />
             <Route path="linkedin" element={<LinkedInPage />} />
             <Route path="metricas" element={<SalesDashboardPage />} />
+            <Route path="secuencias" element={<SellerSequencesPage />} />
+            <Route path="agenda" element={<SellerAgendaPage />} />
+            <Route path="alertas" element={<SellerAlertsPage />} />
             <Route path="*" element={<SellerDashboard />} />
           </Route>
         </Routes>

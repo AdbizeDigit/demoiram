@@ -392,14 +392,23 @@ router.post('/email/send-direct', async (req, res) => {
     const avatar = await emailOutreachService.getActiveAvatar();
     const wrappedBody = await emailOutreachService.wrapInTemplate(body, avatar, null);
 
+    // Tracking pixel: insertamos un img invisible al final del body
+    const { randomUUID } = await import('crypto');
+    const trackingId = randomUUID();
+    const baseUrl = process.env.PUBLIC_URL || 'https://adbize.com';
+    const pixelHtml = `<img src="${baseUrl}/track/o/${trackingId}.gif" width="1" height="1" style="display:block;border:0" alt="" />`;
+    const bodyWithPixel = wrappedBody.includes('</body>')
+      ? wrappedBody.replace('</body>', `${pixelHtml}</body>`)
+      : wrappedBody + pixelHtml;
+
     // Send
-    await emailOutreachService.sendEmail(email, subject, wrappedBody);
+    await emailOutreachService.sendEmail(email, subject, bodyWithPixel);
 
     // Save to outreach_messages for history
     await pool.query(
-      `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at, sent_by_seller_id)
-       VALUES ($1, 'EMAIL', 1, $2, $3, false, 'SENT', NOW(), $4)`,
-      [leadId || null, subject, wrappedBody, req.user?.role === 'seller' ? req.user.id : null]
+      `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at, sent_by_seller_id, tracking_id)
+       VALUES ($1, 'EMAIL', 1, $2, $3, false, 'SENT', NOW(), $4, $5)`,
+      [leadId || null, subject, bodyWithPixel, req.user?.role === 'seller' ? req.user.id : null, trackingId]
     );
 
     // Move lead to CONTACTADO if it was NUEVO/NEW (don't override later stages)

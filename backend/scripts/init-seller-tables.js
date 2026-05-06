@@ -108,7 +108,146 @@ async function init() {
     EXCEPTION WHEN undefined_table THEN NULL; END $$;
   `);
 
-  console.log('✅ Tablas de vendedor inicializadas');
+  // ─── Email tracking (aperturas via pixel invisible) ─────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_email_opens (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    tracking_id UUID NOT NULL,
+    message_id UUID,
+    lead_id UUID,
+    opened_at TIMESTAMP DEFAULT NOW(),
+    user_agent TEXT,
+    ip TEXT
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_opens_tracking ON seller_email_opens(tracking_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_opens_message ON seller_email_opens(message_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_email_opens_lead ON seller_email_opens(lead_id)`);
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS tracking_id UUID;
+    EXCEPTION WHEN undefined_table THEN NULL; END $$;
+  `);
+
+  // ─── Booking / agenda del vendedor ──────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_booking_settings (
+    seller_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    slug VARCHAR(64) UNIQUE,
+    title TEXT DEFAULT 'Agendar reunión',
+    description TEXT,
+    duration_min INTEGER DEFAULT 30,
+    buffer_min INTEGER DEFAULT 15,
+    -- working hours por dia: { "1": [{"start":"09:00","end":"18:00"}], "2": [...], ... } (1=lun..7=dom)
+    weekly_hours JSONB DEFAULT '{"1":[{"start":"09:00","end":"18:00"}],"2":[{"start":"09:00","end":"18:00"}],"3":[{"start":"09:00","end":"18:00"}],"4":[{"start":"09:00","end":"18:00"}],"5":[{"start":"09:00","end":"18:00"}]}'::jsonb,
+    timezone VARCHAR(64) DEFAULT 'America/Argentina/Buenos_Aires',
+    active BOOLEAN DEFAULT true,
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_meetings (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id UUID,
+    guest_name TEXT,
+    guest_email TEXT,
+    guest_phone TEXT,
+    starts_at TIMESTAMP NOT NULL,
+    ends_at TIMESTAMP NOT NULL,
+    duration_min INTEGER,
+    notes TEXT,
+    status VARCHAR(30) DEFAULT 'CONFIRMED',
+    created_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_seller ON seller_meetings(seller_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_meetings_starts ON seller_meetings(starts_at)`);
+
+  // ─── Secuencias de follow-up multi-step ─────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_sequences (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    -- steps: [{ step:1, channel:'EMAIL', delay_days:0, subject:'...', body:'...' }, ...]
+    steps JSONB DEFAULT '[]'::jsonb,
+    active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_sequences_seller ON seller_sequences(seller_id)`);
+
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_sequence_runs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    sequence_id UUID NOT NULL REFERENCES seller_sequences(id) ON DELETE CASCADE,
+    lead_id UUID NOT NULL,
+    seller_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    current_step INTEGER DEFAULT 0,
+    status VARCHAR(30) DEFAULT 'ACTIVE',
+    next_run_at TIMESTAMP,
+    started_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    stopped_reason TEXT
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_seq_runs_active ON seller_sequence_runs(status, next_run_at)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_seq_runs_lead ON seller_sequence_runs(lead_id)`);
+
+  // ─── Battlecards de competidores ───────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_battlecards (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    competitor_name VARCHAR(120) NOT NULL,
+    aliases TEXT[],
+    -- differentiators: [{ point: "...", proof: "..." }, ...]
+    differentiators JSONB DEFAULT '[]'::jsonb,
+    objection_responses JSONB DEFAULT '[]'::jsonb,
+    notes TEXT,
+    active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_battlecards_active ON seller_battlecards(active)`);
+
+  // ─── Alertas contextuales ──────────────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_alerts (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id UUID,
+    type VARCHAR(50) NOT NULL,
+    severity VARCHAR(20) DEFAULT 'info',
+    title TEXT NOT NULL,
+    message TEXT,
+    payload JSONB,
+    read BOOLEAN DEFAULT false,
+    dismissed BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_alerts_seller_unread ON seller_alerts(seller_id, read, dismissed)`);
+
+  // ─── Chat threads del asistente IA ─────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_chat_threads (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lead_id UUID,
+    -- messages: [{ role: "user|assistant", content: "...", at: "..." }, ...]
+    messages JSONB DEFAULT '[]'::jsonb,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_chat_seller_lead ON seller_chat_threads(seller_id, lead_id)`);
+
+  // ─── Propuestas generadas con IA ───────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_proposals (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    lead_id UUID,
+    title TEXT,
+    body_html TEXT,
+    body_md TEXT,
+    pricing JSONB,
+    status VARCHAR(30) DEFAULT 'DRAFT',
+    sent_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proposals_seller ON seller_proposals(seller_id)`);
+
+  console.log('✅ Tablas de vendedor inicializadas (con herramientas avanzadas)');
   await pool.end();
 }
 

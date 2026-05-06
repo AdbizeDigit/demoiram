@@ -6,6 +6,13 @@ import { useAuthStore } from '../store/authStore'
 import LinkedInResearchPanel from '../components/seller/LinkedInResearchPanel'
 import CallLogPanel from '../components/seller/CallLogPanel'
 import AIFollowUpPanel from '../components/seller/AIFollowUpPanel'
+import BriefingPanel from '../components/seller/BriefingPanel'
+import AssistantChatPanel from '../components/seller/AssistantChatPanel'
+import DealHealthBadge from '../components/seller/DealHealthBadge'
+import BattlecardsPanel from '../components/seller/BattlecardsPanel'
+import ProposalGeneratorPanel from '../components/seller/ProposalGeneratorPanel'
+import EmailTrackingPanel from '../components/seller/EmailTrackingPanel'
+import IntentBanner from '../components/seller/IntentBanner'
 
 const STAGE_CFG = {
   NUEVO:           { label: 'Nuevo',           bg: 'bg-gray-100',     text: 'text-gray-700' },
@@ -111,6 +118,7 @@ export default function SellerLeadDetailPage() {
                   Score {lead.score}
                 </span>
               )}
+              <DealHealthBadge leadId={id} />
             </div>
             <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
               {lead.sector && <span className="flex items-center gap-1 capitalize"><Tag className="w-3 h-3" />{lead.sector}</span>}
@@ -188,11 +196,27 @@ export default function SellerLeadDetailPage() {
         </div>
       </div>
 
-      {/* Paneles principales */}
+      {/* Intent banner — si hay buying signal o respuesta negativa, lo muestra arriba */}
+      <IntentBanner leadId={id} />
+
+      {/* Battlecards — solo se muestra si detecta competidores */}
+      <BattlecardsPanel lead={lead} leadId={id} />
+
+      {/* Briefing pre-llamada */}
+      <BriefingPanel leadId={id} />
+
+      {/* Asistente IA + AI follow-up + LinkedIn research */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <AssistantChatPanel leadId={id} />
         <AIFollowUpPanel leadId={id} />
-        <LinkedInResearchPanel leadId={id} lead={lead} />
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <LinkedInResearchPanel leadId={id} lead={lead} />
+        <EmailTrackingPanel leadId={id} />
+      </div>
+
+      <ProposalGeneratorPanel leadId={id} />
 
       <CallLogPanel leadId={id} />
 
