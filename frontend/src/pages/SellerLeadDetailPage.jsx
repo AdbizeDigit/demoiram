@@ -13,6 +13,8 @@ import BattlecardsPanel from '../components/seller/BattlecardsPanel'
 import ProposalGeneratorPanel from '../components/seller/ProposalGeneratorPanel'
 import EmailTrackingPanel from '../components/seller/EmailTrackingPanel'
 import IntentBanner from '../components/seller/IntentBanner'
+import EnrichButton from '../components/seller/EnrichButton'
+import RoiCalculatorPanel from '../components/seller/RoiCalculatorPanel'
 
 const STAGE_CFG = {
   NUEVO:           { label: 'Nuevo',           bg: 'bg-gray-100',     text: 'text-gray-700' },
@@ -128,6 +130,7 @@ export default function SellerLeadDetailPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            <EnrichButton leadId={id} onDone={load} />
             {isUnassigned && (
               <button onClick={claim} disabled={claiming}
                 className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-semibold disabled:opacity-50">
@@ -216,7 +219,10 @@ export default function SellerLeadDetailPage() {
         <EmailTrackingPanel leadId={id} />
       </div>
 
-      <ProposalGeneratorPanel leadId={id} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RoiCalculatorPanel leadId={id} />
+        <ProposalGeneratorPanel leadId={id} />
+      </div>
 
       <CallLogPanel leadId={id} />
 

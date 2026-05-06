@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import api from '../services/api'
 import { useAuthStore } from '../store/authStore'
+import ForecastWidget from '../components/seller/ForecastWidget'
 
 function formatCurrency(val) {
   if (!val || val === 0) return '$0'
@@ -104,6 +105,8 @@ export default function SellerDashboard() {
           <p className="text-sm text-gray-500 mt-1">Acá está todo lo que tenés que mover hoy.</p>
         </div>
       </div>
+
+      <ForecastWidget />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">

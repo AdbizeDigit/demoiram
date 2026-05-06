@@ -242,12 +242,77 @@ async function init() {
     pricing JSONB,
     status VARCHAR(30) DEFAULT 'DRAFT',
     sent_at TIMESTAMP,
+    tracking_id UUID,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
   )`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_proposals_seller ON seller_proposals(seller_id)`);
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE seller_proposals ADD COLUMN IF NOT EXISTS tracking_id UUID;
+    EXCEPTION WHEN undefined_table THEN NULL; END $$;
+  `);
 
-  console.log('✅ Tablas de vendedor inicializadas (con herramientas avanzadas)');
+  // ─── Knowledge base interna (casos, FAQs, scripts) ─────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_knowledge_docs (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    doc_type VARCHAR(40) DEFAULT 'general',
+    tags TEXT[],
+    sector VARCHAR(80),
+    active BOOLEAN DEFAULT true,
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kb_active ON seller_knowledge_docs(active)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_kb_sector ON seller_knowledge_docs(sector)`);
+
+  // ─── Templates / snippets de mensaje ────────────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_message_templates (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    seller_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    shortcut VARCHAR(40),
+    name TEXT,
+    channel VARCHAR(20) DEFAULT 'EMAIL',
+    subject TEXT,
+    body TEXT NOT NULL,
+    use_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_templates_seller ON seller_message_templates(seller_id)`);
+
+  // ─── Tracking de aperturas de propuestas (similar al email pixel) ───────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_proposal_views (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    tracking_id UUID NOT NULL,
+    proposal_id UUID,
+    lead_id UUID,
+    viewed_at TIMESTAMP DEFAULT NOW(),
+    duration_seconds INTEGER,
+    user_agent TEXT,
+    ip TEXT
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proposal_views_tracking ON seller_proposal_views(tracking_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_proposal_views_proposal ON seller_proposal_views(proposal_id)`);
+
+  // ─── Log de reactivación de leads dormidos ──────────────────────────────────
+  await pool.query(`CREATE TABLE IF NOT EXISTS seller_reengagement_log (
+    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    lead_id UUID NOT NULL,
+    seller_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    generated_message TEXT,
+    sent BOOLEAN DEFAULT false,
+    sent_at TIMESTAMP,
+    response_received BOOLEAN DEFAULT false,
+    created_at TIMESTAMP DEFAULT NOW()
+  )`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_reeng_lead ON seller_reengagement_log(lead_id)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_reeng_seller ON seller_reengagement_log(seller_id)`);
+
+  console.log('✅ Tablas de vendedor inicializadas (con herramientas avanzadas + extras)');
   await pool.end();
 }
 

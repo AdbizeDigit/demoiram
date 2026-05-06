@@ -807,5 +807,631 @@ publicRouter.post('/booking/:slug', async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HERRAMIENTAS EXTRA (segunda tanda)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── 11. AUTO-ENRICHMENT AL TOMAR LEAD ────────────────────────────────────────
+// Reusa enrichment-service del scraping si está disponible
+router.post('/leads/:id/enrich', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const lead = (await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id])).rows[0];
+    if (!lead) return res.status(404).json({ message: 'Lead no encontrado' });
+
+    let enriched = false;
+    try {
+      const { enrichmentService } = await import('../services/scraping/enrichment-service.js');
+      if (enrichmentService?.enrichLead) {
+        await enrichmentService.enrichLead(req.params.id);
+        enriched = true;
+      }
+    } catch (e) { console.warn('enrichmentService no disponible:', e.message); }
+
+    // Genero un summary IA con los datos enriquecidos
+    const updated = (await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id])).rows[0];
+    let aiInsight = null;
+    try {
+      const prompt = `Resumime esta empresa para un vendedor B2B en una sola tarjeta accionable.
+Datos: ${JSON.stringify({
+  name: updated.name, sector: updated.sector, city: updated.city, website: updated.website,
+  description: updated.description?.slice(0, 400), email: updated.email, phone: updated.phone,
+  social: { linkedin: updated.social_linkedin, instagram: updated.social_instagram, facebook: updated.social_facebook }
+})}.
+Devolveme JSON: {"size_estimate":"<chico/mediano/grande/N+>","tech_signals":["<señal 1>","<2>"],"likely_decision_maker":"<cargo>","best_channel":"<EMAIL|WHATSAPP|LINKEDIN>","insight":"<insight 1 línea>"}`;
+      const ai = await deepseek.chat({
+        messages: [
+          { role: 'system', content: 'Sos analista de prospects B2B. Respondés solo en JSON válido.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.4, maxTokens: 400
+      });
+      const cleaned = ai.content.replace(/```json|```/g, '').trim();
+      aiInsight = JSON.parse(cleaned);
+    } catch {}
+
+    res.json({ enriched, lead: updated, ai_insight: aiInsight });
+  } catch (err) {
+    console.error('Error enrich:', err);
+    res.status(500).json({ message: 'Error al enriquecer' });
+  }
+});
+
+// ─── 12. KNOWLEDGE BASE ───────────────────────────────────────────────────────
+
+router.get('/knowledge', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { q, sector, type } = req.query;
+    const conditions = ['active = true'];
+    const params = [];
+    let idx = 1;
+    if (q) { conditions.push(`(title ILIKE $${idx} OR content ILIKE $${idx})`); params.push(`%${q}%`); idx++; }
+    if (sector) { conditions.push(`(sector = $${idx} OR sector IS NULL)`); params.push(sector); idx++; }
+    if (type) { conditions.push(`doc_type = $${idx++}`); params.push(type); }
+    const { rows } = await pool.query(
+      `SELECT * FROM seller_knowledge_docs WHERE ${conditions.join(' AND ')} ORDER BY updated_at DESC LIMIT 100`,
+      params
+    );
+    res.json({ docs: rows });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.post('/knowledge', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { title, content, doc_type, tags, sector } = req.body;
+    if (!title || !content) return res.status(400).json({ message: 'Título y contenido requeridos' });
+    const { rows } = await pool.query(
+      `INSERT INTO seller_knowledge_docs (title, content, doc_type, tags, sector, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [title, content, doc_type || 'general', tags || null, sector || null, req.user.id]
+    );
+    res.status(201).json({ doc: rows[0] });
+  } catch (err) { res.status(500).json({ message: 'Error al crear' }); }
+});
+
+router.patch('/knowledge/:id', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { title, content, doc_type, tags, sector, active } = req.body;
+    const sets = [], params = [];
+    let idx = 1;
+    if (title !== undefined) { sets.push(`title = $${idx++}`); params.push(title); }
+    if (content !== undefined) { sets.push(`content = $${idx++}`); params.push(content); }
+    if (doc_type !== undefined) { sets.push(`doc_type = $${idx++}`); params.push(doc_type); }
+    if (tags !== undefined) { sets.push(`tags = $${idx++}`); params.push(tags); }
+    if (sector !== undefined) { sets.push(`sector = $${idx++}`); params.push(sector); }
+    if (active !== undefined) { sets.push(`active = $${idx++}`); params.push(active); }
+    if (!sets.length) return res.status(400).json({ message: 'Nada que actualizar' });
+    params.push(req.params.id);
+    sets.push(`updated_at = NOW()`);
+    await pool.query(`UPDATE seller_knowledge_docs SET ${sets.join(', ')} WHERE id = $${idx}`, params);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.delete('/knowledge/:id', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM seller_knowledge_docs WHERE id = $1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+// ─── 13. LOOKALIKE LEADS (parecidos a tus ganados) ────────────────────────────
+
+router.get('/me/lookalike', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    // Encuentro perfil promedio de leads ganados (sector, city, score) y rankeo no-asignados similares
+    const { rows: wonProfile } = await pool.query(`
+      SELECT
+        ARRAY_AGG(DISTINCT sector) FILTER (WHERE sector IS NOT NULL) AS sectors,
+        ARRAY_AGG(DISTINCT city) FILTER (WHERE city IS NOT NULL) AS cities,
+        AVG(COALESCE(score, 0))::int AS avg_score,
+        COUNT(*) AS total_won
+      FROM leads
+      WHERE UPPER(status) = 'GANADO'
+        AND (assigned_seller_id = $1 OR assigned_seller_id IS NULL)
+    `, [sellerId]);
+
+    const profile = wonProfile[0];
+    if (!profile?.total_won || profile.total_won === '0') {
+      return res.json({ lookalike: [], reason: 'Aún no hay clientes ganados para entrenar el lookalike. Cerrá al menos uno.' });
+    }
+
+    const sectors = profile.sectors || [];
+    const cities = profile.cities || [];
+    const avgScore = parseInt(profile.avg_score) || 50;
+
+    const { rows } = await pool.query(`
+      SELECT l.id, l.name, l.sector, l.city, l.score, l.email, l.phone, l.social_linkedin,
+        UPPER(COALESCE(l.status,'NUEVO')) AS stage,
+        (
+          CASE WHEN l.sector = ANY($1::text[]) THEN 40 ELSE 0 END +
+          CASE WHEN l.city = ANY($2::text[]) THEN 20 ELSE 0 END +
+          GREATEST(0, 30 - ABS(COALESCE(l.score,0) - $3))
+        ) AS similarity
+      FROM leads l
+      WHERE l.assigned_seller_id IS NULL
+        AND UPPER(COALESCE(l.status,'NUEVO')) NOT IN ('GANADO','PERDIDO','DESCARTADO')
+      ORDER BY similarity DESC NULLS LAST, l.score DESC NULLS LAST
+      LIMIT 12
+    `, [sectors, cities, avgScore]);
+
+    res.json({
+      lookalike: rows,
+      training: {
+        won_count: parseInt(profile.total_won),
+        sectors: sectors.slice(0, 5),
+        cities: cities.slice(0, 5),
+        avg_score: avgScore
+      }
+    });
+  } catch (err) {
+    console.error('Error lookalike:', err);
+    res.status(500).json({ message: 'Error al calcular lookalike' });
+  }
+});
+
+// ─── 14. CALCULADORA DE ROI ───────────────────────────────────────────────────
+
+router.post('/leads/:id/roi', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const lead = (await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id])).rows[0];
+    if (!lead) return res.status(404).json({ message: 'Lead no encontrado' });
+
+    const { employees, hours_manual_per_week, avg_hourly_cost, monthly_proposal_cost, custom_inputs } = req.body || {};
+
+    let roi = null;
+    try {
+      const prompt = `Sos consultor de ROI para servicios de IA / automatización B2B Argentina.
+Cliente: ${lead.name} (${lead.sector || 'sin sector'}).
+Inputs: empleados=${employees || 'n/a'}, hrs manuales/sem=${hours_manual_per_week || 'n/a'}, costo hr=${avg_hourly_cost || 'n/a'} ARS, propuesta mensual=${monthly_proposal_cost || 'n/a'} ARS.
+Inputs adicionales: ${JSON.stringify(custom_inputs || {})}.
+
+Calculá y devolveme JSON:
+{
+  "monthly_savings_ars": <numero>,
+  "annual_savings_ars": <numero>,
+  "payback_months": <numero>,
+  "roi_year_1_pct": <numero>,
+  "assumptions": ["<asunción 1>", "<2>"],
+  "pitch": "<frase de cierre 1-2 líneas para usar en la conversación>"
+}
+Sé conservador. Si los inputs faltan, asumí promedio y aclaralo.`;
+      const ai = await deepseek.chat({
+        messages: [
+          { role: 'system', content: 'Sos analista financiero B2B argentino. Solo respondés JSON válido.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3, maxTokens: 600
+      });
+      const cleaned = ai.content.replace(/```json|```/g, '').trim();
+      roi = JSON.parse(cleaned);
+    } catch (e) {
+      // Fallback con cálculo manual
+      const hrs = parseFloat(hours_manual_per_week) || 10;
+      const cost = parseFloat(avg_hourly_cost) || 5000;
+      const monthly = parseFloat(monthly_proposal_cost) || 100000;
+      const monthlySavings = hrs * cost * 4.33 * 0.7; // 70% reducción
+      const annualSavings = monthlySavings * 12;
+      const annualCost = monthly * 12;
+      roi = {
+        monthly_savings_ars: Math.round(monthlySavings),
+        annual_savings_ars: Math.round(annualSavings),
+        payback_months: monthly > 0 ? +(monthly / Math.max(monthlySavings, 1)).toFixed(1) : 0,
+        roi_year_1_pct: annualCost > 0 ? Math.round(((annualSavings - annualCost) / annualCost) * 100) : 0,
+        assumptions: ['Cálculo manual fallback', '70% de reducción de horas manuales'],
+        pitch: 'Estimación inicial — refinar con el cliente.'
+      };
+    }
+
+    res.json({ roi });
+  } catch (err) {
+    console.error('Error ROI:', err);
+    res.status(500).json({ message: 'Error al calcular ROI' });
+  }
+});
+
+// ─── 15. FORECAST DEL VENDEDOR ────────────────────────────────────────────────
+
+router.get('/me/forecast', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const [wonMonth, pipelineByStage, last3MonthsWon] = await Promise.all([
+      pool.query(`SELECT COUNT(*) AS c, COALESCE(SUM(COALESCE(score,0)*100),0) AS v FROM leads
+        WHERE assigned_seller_id = $1 AND UPPER(status) = 'GANADO'
+        AND updated_at >= date_trunc('month', CURRENT_DATE)`, [sellerId]),
+      pool.query(`SELECT UPPER(status) AS stage, COUNT(*) AS c, COALESCE(SUM(COALESCE(score,0)*100),0) AS v FROM leads
+        WHERE assigned_seller_id = $1 AND UPPER(status) IN ('CONTACTADO','EN_CONVERSACION','PROPUESTA','NEGOCIACION')
+        GROUP BY UPPER(status)`, [sellerId]),
+      pool.query(`SELECT DATE_TRUNC('month', updated_at) AS m, COUNT(*) AS c, COALESCE(SUM(COALESCE(score,0)*100),0) AS v
+        FROM leads
+        WHERE assigned_seller_id = $1 AND UPPER(status) = 'GANADO'
+          AND updated_at >= NOW() - INTERVAL '3 months'
+        GROUP BY DATE_TRUNC('month', updated_at) ORDER BY m DESC`, [sellerId])
+    ]);
+
+    // Probabilidad por etapa (estimación)
+    const STAGE_PROB = { CONTACTADO: 0.05, EN_CONVERSACION: 0.20, PROPUESTA: 0.40, NEGOCIACION: 0.65 };
+    let weightedPipeline = 0;
+    let dealsCount = 0;
+    for (const row of pipelineByStage.rows) {
+      const prob = STAGE_PROB[row.stage] || 0;
+      weightedPipeline += parseFloat(row.v) * prob;
+      dealsCount += parseInt(row.c);
+    }
+
+    const wonValue = parseFloat(wonMonth.rows[0]?.v) || 0;
+    const wonCount = parseInt(wonMonth.rows[0]?.c) || 0;
+    const projectedTotal = wonValue + weightedPipeline;
+
+    // Promedio histórico
+    const historicAvg = last3MonthsWon.rows.length > 0
+      ? last3MonthsWon.rows.reduce((s, r) => s + parseFloat(r.v), 0) / last3MonthsWon.rows.length
+      : 0;
+
+    // Días del mes restantes
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dayOfMonth = now.getDate();
+    const daysLeft = daysInMonth - dayOfMonth;
+
+    res.json({
+      forecast: {
+        won_so_far: wonValue,
+        won_count: wonCount,
+        weighted_pipeline: Math.round(weightedPipeline),
+        projected_total: Math.round(projectedTotal),
+        deals_in_pipeline: dealsCount,
+        historical_monthly_avg: Math.round(historicAvg),
+        days_left_in_month: daysLeft,
+        on_track: historicAvg > 0 ? projectedTotal >= historicAvg : null,
+        confidence: dealsCount >= 5 ? 'high' : dealsCount >= 2 ? 'medium' : 'low'
+      },
+      pipeline_by_stage: pipelineByStage.rows
+    });
+  } catch (err) {
+    console.error('Error forecast:', err);
+    res.status(500).json({ message: 'Error al calcular forecast' });
+  }
+});
+
+// ─── 16. REACTIVACIÓN DE DORMIDOS ─────────────────────────────────────────────
+
+router.get('/me/dormants', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const { rows } = await pool.query(`
+      SELECT l.id, l.name, l.sector, l.city, UPPER(COALESCE(l.status,'NUEVO')) AS stage,
+        l.score, l.email, l.phone, l.social_whatsapp,
+        EXTRACT(DAY FROM (NOW() - l.updated_at))::int AS days_dormant,
+        (SELECT MAX(sent_at) FROM outreach_messages WHERE lead_id = l.id) AS last_contact,
+        (SELECT body FROM seller_reengagement_log WHERE lead_id = l.id ORDER BY created_at DESC LIMIT 1) AS last_reengagement
+      FROM leads l
+      WHERE l.assigned_seller_id = $1
+        AND UPPER(COALESCE(l.status,'NUEVO')) NOT IN ('GANADO','PERDIDO','DESCARTADO')
+        AND l.updated_at < NOW() - INTERVAL '60 days'
+      ORDER BY l.score DESC NULLS LAST, l.updated_at ASC
+      LIMIT 30
+    `, [sellerId]);
+    res.json({ dormants: rows, total: rows.length });
+  } catch (err) {
+    console.error('Error dormants:', err);
+    res.status(500).json({ message: 'Error' });
+  }
+});
+
+router.post('/leads/:id/reactivate', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const lead = (await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id])).rows[0];
+    if (!lead) return res.status(404).json({ message: 'Lead no encontrado' });
+
+    const lastMsg = (await pool.query(
+      `SELECT body, channel, sent_at FROM outreach_messages WHERE lead_id = $1 ORDER BY COALESCE(sent_at, created_at) DESC LIMIT 1`,
+      [req.params.id]
+    )).rows[0];
+
+    let message = '';
+    try {
+      const prompt = `El lead "${lead.name}" (${lead.sector}, ${lead.city}) está dormido desde ${lead.updated_at}.
+Último contacto: ${lastMsg?.body?.slice(0, 200) || 'sin registros'}.
+Generá un mensaje de re-engagement breve y honesto en español rioplatense argentino. Tono cercano, no insistente. 60-90 palabras. Sin pitch fuerte. Termina con una pregunta abierta. Solo el texto del mensaje, sin formato.`;
+      const ai = await deepseek.chat({
+        messages: [
+          { role: 'system', content: 'Sos vendedor B2B argentino experto en reactivar leads dormidos sin sonar desesperado.' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.7, maxTokens: 300
+      });
+      message = ai.content.trim().replace(/^["']|["']$/g, '');
+    } catch {
+      message = `Hola! Hace un tiempo charlamos sobre ${lead.sector || 'tu negocio'}. Quería saber cómo siguió todo y si todavía tiene sentido conversar. ¿Cómo van con eso ahora?`;
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO seller_reengagement_log (lead_id, seller_id, generated_message)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [req.params.id, req.user.id, message]
+    );
+
+    res.json({ message, log: rows[0] });
+  } catch (err) {
+    console.error('Error reactivate:', err);
+    res.status(500).json({ message: 'Error al generar reactivación' });
+  }
+});
+
+// Reactivación masiva (genera mensajes para todos los dormidos)
+router.post('/me/reactivate-all', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const dormants = (await pool.query(`
+      SELECT id FROM leads
+      WHERE assigned_seller_id = $1
+        AND UPPER(COALESCE(status,'NUEVO')) NOT IN ('GANADO','PERDIDO','DESCARTADO')
+        AND updated_at < NOW() - INTERVAL '60 days'
+      LIMIT 20
+    `, [req.user.id])).rows;
+
+    res.json({ queued: dormants.length, lead_ids: dormants.map(d => d.id) });
+    // (los mensajes se generan al pedir cada uno individualmente, para no bloquear)
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+// ─── 17. TEMPLATES / SNIPPETS ─────────────────────────────────────────────────
+
+router.get('/templates', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM seller_message_templates WHERE seller_id = $1 OR seller_id IS NULL ORDER BY use_count DESC, updated_at DESC`,
+      [req.user.id]
+    );
+    res.json({ templates: rows });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.post('/templates', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { shortcut, name, channel, subject, body } = req.body;
+    if (!body) return res.status(400).json({ message: 'Body requerido' });
+    const { rows } = await pool.query(
+      `INSERT INTO seller_message_templates (seller_id, shortcut, name, channel, subject, body)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.user.id, shortcut || null, name || shortcut || 'Plantilla', channel || 'EMAIL', subject || null, body]
+    );
+    res.status(201).json({ template: rows[0] });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.patch('/templates/:id', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { shortcut, name, channel, subject, body } = req.body;
+    const sets = [], params = [];
+    let idx = 1;
+    if (shortcut !== undefined) { sets.push(`shortcut = $${idx++}`); params.push(shortcut); }
+    if (name !== undefined) { sets.push(`name = $${idx++}`); params.push(name); }
+    if (channel !== undefined) { sets.push(`channel = $${idx++}`); params.push(channel); }
+    if (subject !== undefined) { sets.push(`subject = $${idx++}`); params.push(subject); }
+    if (body !== undefined) { sets.push(`body = $${idx++}`); params.push(body); }
+    if (!sets.length) return res.status(400).json({ message: 'Nada que actualizar' });
+    params.push(req.params.id, req.user.id);
+    sets.push(`updated_at = NOW()`);
+    await pool.query(
+      `UPDATE seller_message_templates SET ${sets.join(', ')} WHERE id = $${idx++} AND seller_id = $${idx}`,
+      params
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.delete('/templates/:id', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM seller_message_templates WHERE id = $1 AND seller_id = $2',
+      [req.params.id, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+// Renderizar template con vars del lead
+router.post('/templates/:id/render', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { lead_id } = req.body;
+    const tpl = (await pool.query('SELECT * FROM seller_message_templates WHERE id = $1', [req.params.id])).rows[0];
+    if (!tpl) return res.status(404).json({ message: 'Template no encontrado' });
+    const lead = lead_id ? (await pool.query('SELECT * FROM leads WHERE id = $1', [lead_id])).rows[0] : null;
+    const replace = (s) => (s || '')
+      .replace(/\{\{name\}\}/gi, lead?.name || '')
+      .replace(/\{\{first_name\}\}/gi, (lead?.name || '').split(' ')[0])
+      .replace(/\{\{company\}\}/gi, lead?.name || '')
+      .replace(/\{\{sector\}\}/gi, lead?.sector || '')
+      .replace(/\{\{city\}\}/gi, lead?.city || '')
+      .replace(/\{\{seller_name\}\}/gi, req.user.name || '');
+    await pool.query('UPDATE seller_message_templates SET use_count = use_count + 1 WHERE id = $1', [req.params.id]);
+    res.json({ subject: replace(tpl.subject), body: replace(tpl.body), channel: tpl.channel });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+// ─── 18. ASISTENTE IA + KNOWLEDGE BASE (mejora del existente) ─────────────────
+// Reemplaza el endpoint del asistente para que use la KB cuando esté disponible.
+// (mantiene retrocompatibilidad — el endpoint anterior sigue funcionando, pero acá
+// agregamos uno que recupera contexto de la KB y lo inyecta)
+router.post('/leads/:id/assistant-with-kb', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { question } = req.body;
+    if (!question?.trim()) return res.status(400).json({ message: 'Pregunta vacía' });
+
+    const lead = (await pool.query('SELECT * FROM leads WHERE id = $1', [req.params.id])).rows[0];
+    if (!lead) return res.status(404).json({ message: 'Lead no encontrado' });
+
+    // Busco docs relevantes de la KB (texto naive — busca palabras clave)
+    const keywords = [lead.sector, lead.city, ...(question.match(/\w{4,}/g) || [])].filter(Boolean).slice(0, 5);
+    const kbQuery = keywords.length
+      ? `SELECT id, title, content FROM seller_knowledge_docs
+         WHERE active = true AND (
+           ${keywords.map((_, i) => `title ILIKE $${i + 1} OR content ILIKE $${i + 1}`).join(' OR ')}
+         ) LIMIT 3`
+      : `SELECT id, title, content FROM seller_knowledge_docs WHERE active = true LIMIT 2`;
+    const params = keywords.map(k => `%${k}%`);
+    const docs = keywords.length
+      ? (await pool.query(kbQuery, params)).rows
+      : (await pool.query(kbQuery)).rows;
+
+    const kbContext = docs.length
+      ? `\nBASE DE CONOCIMIENTO RELEVANTE:\n${docs.map(d => `- "${d.title}": ${(d.content || '').slice(0, 400)}`).join('\n')}`
+      : '';
+
+    const systemPrompt = `Sos asistente del vendedor para cerrar al lead "${lead.name}" (${lead.sector || 'desconocido'}, ${lead.city || ''}).
+${kbContext}
+Respondé corto, accionable, en español rioplatense.`;
+
+    let answer = '';
+    try {
+      const ai = await deepseek.chat({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: question }
+        ],
+        temperature: 0.6, maxTokens: 700
+      });
+      answer = ai.content;
+    } catch {
+      answer = 'IA no disponible. Reintentá en un momento.';
+    }
+
+    res.json({ answer, sources: docs.map(d => ({ id: d.id, title: d.title })) });
+  } catch (err) {
+    console.error('Error assistant-kb:', err);
+    res.status(500).json({ message: 'Error' });
+  }
+});
+
+// ─── 19. ADMIN COACHING (vista admin: dónde pierde cada vendedor) ─────────────
+
+router.get('/admin/coaching/:sellerId', protect, adminOnly, async (req, res) => {
+  try {
+    const sellerId = parseInt(req.params.sellerId);
+    const [seller, byStage, lostAnalysis, responseStats] = await Promise.all([
+      pool.query('SELECT id, name, email FROM users WHERE id = $1 AND role = $2', [sellerId, 'seller']),
+      pool.query(`SELECT UPPER(status) AS stage, COUNT(*) AS c FROM leads
+        WHERE assigned_seller_id = $1 GROUP BY UPPER(status)`, [sellerId]),
+      pool.query(`SELECT
+        COUNT(*) FILTER (WHERE UPPER(status) = 'PERDIDO') AS lost_total,
+        AVG(EXTRACT(DAY FROM (updated_at - created_at))) FILTER (WHERE UPPER(status) = 'PERDIDO') AS avg_days_to_lost
+        FROM leads WHERE assigned_seller_id = $1`, [sellerId]),
+      pool.query(`SELECT
+        COUNT(*) FILTER (WHERE UPPER(om.status) = 'SENT') AS sent,
+        COUNT(*) FILTER (WHERE UPPER(om.status) = 'REPLIED') AS replied
+        FROM outreach_messages om JOIN leads l ON l.id = om.lead_id
+        WHERE l.assigned_seller_id = $1 AND om.sent_at >= NOW() - INTERVAL '30 days'`, [sellerId])
+    ]);
+
+    if (!seller.rows.length) return res.status(404).json({ message: 'Vendedor no encontrado' });
+
+    const stages = byStage.rows;
+    const won = parseInt(stages.find(s => s.stage === 'GANADO')?.c) || 0;
+    const lost = parseInt(stages.find(s => s.stage === 'PERDIDO')?.c) || 0;
+    const conversionRate = (won + lost) > 0 ? +((won / (won + lost)) * 100).toFixed(1) : null;
+    const sent = parseInt(responseStats.rows[0]?.sent) || 0;
+    const replied = parseInt(responseStats.rows[0]?.replied) || 0;
+    const responseRate = sent > 0 ? +((replied / sent) * 100).toFixed(1) : 0;
+
+    // Insights heurísticos
+    const insights = [];
+    if (responseRate < 5 && sent > 20) insights.push({ type: 'low_response', text: 'Tasa de respuesta muy baja (<5%). Revisá los mensajes — puede ser tono frío o segmentación pobre.' });
+    if (conversionRate !== null && conversionRate < 20) insights.push({ type: 'low_conversion', text: `Conversión baja (${conversionRate}%). Está perdiendo más de lo que cierra. Foco en calificación y manejo de objeciones.` });
+    if (won === 0 && (replied || 0) > 10) insights.push({ type: 'no_close', text: 'Genera respuestas pero no cierra. Probable cuello de botella en propuesta o negociación.' });
+    if (lost > won * 3) insights.push({ type: 'high_loss', text: 'Pierde 3x más de lo que gana. Análisis de causas de pérdida sería de alto impacto.' });
+
+    res.json({
+      seller: seller.rows[0],
+      stages,
+      conversion_rate: conversionRate,
+      response_rate: responseRate,
+      stats_30d: { sent, replied },
+      avg_days_to_lost: lostAnalysis.rows[0]?.avg_days_to_lost ? Math.round(parseFloat(lostAnalysis.rows[0].avg_days_to_lost)) : null,
+      insights
+    });
+  } catch (err) {
+    console.error('Error coaching:', err);
+    res.status(500).json({ message: 'Error' });
+  }
+});
+
+// ─── 20. DOCUMENT TRACKING (pixel para propuestas) ────────────────────────────
+
+router.post('/proposals/:id/share-link', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { randomUUID } = await import('crypto');
+    const trackingId = randomUUID();
+    await pool.query(
+      `UPDATE seller_proposals SET tracking_id = $1, updated_at = NOW() WHERE id = $2 AND seller_id = $3`,
+      [trackingId, req.params.id, req.user.id]
+    );
+    const baseUrl = process.env.PUBLIC_URL || 'https://adbize.com';
+    res.json({ url: `${baseUrl}/p/${trackingId}`, tracking_id: trackingId });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+router.get('/proposals/:id/views', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM seller_proposal_views WHERE proposal_id = $1 ORDER BY viewed_at DESC`,
+      [req.params.id]
+    );
+    res.json({ views: rows });
+  } catch (err) { res.status(500).json({ message: 'Error' }); }
+});
+
+// ─── PUBLIC: vista de propuesta ───────────────────────────────────────────────
+
+publicRouter.get('/p/:trackingId', async (req, res) => {
+  try {
+    const { trackingId } = req.params;
+    const proposal = (await pool.query(
+      `SELECT * FROM seller_proposals WHERE tracking_id = $1`,
+      [trackingId]
+    )).rows[0];
+    if (!proposal) return res.status(404).send('<h1>Propuesta no encontrada</h1>');
+
+    // Registrar view en background
+    setImmediate(() => {
+      pool.query(
+        `INSERT INTO seller_proposal_views (tracking_id, proposal_id, lead_id, user_agent, ip)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [trackingId, proposal.id, proposal.lead_id, req.headers['user-agent'] || null, req.ip || null]
+      ).catch(() => {});
+    });
+
+    // Render simple HTML
+    const escape = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const md = escape(proposal.body_md || '');
+    // Conversión markdown muy básica
+    const html = md
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>[\s\S]+?<\/li>)/g, '<ul>$1</ul>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/^([^<].+)$/gm, '<p>$1</p>')
+      .replace(/<p>(<h\d>)/g, '$1').replace(/(<\/h\d>)<\/p>/g, '$1')
+      .replace(/<p>(<ul>)/g, '$1').replace(/(<\/ul>)<\/p>/g, '$1');
+
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(`<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${escape(proposal.title || 'Propuesta')}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{font-family:-apple-system,system-ui,Segoe UI,sans-serif;max-width:780px;margin:40px auto;padding:0 24px;color:#1f2937;line-height:1.65;background:linear-gradient(180deg,#f8fafc 0%,#fff 100%)}
+h1{color:#1d4ed8;font-size:32px;margin-bottom:12px}
+h2{color:#374151;font-size:22px;margin-top:32px;border-bottom:2px solid #e5e7eb;padding-bottom:8px}
+h3{color:#4b5563;font-size:18px}
+ul{padding-left:24px}li{margin:6px 0}
+p{margin:12px 0}
+.wrap{background:#fff;padding:48px 56px;border-radius:24px;box-shadow:0 8px 32px rgba(0,0,0,0.06)}
+.footer{text-align:center;font-size:11px;color:#9ca3af;margin-top:24px}
+</style></head><body><div class="wrap">${html}</div><p class="footer">Propuesta generada con Adbize · ${new Date(proposal.created_at).toLocaleDateString('es-AR')}</p></body></html>`);
+  } catch (err) {
+    console.error('Error public proposal:', err);
+    res.status(500).send('<h1>Error</h1>');
+  }
+});
+
 export default router;
 export { publicRouter };

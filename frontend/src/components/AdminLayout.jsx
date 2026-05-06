@@ -14,6 +14,7 @@ const navItems = [
   { path: '/admin/pipeline', icon: GitBranch, label: 'Pipeline' },
   { path: '/admin/leads', icon: Users, label: 'Leads' },
   { path: '/admin/sellers', icon: Briefcase, label: 'Vendedores' },
+  { path: '/admin/coaching', icon: Activity, label: 'Coaching IA' },
   { path: '/admin/email-outreach', icon: Mail, label: 'Email Outreach' },
   { path: '/admin/whatsapp-outreach', icon: MessageCircle, label: 'WhatsApp Outreach' },
   { path: '/admin/whatsapp-accounts', icon: Phone, label: 'Cuentas WhatsApp' },

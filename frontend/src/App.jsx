@@ -65,6 +65,10 @@ const SellerSequencesPage = lazy(() => import('./pages/SellerSequencesPage'))
 const SellerAgendaPage = lazy(() => import('./pages/SellerAgendaPage'))
 const SellerAlertsPage = lazy(() => import('./pages/SellerAlertsPage'))
 const PublicBookingPage = lazy(() => import('./pages/PublicBookingPage'))
+const SellerKnowledgePage = lazy(() => import('./pages/SellerKnowledgePage'))
+const SellerTemplatesPage = lazy(() => import('./pages/SellerTemplatesPage'))
+const SellerReactivatePage = lazy(() => import('./pages/SellerReactivatePage'))
+const AdminCoachingPage = lazy(() => import('./pages/AdminCoachingPage'))
 
 // Loading component
 const LoadingFallback = () => (
@@ -140,6 +144,7 @@ function App() {
             <Route path="linkedin" element={<LinkedInPage />} />
             <Route path="whatsapp-accounts" element={<WhatsAppAccountsPage />} />
             <Route path="sellers" element={<SellersManagementPage />} />
+            <Route path="coaching" element={<AdminCoachingPage />} />
             <Route path="*" element={<DetectionEnginePage />} />
           </Route>
 
@@ -158,6 +163,9 @@ function App() {
             <Route path="secuencias" element={<SellerSequencesPage />} />
             <Route path="agenda" element={<SellerAgendaPage />} />
             <Route path="alertas" element={<SellerAlertsPage />} />
+            <Route path="knowledge" element={<SellerKnowledgePage />} />
+            <Route path="plantillas" element={<SellerTemplatesPage />} />
+            <Route path="reactivar" element={<SellerReactivatePage />} />
             <Route path="*" element={<SellerDashboard />} />
           </Route>
         </Routes>
