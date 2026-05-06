@@ -99,6 +99,15 @@ async function init() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_messages_seller ON outreach_messages(sent_by_seller_id)`);
 
+  // Ownership de perfiles LinkedIn — cada vendedor administra solo los suyos
+  // (envuelvo todo en un DO $$ porque la tabla puede no existir en algunos entornos)
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE linkedin_profiles ADD COLUMN IF NOT EXISTS owner_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+      CREATE INDEX IF NOT EXISTS idx_linkedin_profiles_owner ON linkedin_profiles(owner_user_id);
+    EXCEPTION WHEN undefined_table THEN NULL; END $$;
+  `);
+
   console.log('✅ Tablas de vendedor inicializadas');
   await pool.end();
 }

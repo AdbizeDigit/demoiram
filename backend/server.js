@@ -1071,33 +1071,49 @@ setInterval(async () => {
   } catch {}
 }, 120000) // Every 2 minutes
 
-app.get('/api/linkedin-profiles', async (req, res) => {
+app.get('/api/linkedin-profiles', protectAuth, async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    // Vendedor: solo ve los perfiles de los que es dueño. Admin: ve todos.
+    const isSeller = req.user.role === 'seller'
+    const where = isSeller ? `WHERE lp.owner_user_id = ${parseInt(req.user.id)}` : ''
     const { rows } = await pool.query(`
       SELECT lp.*, a.name as avatar_name, a.photo_url as avatar_photo, a.role as avatar_role, a.company as avatar_company
       FROM linkedin_profiles lp
       LEFT JOIN avatars a ON a.id = lp.avatar_id
+      ${where}
       ORDER BY lp.created_at DESC
     `)
     res.json({ success: true, profiles: rows })
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-app.post('/api/linkedin-profiles', async (req, res) => {
+app.post('/api/linkedin-profiles', protectAuth, async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
     const { name, avatar_id, linkedin_url, username, headline } = req.body
+    // Si lo crea un seller, queda como dueño. Si lo crea un admin, queda sin dueño (compartido).
+    const ownerUserId = req.user.role === 'seller' ? req.user.id : null
     const { rows } = await pool.query(
-      'INSERT INTO linkedin_profiles (name, avatar_id, linkedin_url, username, headline) VALUES ($1,$2,$3,$4,$5) RETURNING *',
-      [name, avatar_id || null, linkedin_url, username, headline]
+      'INSERT INTO linkedin_profiles (name, avatar_id, linkedin_url, username, headline, owner_user_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+      [name, avatar_id || null, linkedin_url, username, headline, ownerUserId]
     )
     res.json({ success: true, profile: rows[0] })
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-app.put('/api/linkedin-profiles/:id', async (req, res) => {
+// Helper: chequea ownership o admin
+async function canTouchLinkedinProfile(req) {
+  if (req.user.role === 'admin') return true
+  const { pool } = await import('./config/database.js')
+  const { rows } = await pool.query('SELECT owner_user_id FROM linkedin_profiles WHERE id = $1', [req.params.id])
+  if (!rows.length) return false
+  return rows[0].owner_user_id === req.user.id
+}
+
+app.put('/api/linkedin-profiles/:id', protectAuth, async (req, res) => {
   try {
+    if (!(await canTouchLinkedinProfile(req))) return res.status(403).json({ success: false, error: 'No autorizado' })
     const { pool } = await import('./config/database.js')
     const { name, avatar_id, linkedin_url, username, headline, auto_post, auto_connect, auto_dm } = req.body
     await pool.query(
@@ -1108,8 +1124,9 @@ app.put('/api/linkedin-profiles/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }) }
 })
 
-app.delete('/api/linkedin-profiles/:id', async (req, res) => {
+app.delete('/api/linkedin-profiles/:id', protectAuth, async (req, res) => {
   try {
+    if (!(await canTouchLinkedinProfile(req))) return res.status(403).json({ success: false, error: 'No autorizado' })
     const { pool } = await import('./config/database.js')
     await pool.query('DELETE FROM linkedin_profiles WHERE id = $1', [req.params.id])
     res.json({ success: true })
