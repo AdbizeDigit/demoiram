@@ -334,7 +334,7 @@ router.post('/auto-improve/score-now', async (req, res) => {
 // GET /messages - List all messages
 router.get('/messages', async (req, res) => {
   try {
-    const { leadId, channel, status, limit = 50 } = req.query;
+    const { leadId, channel, status, sentBy, limit = 50 } = req.query;
     const conditions = [];
     const params = [];
     let idx = 1;
@@ -342,6 +342,18 @@ router.get('/messages', async (req, res) => {
     if (leadId) { conditions.push(`om.lead_id = $${idx++}`); params.push(leadId); }
     if (channel) { conditions.push(`om.channel = $${idx++}`); params.push(channel); }
     if (status) { conditions.push(`om.status = $${idx++}`); params.push(status); }
+    // Filtro por vendedor — incluye también las respuestas/incoming sobre los leads
+    // que ese vendedor contactó, para que la conversación tenga sentido completo
+    if (sentBy === 'me') {
+      conditions.push(`(om.sent_by_seller_id = $${idx} OR om.lead_id IN (
+        SELECT DISTINCT lead_id FROM outreach_messages WHERE sent_by_seller_id = $${idx}
+      ))`);
+      params.push(req.user.id);
+      idx++;
+    } else if (sentBy && !isNaN(parseInt(sentBy))) {
+      conditions.push(`om.sent_by_seller_id = $${idx++}`);
+      params.push(parseInt(sentBy));
+    }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(parseInt(limit));
@@ -385,9 +397,9 @@ router.post('/email/send-direct', async (req, res) => {
 
     // Save to outreach_messages for history
     await pool.query(
-      `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at)
-       VALUES ($1, 'EMAIL', 1, $2, $3, false, 'SENT', NOW())`,
-      [leadId || null, subject, wrappedBody]
+      `INSERT INTO outreach_messages (lead_id, channel, step, subject, body, ai_generated, status, sent_at, sent_by_seller_id)
+       VALUES ($1, 'EMAIL', 1, $2, $3, false, 'SENT', NOW(), $4)`,
+      [leadId || null, subject, wrappedBody, req.user?.role === 'seller' ? req.user.id : null]
     );
 
     // Move lead to CONTACTADO if it was NUEVO/NEW (don't override later stages)
@@ -594,9 +606,9 @@ router.post('/whatsapp/send-direct', async (req, res) => {
 
     if (resolvedLeadId) {
       await pool.query(
-        `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id)
-         VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW(), $3)`,
-        [resolvedLeadId, message, result.wa_account_id]
+        `INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id, sent_by_seller_id)
+         VALUES ($1, 'WHATSAPP', 1, $2, false, 'SENT', NOW(), $3, $4)`,
+        [resolvedLeadId, message, result.wa_account_id, req.user?.role === 'seller' ? req.user.id : null]
       );
       // Move lead to CONTACTADO if it was NUEVO
       await pool.query(
@@ -666,8 +678,8 @@ router.post('/whatsapp/send-to-lead', async (req, res) => {
 
     // Save to outreach messages as SENT (with params_version_id for attribution)
     await pool.query(
-      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id, params_version_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3, $4)",
-      [leadId, message, result.wa_account_id, whatsappOutreachService.lastParamsVersionId || null]
+      "INSERT INTO outreach_messages (lead_id, channel, step, body, ai_generated, status, sent_at, wa_account_id, params_version_id, sent_by_seller_id) VALUES ($1, 'WHATSAPP', 1, $2, true, 'SENT', NOW(), $3, $4, $5)",
+      [leadId, message, result.wa_account_id, whatsappOutreachService.lastParamsVersionId || null, req.user?.role === 'seller' ? req.user.id : null]
     );
     // Move lead to CONTACTADO if it was NUEVO
     await pool.query(

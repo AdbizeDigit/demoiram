@@ -90,6 +90,15 @@ async function init() {
     EXCEPTION WHEN undefined_table THEN NULL; END $$;
   `);
 
+  // Tracking de quién envió cada mensaje (vendedor) — permite filtrar por vendedor
+  // en las pantallas de outreach
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE outreach_messages ADD COLUMN IF NOT EXISTS sent_by_seller_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    EXCEPTION WHEN undefined_table THEN NULL; END $$;
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_outreach_messages_seller ON outreach_messages(sent_by_seller_id)`);
+
   console.log('✅ Tablas de vendedor inicializadas');
   await pool.end();
 }

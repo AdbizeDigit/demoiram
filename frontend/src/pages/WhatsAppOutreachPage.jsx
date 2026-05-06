@@ -77,6 +77,11 @@ export default function WhatsAppOutreachPage() {
     if (user && !hasAccess) navigate('/dashboard')
   }, [user, hasAccess, navigate])
 
+  // Modo "vendedor": filtra leads asignados y mensajes enviados por este vendedor
+  const isSellerScope = typeof window !== 'undefined' && window.location.pathname.startsWith('/vendedor')
+  const sellerLeadsFilter = isSellerScope ? '&assignedSellerId=me' : ''
+  const sellerMsgsFilter = isSellerScope ? '&sentBy=me' : ''
+
   // ── State ──
   const [leads, setLeads] = useState([])
   const [messages, setMessages] = useState([])
@@ -102,7 +107,7 @@ export default function WhatsAppOutreachPage() {
   const loadLeads = useCallback(async () => {
     try {
       setLeadsLoading(true)
-      const { data } = await api.get('/api/scraping-engine/leads?limit=200')
+      const { data } = await api.get(`/api/scraping-engine/leads?limit=200${sellerLeadsFilter}`)
       const allLeads = data.leads || data.data || data || []
       const withPhone = allLeads.filter(l => getLeadPhone(l))
       setLeads(withPhone)
@@ -112,12 +117,12 @@ export default function WhatsAppOutreachPage() {
     } finally {
       setLeadsLoading(false)
     }
-  }, [])
+  }, [sellerLeadsFilter])
 
   const loadMessages = useCallback(async () => {
     try {
       setMessagesLoading(true)
-      const { data } = await api.get('/api/outreach/messages?channel=WHATSAPP')
+      const { data } = await api.get(`/api/outreach/messages?channel=WHATSAPP${sellerMsgsFilter}`)
       setMessages(data.messages || data.data || data || [])
     } catch (err) {
       console.error('Error loading messages:', err)
@@ -125,7 +130,7 @@ export default function WhatsAppOutreachPage() {
     } finally {
       setMessagesLoading(false)
     }
-  }, [])
+  }, [sellerMsgsFilter])
 
   const checkWhatsappStatus = useCallback(async () => {
     try {
@@ -165,7 +170,7 @@ export default function WhatsAppOutreachPage() {
           })
         }
         // Also reload outreach messages
-        const { data: outData } = await api.get('/api/outreach/messages?channel=WHATSAPP')
+        const { data: outData } = await api.get(`/api/outreach/messages?channel=WHATSAPP${sellerMsgsFilter}`)
         const outMsgs = outData.messages || []
         if (outMsgs.length > 0) {
           setMessages(prev => {
