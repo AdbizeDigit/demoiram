@@ -983,7 +983,7 @@ class ScraperService extends EventEmitter {
   }
 
   async getLeads(filters = {}) {
-    const { city, state, sector, status, search, minScore, page = 1, limit = 20 } = filters
+    const { city, state, sector, status, search, minScore, assignedSellerId, page = 1, limit = 20 } = filters
     const conditions = []
     const params = []
     let idx = 1
@@ -991,6 +991,7 @@ class ScraperService extends EventEmitter {
     if (city) { conditions.push(`city ILIKE $${idx++}`); params.push(`%${city}%`) }
     if (state) { conditions.push(`state ILIKE $${idx++}`); params.push(`%${state}%`) }
     if (sector) { conditions.push(`sector = $${idx++}`); params.push(sector) }
+    if (assignedSellerId) { conditions.push(`assigned_seller_id = $${idx++}`); params.push(parseInt(assignedSellerId)) }
     if (status) {
       // Map canonical stage to UPPER variants and handle NULL (treated as NUEVO)
       const stageMap = {

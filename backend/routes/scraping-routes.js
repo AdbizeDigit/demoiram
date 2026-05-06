@@ -275,7 +275,9 @@ router.get('/leads/stats', async (req, res) => {
 // GET /scraping/leads - List leads with filters
 router.get('/leads', async (req, res) => {
   try {
-    const { city, state, sector, status, search, minScore, page = 1, limit = 50 } = req.query;
+    const { city, state, sector, status, search, minScore, assignedSellerId, page = 1, limit = 50 } = req.query;
+    // assignedSellerId puede ser 'me' (resuelve al user actual) o un id numérico
+    const resolvedSellerId = assignedSellerId === 'me' ? req.user.id : (assignedSellerId || undefined);
     const filters = {
       city: city || undefined,
       state: state || undefined,
@@ -283,6 +285,7 @@ router.get('/leads', async (req, res) => {
       status: status || undefined,
       search: search || undefined,
       minScore: minScore ? Number(minScore) : undefined,
+      assignedSellerId: resolvedSellerId,
       page: Number(page),
       limit: Math.min(Number(limit), 200),
     };

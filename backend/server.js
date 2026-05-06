@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
+import { protect as protectAuth } from './middleware/auth.js'
 import authRoutes from './routes/auth.js'
 import chatbotRoutes from './routes/chatbot.js'
 import customChatbotRoutes from './routes/customChatbot.js'
@@ -264,15 +265,17 @@ app.get('/api/notifications/find-lead', async (req, res) => {
 })
 
 // Leads that received replies (for pipeline alert)
-app.get('/api/leads/replied', async (req, res) => {
+app.get('/api/leads/replied', protectAuth, async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    const sellerId = req.query.assignedSellerId === 'me' ? req.user.id : (req.query.assignedSellerId || null)
+    const sellerFilter = sellerId ? `AND l.assigned_seller_id = ${parseInt(sellerId)}` : ''
     const { rows } = await pool.query(`
       SELECT DISTINCT l.id, l.name, l.phone, l.email, l.sector, l.status, l.score,
              n.body as last_message, n.created_at as replied_at
       FROM notifications n
       JOIN leads l ON l.id = n.lead_id
-      WHERE n.type = 'whatsapp_reply' AND n.created_at > NOW() - INTERVAL '7 days'
+      WHERE n.type = 'whatsapp_reply' AND n.created_at > NOW() - INTERVAL '7 days' ${sellerFilter}
       ORDER BY n.created_at DESC
       LIMIT 20
     `)
@@ -284,6 +287,7 @@ app.get('/api/leads/replied', async (req, res) => {
       JOIN outreach_messages m ON m.lead_id = l.id AND m.status = 'REPLIED'
       WHERE m.sent_at > NOW() - INTERVAL '7 days'
       AND l.id NOT IN (SELECT COALESCE(lead_id, '00000000-0000-0000-0000-000000000000') FROM notifications WHERE type = 'whatsapp_reply' AND lead_id IS NOT NULL)
+      ${sellerFilter}
       ORDER BY m.sent_at DESC
       LIMIT 20
     `)
@@ -739,9 +743,11 @@ app.get('/api/email-daily-stats', async (req, res) => {
 })
 
 // Get leads that were contacted but haven't responded (waiting for reply)
-app.get('/api/leads/awaiting-reply', async (req, res) => {
+app.get('/api/leads/awaiting-reply', protectAuth, async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    const sellerId = req.query.assignedSellerId === 'me' ? req.user.id : (req.query.assignedSellerId || null)
+    const sellerFilter = sellerId ? `AND l.assigned_seller_id = ${parseInt(sellerId)}` : ''
     const { rows } = await pool.query(`
       SELECT l.id, l.name, l.company, l.phone, l.email, l.social_whatsapp, l.sector, l.city,
         UPPER(COALESCE(l.status, 'NUEVO')) as status,
@@ -750,7 +756,7 @@ app.get('/api/leads/awaiting-reply', async (req, res) => {
         COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'REPLIED') as reply_count
       FROM leads l
       INNER JOIN outreach_messages om ON om.lead_id = l.id
-      WHERE UPPER(COALESCE(l.status, 'NUEVO')) IN ('CONTACTADO', 'CONTACTED')
+      WHERE UPPER(COALESCE(l.status, 'NUEVO')) IN ('CONTACTADO', 'CONTACTED') ${sellerFilter}
       GROUP BY l.id
       HAVING COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'SENT') > 0
         AND COUNT(om.id) FILTER (WHERE UPPER(om.status) = 'REPLIED') = 0
@@ -762,14 +768,17 @@ app.get('/api/leads/awaiting-reply', async (req, res) => {
 })
 
 // Get pipeline stage counts directly from DB (for the 192k+ leads case)
-app.get('/api/leads/stage-counts', async (req, res) => {
+app.get('/api/leads/stage-counts', protectAuth, async (req, res) => {
   try {
     const { pool } = await import('./config/database.js')
+    const sellerId = req.query.assignedSellerId === 'me' ? req.user.id : (req.query.assignedSellerId || null)
+    const sellerFilter = sellerId ? `WHERE assigned_seller_id = ${parseInt(sellerId)}` : ''
     const { rows } = await pool.query(`
       SELECT
         UPPER(COALESCE(status, 'NUEVO')) as stage,
         COUNT(*)::int as count
       FROM leads
+      ${sellerFilter}
       GROUP BY UPPER(COALESCE(status, 'NUEVO'))
     `)
     // Map status variants to canonical stages

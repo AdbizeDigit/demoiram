@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { MessageSquare, Eye, Users, ShoppingCart, Heart, Mic, FileText, TrendingUp, Radar } from 'lucide-react'
+import { MessageSquare, Eye, Users, ShoppingCart, Heart, Mic, FileText, TrendingUp, Radar, Briefcase, ArrowRight, Shield } from 'lucide-react'
 import { useAuthStore } from '../store/authStore'
 
 const demos = [
@@ -127,8 +127,51 @@ function Dashboard() {
     return demo.available !== false
   }
 
+  const isSeller = user?.role === 'seller'
+  const isAdmin = user?.role === 'admin'
+
   return (
     <div>
+      {/* Acceso al panel de vendedor (solo para sellers/admin) */}
+      {(isSeller || isAdmin) && (
+        <div className="mb-6 flex flex-col sm:flex-row gap-3">
+          <Link
+            to="/vendedor"
+            className="group flex-1 flex items-center justify-between gap-4 bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-700 hover:via-indigo-700 hover:to-violet-700 text-white px-5 py-4 rounded-2xl shadow-lg hover:shadow-xl transition-all"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="bg-white/20 p-2.5 rounded-xl flex-shrink-0">
+                <Briefcase className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Panel del Vendedor</p>
+                <p className="text-xs text-white/80 leading-tight">Leads, pipeline, prospección IA y métricas personales</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 text-sm font-semibold flex-shrink-0">
+              Entrar <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </Link>
+          {isAdmin && (
+            <Link
+              to="/admin"
+              className="group flex items-center justify-between gap-4 bg-white hover:bg-gray-50 ring-1 ring-gray-200 text-gray-800 px-5 py-4 rounded-2xl shadow-sm hover:shadow-md transition-all sm:w-72"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="bg-emerald-100 p-2.5 rounded-xl flex-shrink-0">
+                  <Shield className="w-5 h-5 text-emerald-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold leading-tight">Panel Admin</p>
+                  <p className="text-xs text-gray-500 leading-tight">Detección, scraping, vendedores</p>
+                </div>
+              </div>
+              <ArrowRight className="w-4 h-4 text-gray-400 group-hover:translate-x-1 transition-transform flex-shrink-0" />
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Mini Hero Section */}
       <div className="relative mb-12 overflow-hidden rounded-3xl bg-gradient-to-br from-purple-600 via-blue-600 to-cyan-500 p-8 md:p-12">
         {/* Animated background grid */}

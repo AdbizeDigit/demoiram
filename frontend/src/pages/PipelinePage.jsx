@@ -989,6 +989,10 @@ function AutoContactModal({ lead, onClose, onMoveStage }) {
 // ─── Main Pipeline Page ───────────────────────────────────────────────────────
 export default function PipelinePage() {
   const navigate = useNavigate()
+  // Cuando estamos en /vendedor/* filtramos para que cada vendedor vea solo sus leads asignados
+  const isSellerScope = typeof window !== 'undefined' && window.location.pathname.startsWith('/vendedor')
+  const sellerParam = isSellerScope ? { assignedSellerId: 'me' } : {}
+
   const [leads, setLeads] = useState([])
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState('kanban')
@@ -1007,17 +1011,17 @@ export default function PipelinePage() {
 
   const loadStageCounts = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/leads/stage-counts')
+      const { data } = await api.get('/api/leads/stage-counts', { params: sellerParam })
       setStageCounts(data)
     } catch {}
-  }, [])
+  }, [isSellerScope])
 
   const loadAwaitingReply = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/leads/awaiting-reply')
+      const { data } = await api.get('/api/leads/awaiting-reply', { params: sellerParam })
       setAwaitingReply(data.leads || [])
     } catch {}
-  }, [])
+  }, [isSellerScope])
 
   const loadWaAccounts = useCallback(async () => {
     try {
@@ -1050,7 +1054,7 @@ export default function PipelinePage() {
       const stagesToLoad = ['NUEVO', 'CONTACTADO', 'EN_CONVERSACION', 'PROPUESTA', 'NEGOCIACION', 'GANADO', 'PERDIDO']
       const responses = await Promise.all(
         stagesToLoad.map(st =>
-          api.get('/api/scraping-engine/leads', { params: { status: st, limit: 200 } })
+          api.get('/api/scraping-engine/leads', { params: { status: st, limit: 200, ...sellerParam } })
             .catch(() => ({ data: { leads: [] } }))
         )
       )
@@ -1093,10 +1097,10 @@ export default function PipelinePage() {
   // Load leads that replied
   const loadReplied = useCallback(async () => {
     try {
-      const { data } = await api.get('/api/leads/replied')
+      const { data } = await api.get('/api/leads/replied', { params: sellerParam })
       setRepliedLeads(data.leads || [])
     } catch {}
-  }, [])
+  }, [isSellerScope])
   useEffect(() => { loadReplied() }, [loadReplied])
   useEffect(() => {
     const iv = setInterval(loadReplied, 10000)
