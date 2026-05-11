@@ -451,4 +451,122 @@ router.patch('/suggestions/:id/use', protect, sellerOrAdmin, async (req, res) =>
   }
 });
 
+// ─── PIPELINE DEL VENDEDOR ────────────────────────────────────────────────────
+
+// GET /pipeline/board — leads del vendedor agrupados por stage
+router.get('/pipeline/board', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const sellerId = req.user.id;
+    const onlyMine = req.query.scope !== 'all';
+    const where = onlyMine ? 'WHERE l.assigned_seller_id = $1' : '';
+    const params = onlyMine ? [sellerId] : [];
+    const { rows } = await pool.query(`
+      SELECT l.id, l.name, l.sector, l.city, l.state, l.score,
+             l.email, l.phone, l.social_whatsapp, l.social_linkedin, l.website,
+             UPPER(COALESCE(l.status, 'NUEVO')) AS stage,
+             l.assigned_seller_id, l.seller_notes, l.next_step, l.next_step_at,
+             COALESCE(l.deal_value, 0) AS deal_value,
+             l.updated_at, l.created_at,
+             COALESCE(l.stage_changed_at, l.updated_at) AS stage_changed_at,
+             (SELECT MAX(sent_at) FROM outreach_messages WHERE lead_id = l.id) AS last_contact_at,
+             (SELECT COUNT(*) FROM outreach_messages WHERE lead_id = l.id AND UPPER(status) = 'SENT') AS msgs_sent,
+             (SELECT COUNT(*) FROM outreach_messages WHERE lead_id = l.id AND UPPER(status) = 'REPLIED') AS msgs_replied,
+             (SELECT COUNT(*) FROM seller_calls WHERE lead_id = l.id) AS calls_count
+      FROM leads l
+      ${where}
+      ORDER BY l.score DESC NULLS LAST, l.updated_at DESC
+      LIMIT 500
+    `, params);
+    res.json({ leads: rows });
+  } catch (err) {
+    console.error('Error pipeline board:', err);
+    res.status(500).json({ message: 'Error al cargar el pipeline' });
+  }
+});
+
+// PATCH /pipeline/leads/:id — actualizar stage, notas, próximo paso, valor del deal
+router.patch('/pipeline/leads/:id', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const allowed = ['status', 'seller_notes', 'next_step', 'next_step_at', 'deal_value', 'lost_reason'];
+    const sets = [];
+    const params = [];
+    let idx = 1;
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        sets.push(`${key} = $${idx++}`);
+        params.push(req.body[key] === '' ? null : req.body[key]);
+      }
+    }
+    if (!sets.length) return res.status(400).json({ message: 'Nada que actualizar' });
+
+    // Si cambia el stage, registrar el momento
+    if (req.body.status !== undefined) {
+      sets.push(`stage_changed_at = NOW()`);
+    }
+    sets.push(`updated_at = NOW()`);
+    params.push(req.params.id);
+
+    const { rows } = await pool.query(
+      `UPDATE leads SET ${sets.join(', ')} WHERE id = $${idx} RETURNING *`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ message: 'Lead no encontrado' });
+    res.json({ lead: rows[0] });
+  } catch (err) {
+    console.error('Error actualizando pipeline:', err);
+    res.status(500).json({ message: 'Error al actualizar el lead' });
+  }
+});
+
+// GET /pipeline/leads/:id/timeline — historial unificado (mensajes + llamadas)
+router.get('/pipeline/leads/:id/timeline', protect, sellerOrAdmin, async (req, res) => {
+  try {
+    const leadId = req.params.id;
+    const [messages, calls] = await Promise.all([
+      pool.query(`
+        SELECT id, channel, subject, body, status, sent_at, replied_at, sent_by_seller_id
+        FROM outreach_messages
+        WHERE lead_id = $1
+        ORDER BY COALESCE(sent_at, replied_at) DESC NULLS LAST
+        LIMIT 50
+      `, [leadId]),
+      pool.query(`
+        SELECT sc.id, sc.duration_seconds, sc.outcome, sc.notes, sc.next_action,
+               sc.next_action_at, sc.created_at, u.name AS seller_name
+        FROM seller_calls sc
+        LEFT JOIN users u ON u.id = sc.seller_id
+        WHERE sc.lead_id = $1
+        ORDER BY sc.created_at DESC
+        LIMIT 50
+      `, [leadId])
+    ]);
+    const events = [
+      ...messages.rows.map(m => ({
+        kind: m.channel === 'EMAIL' ? 'email' : 'whatsapp',
+        id: m.id,
+        at: m.sent_at || m.replied_at,
+        status: m.status,
+        subject: m.subject,
+        body: m.body,
+        replied_at: m.replied_at,
+      })),
+      ...calls.rows.map(c => ({
+        kind: 'call',
+        id: c.id,
+        at: c.created_at,
+        duration_seconds: c.duration_seconds,
+        outcome: c.outcome,
+        notes: c.notes,
+        next_action: c.next_action,
+        next_action_at: c.next_action_at,
+        seller_name: c.seller_name,
+      })),
+    ].sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0));
+    res.json({ events });
+  } catch (err) {
+    console.error('Error timeline:', err);
+    res.status(500).json({ message: 'Error al obtener historial' });
+  }
+});
+
 export default router;

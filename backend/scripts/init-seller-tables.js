@@ -82,6 +82,19 @@ async function init() {
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_assigned_seller ON leads(assigned_seller_id)`);
 
+  // Campos del pipeline del vendedor: notas internas, próximo paso y valor estimado del deal
+  await pool.query(`
+    DO $$ BEGIN
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS seller_notes TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_step TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS next_step_at TIMESTAMP;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS deal_value NUMERIC DEFAULT 0;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS lost_reason TEXT;
+      ALTER TABLE leads ADD COLUMN IF NOT EXISTS stage_changed_at TIMESTAMP;
+    EXCEPTION WHEN undefined_table THEN NULL; END $$;
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_leads_next_step_at ON leads(next_step_at) WHERE next_step_at IS NOT NULL`);
+
   // Asegurar que la columna role exista y tenga 'user' por defecto
   await pool.query(`
     DO $$ BEGIN

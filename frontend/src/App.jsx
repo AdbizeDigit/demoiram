@@ -68,6 +68,7 @@ const PublicBookingPage = lazy(() => import('./pages/PublicBookingPage'))
 const SellerKnowledgePage = lazy(() => import('./pages/SellerKnowledgePage'))
 const SellerTemplatesPage = lazy(() => import('./pages/SellerTemplatesPage'))
 const SellerReactivatePage = lazy(() => import('./pages/SellerReactivatePage'))
+const SellerPipelinePage = lazy(() => import('./pages/SellerPipelinePage'))
 const AdminCoachingPage = lazy(() => import('./pages/AdminCoachingPage'))
 
 // Loading component
@@ -154,7 +155,7 @@ function App() {
             <Route path="recomendados" element={<SellerRecommendationsPage />} />
             <Route path="leads" element={<LeadsPage />} />
             <Route path="lead/:id" element={<SellerLeadDetailPage />} />
-            <Route path="pipeline" element={<PipelinePage />} />
+            <Route path="pipeline" element={<SellerPipelinePage />} />
             <Route path="email" element={<EmailOutreachPage />} />
             <Route path="whatsapp" element={<WhatsAppOutreachPage />} />
             <Route path="llamadas" element={<SellerCallsPage />} />

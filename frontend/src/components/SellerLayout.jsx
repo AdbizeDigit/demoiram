@@ -14,6 +14,7 @@ const navItems = [
   { path: '/vendedor/alertas', icon: AlertCircle, label: 'Alertas' },
   { path: '/vendedor/recomendados', icon: Sparkles, label: 'Recomendados IA' },
   { path: '/vendedor/leads', icon: Users, label: 'Todos los Leads' },
+  { path: '/vendedor/pipeline', icon: GitBranch, label: 'Mi Pipeline' },
   { path: '/vendedor/reactivar', icon: Snowflake, label: 'Reactivar dormidos' },
   { path: '/vendedor/plantillas', icon: FileText, label: 'Plantillas' },
   { path: '/vendedor/knowledge', icon: BookOpen, label: 'Knowledge Base' },
