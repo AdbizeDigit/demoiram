@@ -4,8 +4,10 @@ import {
   Search, Eye, ChevronLeft, ChevronRight, Loader2,
   AlertCircle, Building2, MapPin, RefreshCw, X,
   Phone, Mail, Globe, ExternalLink, Sparkles, CheckCircle,
+  GitBranch, Plus, Check, UserCheck, ArrowRight,
 } from 'lucide-react';
 import api from '../../services/api';
+import { useAuthStore } from '../../store/authStore';
 import { OPPORTUNITY_TYPES, PriorityTag, FitScoreBadge, TypeTag, CustomSelect, formatTimeAgo } from './shared';
 
 const TYPE_FILTER_OPTIONS = [
@@ -22,6 +24,8 @@ const PRIORITY_OPTIONS = [
 
 export default function LeadsTab() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const isSeller = typeof window !== 'undefined' && window.location.pathname.startsWith('/vendedor');
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -30,6 +34,9 @@ export default function LeadsTab() {
   const [typeFilter, setTypeFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
   const [selectedLead, setSelectedLead] = useState(null);
+  const [claimingId, setClaimingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
   const perPage = 15;
 
   const fetchLeads = useCallback(async () => {
@@ -64,6 +71,7 @@ export default function LeadsTab() {
         socialTwitter: lead.social_twitter || '',
         socialWhatsapp: lead.social_whatsapp || '',
         enrichmentStatus: lead.enrichment_status || '',
+        assignedSellerId: lead.assigned_seller_id ?? null,
         raw: lead,
       }));
 
@@ -100,6 +108,38 @@ export default function LeadsTab() {
 
   const totalPages = Math.ceil(total / perPage) || 1;
 
+  async function addToPipeline(leadId) {
+    setClaimingId(leadId);
+    try {
+      await api.post(`/api/seller/leads/${leadId}/claim`);
+      setLeads(prev => prev.map(l => l.id === leadId ? { ...l, assignedSellerId: user?.id } : l));
+    } catch (err) {
+      alert(err?.response?.data?.message || 'No se pudo agregar al pipeline');
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function addSelectedToPipeline() {
+    if (selectedIds.size === 0) return;
+    setBulkLoading(true);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      try { await api.post(`/api/seller/leads/${id}/claim`); } catch {}
+    }
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, assignedSellerId: user?.id } : l));
+    setSelectedIds(new Set());
+    setBulkLoading(false);
+  }
+
   const resetFilters = () => {
     setSearch('');
     setTypeFilter('');
@@ -117,6 +157,45 @@ export default function LeadsTab() {
 
   return (
     <div className="space-y-4">
+      {/* Seller-only: hint with link to Mi Pipeline */}
+      {isSeller && (
+        <div className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-blue-800">
+            <GitBranch className="w-4 h-4 text-blue-600" />
+            <span>Seleccioná leads y enviá los que te interesen a <strong>Mi Pipeline</strong> para gestionarlos.</span>
+          </div>
+          <button
+            onClick={() => navigate('/vendedor/pipeline')}
+            className="flex items-center gap-1.5 text-xs font-semibold bg-white hover:bg-blue-100 text-blue-700 ring-1 ring-blue-200 px-3 py-1.5 rounded-lg"
+          >
+            Ir a Mi Pipeline <ArrowRight className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Bulk action bar (seller-only) */}
+      {isSeller && selectedIds.size > 0 && (
+        <div className="sticky top-16 z-20 flex items-center justify-between gap-3 bg-blue-600 text-white rounded-2xl px-4 py-3 shadow-lg">
+          <span className="text-sm font-semibold">{selectedIds.size} lead{selectedIds.size > 1 ? 's' : ''} seleccionado{selectedIds.size > 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs font-semibold bg-white/15 hover:bg-white/25 px-3 py-1.5 rounded-lg"
+            >
+              Limpiar
+            </button>
+            <button
+              onClick={addSelectedToPipeline}
+              disabled={bulkLoading}
+              className="flex items-center gap-1.5 text-xs font-bold bg-white text-blue-700 hover:bg-blue-50 px-3 py-1.5 rounded-lg disabled:opacity-50"
+            >
+              {bulkLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+              Agregar a Mi Pipeline
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Stats summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard label="Total Leads" value={total} color="bg-emerald-50 text-emerald-700 border-emerald-200" />
@@ -186,14 +265,31 @@ export default function LeadsTab() {
             <Loader2 className="w-6 h-6 animate-spin text-emerald-500 mx-auto" />
           </div>
         ) : (
-          leads.map((lead) => (
+          leads.map((lead) => {
+            const isMine = isSeller && user?.id && lead.assignedSellerId === user.id;
+            const isOther = isSeller && lead.assignedSellerId && lead.assignedSellerId !== user?.id;
+            const isSelected = selectedIds.has(lead.id);
+            return (
             <div
               key={lead.id}
-              className="bg-white border border-gray-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all"
+              className={`bg-white border rounded-2xl p-4 shadow-sm hover:shadow-md transition-all ${
+                isSelected ? 'border-blue-400 ring-2 ring-blue-100' : isMine ? 'border-emerald-200 bg-emerald-50/30' : 'border-gray-100'
+              }`}
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-start gap-3 min-w-0">
+                  {isSeller && (
+                    <button
+                      onClick={() => toggleSelect(lead.id)}
+                      className={`mt-1 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition ${
+                        isSelected ? 'bg-blue-600 border-blue-600' : 'border-gray-300 hover:border-blue-400'
+                      }`}
+                      title="Seleccionar"
+                    >
+                      {isSelected && <Check className="w-3 h-3 text-white" />}
+                    </button>
+                  )}
                   <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
                     <Building2 className="w-5 h-5 text-emerald-600" />
                   </div>
@@ -210,7 +306,6 @@ export default function LeadsTab() {
                 </div>
                 <button
                   onClick={() => {
-                    const isSeller = window.location.pathname.startsWith('/vendedor')
                     navigate(`${isSeller ? '/vendedor' : '/admin'}/lead/${lead.id}`)
                   }}
                   className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors flex-shrink-0"
@@ -283,8 +378,37 @@ export default function LeadsTab() {
                   {lead.createdAt ? formatTimeAgo(lead.createdAt) : ''}
                 </span>
               </div>
+
+              {/* Seller pipeline action */}
+              {isSeller && (
+                <div className="mt-2 pt-2 border-t border-gray-50">
+                  {isMine ? (
+                    <button
+                      onClick={() => navigate('/vendedor/pipeline')}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 px-3 py-1.5 rounded-lg"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" /> En tu pipeline · Abrir
+                    </button>
+                  ) : isOther ? (
+                    <div className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-3 py-1.5 rounded-lg">
+                      <UserCheck className="w-3.5 h-3.5" /> Asignado a otro vendedor
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => addToPipeline(lead.id)}
+                      disabled={claimingId === lead.id}
+                      className="w-full flex items-center justify-center gap-1.5 text-xs font-bold bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg disabled:opacity-50"
+                    >
+                      {claimingId === lead.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        : <><Plus className="w-3.5 h-3.5" /> Agregar a Mi Pipeline</>}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
